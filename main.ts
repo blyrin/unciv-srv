@@ -1,14 +1,12 @@
 import { Application, Router } from '@oak/oak'
 import { type levellike, Logger } from '@libs/logger'
-import { decodeBase64 } from '@std/encoding/base64'
 
 const GAME_ID_REGEX = /^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}(_Preview)?$/
 const MAX_BODY_SIZE = 5 * 1024 * 1024
 
 const PORT = +(Deno.env.get('PORT') || 11451)
-const LOG_LEVEL = ['disabled', 'error', 'warn', 'info', 'log', 'debug'].includes(
-    Deno.env.get('LOG_LEVEL') || '',
-  )
+const LOG_LEVEL = ['disabled', 'error', 'warn', 'info', 'log', 'debug']
+    .includes(Deno.env.get('LOG_LEVEL') || '')
   ? Deno.env.get('LOG_LEVEL') as levellike
   : 'info'
 
@@ -21,108 +19,105 @@ const log = new Logger({
 })
 
 const DATA_PATH = Deno.env.get('DATA_PATH') || './data'
-try {
-  Deno.statSync(DATA_PATH)
-} catch {
-  Deno.mkdirSync(DATA_PATH, { recursive: true })
-}
+const FILES_STORAGE_PATH = `${DATA_PATH}/files`
+const PLAYERS_STORAGE_PATH = `${DATA_PATH}/players`
 
-const indexPrefix = `<!DOCTYPE html>
-<html lang="zh">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Unciv Srv</title>
-    <style>
-      tr td {
-        padding: 6px;
-      }
-    </style>
-  </head>
-  <body>
-  <h2>Unciv Srv 服务器状态</h2>`
-const indexAppend = `
-  <p><a href="https://github.com/FlapyPan/unciv-srv" target="_blank">项目地址</a></p>
-  </body>
-</html>`
-
-let indexCache = `${indexPrefix}${indexAppend}`
-let latestGamePreview: string | undefined
-
-const getFileCount = async () => {
-  let count = 0
-  for await (const dirEntry of Deno.readDir(DATA_PATH)) {
-    if (dirEntry.isFile && dirEntry.name.endsWith('_Preview')) {
-      count += 1
-    }
-  }
-  return count
-}
-
-const decodeFile = async (gameId: string | undefined) => {
-  if (!gameId) return null
+const mkdirIfNotExist = (path: string) => {
   try {
-    const file = await Deno.readTextFile(`${DATA_PATH}/${gameId}`)
-    const stream = new Blob([decodeBase64(file)]).stream().pipeThrough(new DecompressionStream('gzip'))
-    const response = new Response(stream)
-    return await response.json()
-  } catch (err) {
-    log.error(err)
-    return null
+    Deno.statSync(path)
+  } catch {
+    Deno.mkdirSync(path, { recursive: true })
   }
 }
 
-const flushStatus = async () => {
-  const latestGame = await decodeFile(latestGamePreview)
-  indexCache = `${indexPrefix}
-    <table border="1" cellpadding="0" cellspacing="0">
-      <tbody>
-        <tr>
-          <td>存档数量</td>
-          <td colspan="2">${await getFileCount()}</td>
-        </tr>
-        <tr>
-          <td rowspan="4">
-            最新存档
-            <br>
-            ${new Date(latestGame?.currentTurnStartTime).toLocaleString()}
-          </td>
-          <td>游戏回合</td>
-          <td>${latestGame?.turns ?? 0}/${latestGame?.gameParameters?.maxTurns ?? 0}</td>
-        </tr>
-        <tr>
-          <td>基本规则集</td>
-          <td>${latestGame?.gameParameters?.baseRuleset ?? '无'}</td>
-        </tr>
-        <tr>
-          <td>游戏难度</td>
-          <td>${latestGame?.difficulty ?? '无'}</td>
-        </tr>
-        <tr>
-          <td>胜利方式</td>
-          <td>${latestGame?.gameParameters?.victoryTypes?.join('<br>') ?? '无'}</td>
-        </tr>
-      </tbody>
-    </table>
-  ${indexAppend}`
+mkdirIfNotExist(FILES_STORAGE_PATH)
+mkdirIfNotExist(PLAYERS_STORAGE_PATH)
+
+const extractAuth = (authHeader?: string | null) => {
+  if (!authHeader) return null
+  const { 0: type, 1: token } = authHeader.split(' ')
+  if (type !== 'Basic') return null
+  const { 0: playerId, 1: password } = atob(token).split(':')
+  if (!playerId || !password) return null
+  return { playerId, password }
+}
+
+export enum AuthStatus {
+  Valid = 0,
+  Invalid = 1,
+  Missing = 2,
+}
+
+const checkAuth = async (auth?: { playerId: string; password: string } | null) => {
+  if (!auth) return AuthStatus.Invalid
+  const playerFilePath = `${PLAYERS_STORAGE_PATH}/${auth.playerId}`
+  try {
+    const storedPassword = await Deno.readTextFile(playerFilePath)
+    if (storedPassword === auth.password) {
+      return AuthStatus.Valid
+    } else {
+      return AuthStatus.Invalid
+    }
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) {
+      return AuthStatus.Missing
+    }
+    return AuthStatus.Invalid
+  }
+}
+
+const saveAuth = async (auth: { playerId: string; password: string }) => {
+  const playerFilePath = `${PLAYERS_STORAGE_PATH}/${auth.playerId}`
+  await Deno.writeTextFile(playerFilePath, auth.password, { mode: 0o600 })
 }
 
 const router = new Router()
 
 router.get('/', (ctx) => {
-  ctx.response.body = indexCache
+  ctx.response.body = 'Unciv Srv'
 })
 
 router.all('/isalive', (ctx) => {
-  ctx.response.body = 'true'
+  ctx.response.body = { authVersion: 1 }
+})
+
+router.get('/auth', async (ctx) => {
+  const auth = extractAuth(ctx.request.headers.get('authorization'))
+  const authStatus = await checkAuth(auth)
+  if (authStatus === AuthStatus.Valid) {
+    ctx.response.body = { playerId: auth!.playerId }
+  } else if (authStatus === AuthStatus.Invalid) {
+    ctx.response.status = 401
+    ctx.response.body = { message: 'Unauthorized' }
+  } else if (authStatus === AuthStatus.Missing) {
+    await saveAuth(auth!)
+    ctx.response.body = { playerId: auth!.playerId }
+  }
+})
+
+router.put('/auth', async (ctx) => {
+  const auth = extractAuth(ctx.request.headers.get('authorization'))
+  const authStatus = await checkAuth(auth)
+  if (authStatus !== AuthStatus.Valid) {
+    ctx.response.status = 401
+    ctx.response.body = { message: 'Unauthorized' }
+    return
+  }
+  const password = await ctx.request.body.text()
+  if (password?.length < 6) {
+    ctx.response.status = 400
+    ctx.response.body = { message: 'Invalid body' }
+    return
+  }
+  await saveAuth({ playerId: auth!.playerId, password })
+  ctx.response.body = { playerId: auth!.playerId }
 })
 
 router.get('/files/:gameId', async (ctx) => {
   const gameId = ctx.params.gameId
   const filePath = `${DATA_PATH}/${gameId}`
   try {
-    const file = await Deno.readFile(filePath)
-    ctx.response.body = file
+    ctx.response.body = await Deno.readFile(filePath)
   } catch {
     ctx.response.status = 404
     ctx.response.body = { message: 'File not found' }
@@ -139,9 +134,6 @@ router.all('/files/:gameId', async (ctx) => {
   }
   const filePath = `${DATA_PATH}/${gameId}`
   const content = new Uint8Array(body)
-  if (gameId.endsWith('_Preview')) {
-    latestGamePreview = gameId
-  }
   await Deno.writeFile(filePath, content, { mode: 0o600 })
   ctx.response.body = content
 })
@@ -152,7 +144,6 @@ app.use(async (ctx, next) => {
   try {
     await next()
     log.info(ctx.request.method, ctx.request.url.pathname, ctx.response.status)
-    log.debug(ctx.request.body, ctx.response.body)
     // deno-lint-ignore no-explicit-any
   } catch (err: any) {
     log.error(err)
@@ -161,24 +152,22 @@ app.use(async (ctx, next) => {
   }
 })
 
-app.use((ctx, next) => {
+app.use(async (ctx, next) => {
   const path = ctx.request.url.pathname
   if (!path.startsWith('/files/')) {
     return next()
+  }
+  const authStatus = await checkAuth(extractAuth(ctx.request.headers.get('authorization')))
+  if (authStatus !== AuthStatus.Valid) {
+    ctx.response.status = 401
+    ctx.response.body = { message: 'Unauthorized' }
+    return
   }
   const ua = ctx.request.headers.get('user-agent')
   if (!ua?.startsWith('Unciv')) {
     ctx.response.status = 400
     ctx.response.body = { message: 'Invalid user agent' }
     return
-  }
-  return next()
-})
-
-app.use((ctx, next) => {
-  const path = ctx.request.url.pathname
-  if (!path.startsWith('/files/')) {
-    return next()
   }
   const gameId = path.match(/^\/files\/([^\/]+)/)?.[1]
   if (!gameId || !GAME_ID_REGEX.test(gameId)) {
@@ -193,12 +182,6 @@ app.use(router.routes())
 app.use(router.allowedMethods())
 
 if (import.meta.main) {
-  const flushStatusInterval = setInterval(flushStatus, 5000)
-  Deno.addSignalListener('SIGINT', () => {
-    log.info('Shutting down...')
-    clearInterval(flushStatusInterval)
-    Deno.exit()
-  })
   app.listen({ port: PORT })
   log.info(`Data store path: ${DATA_PATH}`)
   log.info(`Listening on port: ${PORT}`)
