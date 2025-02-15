@@ -88,11 +88,11 @@ router.get('/auth', async (ctx) => {
     ctx.response.body = { playerId: auth!.playerId }
   } else if (authStatus === AuthStatus.Invalid) {
     ctx.response.status = 401
-    ctx.response.body = { message: 'Unauthorized' }
+    ctx.response.body = '密码错误'
   } else if (authStatus === AuthStatus.Missing) {
     if (auth!.password.length < 6) {
       ctx.response.status = 400
-      ctx.response.body = { message: 'Invalid body' }
+      ctx.response.body = '密码太短'
       return
     }
     await saveAuth(auth!)
@@ -105,13 +105,13 @@ router.put('/auth', async (ctx) => {
   const authStatus = await checkAuth(auth)
   if (authStatus !== AuthStatus.Valid) {
     ctx.response.status = 401
-    ctx.response.body = { message: 'Unauthorized' }
+    ctx.response.body = '密码错误'
     return
   }
   const password = await ctx.request.body.text()
   if (password?.length < 6) {
     ctx.response.status = 400
-    ctx.response.body = { message: 'Invalid body' }
+    ctx.response.body = '密码太短'
     return
   }
   await saveAuth({ playerId: auth!.playerId, password })
@@ -125,7 +125,7 @@ router.get('/files/:gameId', async (ctx) => {
     ctx.response.body = await Deno.readFile(filePath)
   } catch {
     ctx.response.status = 404
-    ctx.response.body = { message: 'File not found' }
+    ctx.response.body = '找不到存档'
   }
 })
 
@@ -134,7 +134,7 @@ router.all('/files/:gameId', async (ctx) => {
   const body = await ctx.request.body.arrayBuffer()
   if (!body.byteLength || body.byteLength > MAX_BODY_SIZE) {
     ctx.response.status = 400
-    ctx.response.body = { message: 'Invalid body' }
+    ctx.response.body = '存档太大'
     return
   }
   const filePath = `${FILES_STORAGE_PATH}/${gameId}`
@@ -153,7 +153,7 @@ app.use(async (ctx, next) => {
   } catch (err: any) {
     log.error(err)
     ctx.response.status = err.status || 500
-    ctx.response.body = { message: err.message || 'Internal Server Error' }
+    ctx.response.body = err.message || '内部服务器错误'
   }
 })
 
@@ -163,21 +163,25 @@ app.use(async (ctx, next) => {
     return next()
   }
   const authStatus = await checkAuth(extractAuth(ctx.request.headers.get('authorization')))
-  if (authStatus !== AuthStatus.Valid) {
+  if (authStatus === AuthStatus.Invalid) {
     ctx.response.status = 401
-    ctx.response.body = { message: 'Unauthorized' }
+    ctx.response.body = '密码错误'
+    return
+  }else if (authStatus === AuthStatus.Missing) {
+    ctx.response.status = 401
+    ctx.response.body = '请设置密码'
     return
   }
   const ua = ctx.request.headers.get('user-agent')
   if (!ua?.startsWith('Unciv')) {
     ctx.response.status = 400
-    ctx.response.body = { message: 'Invalid user agent' }
+    ctx.response.body = '非法客户端'
     return
   }
   const gameId = path.match(/^\/files\/([^\/]+)/)?.[1]
   if (!gameId || !GAME_ID_REGEX.test(gameId)) {
     ctx.response.status = 400
-    ctx.response.body = { message: 'Invalid game id' }
+    ctx.response.body = '非法游戏ID'
     return
   }
   return next()
