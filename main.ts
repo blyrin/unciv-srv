@@ -120,7 +120,7 @@ router.put('/auth', async (ctx) => {
 
 router.get('/files/:gameId', async (ctx) => {
   const gameId = ctx.params.gameId
-  const filePath = `${DATA_PATH}/${gameId}`
+  const filePath = `${FILES_STORAGE_PATH}/${gameId}`
   try {
     ctx.response.body = await Deno.readFile(filePath)
   } catch {
@@ -137,7 +137,7 @@ router.all('/files/:gameId', async (ctx) => {
     ctx.response.body = { message: 'Invalid body' }
     return
   }
-  const filePath = `${DATA_PATH}/${gameId}`
+  const filePath = `${FILES_STORAGE_PATH}/${gameId}`
   const content = new Uint8Array(body)
   await Deno.writeFile(filePath, content, { mode: 0o600 })
   ctx.response.body = content
