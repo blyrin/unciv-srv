@@ -90,6 +90,11 @@ router.get('/auth', async (ctx) => {
     ctx.response.status = 401
     ctx.response.body = { message: 'Unauthorized' }
   } else if (authStatus === AuthStatus.Missing) {
+    if (auth!.password.length < 6) {
+      ctx.response.status = 400
+      ctx.response.body = { message: 'Invalid body' }
+      return
+    }
     await saveAuth(auth!)
     ctx.response.body = { playerId: auth!.playerId }
   }
