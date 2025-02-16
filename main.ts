@@ -122,14 +122,13 @@ router.all('/isalive', (ctx) => {
 
 router.get('/auth', async (ctx) => {
   const header = ctx.request.headers.get('authorization')
-  const { playerId, status } = await checkAuth(header)
+  const { playerId, password, status } = await checkAuth(header)
   if (status === AuthStatus.Invalid) {
     ctx.response.status = 401
     ctx.response.body = '密码错误'
     return
   }
   if (status === AuthStatus.Missing) {
-    const password = await ctx.request.body.text()
     if (password.length < 6) {
       ctx.response.status = 400
       ctx.response.body = '密码太短'
