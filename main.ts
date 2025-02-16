@@ -40,24 +40,26 @@ export enum AuthStatus {
   Missing = 2,
 }
 
-const authCache = new LruCache<string, { playerId: string; status: AuthStatus }>(256)
+const authCache = new LruCache<string, { playerId: string; password: string; status: AuthStatus }>(256)
 
-const checkAuth = async (authHeader?: string | null): Promise<{ playerId: string; status: AuthStatus }> => {
+const checkAuth = async (
+  authHeader?: string | null,
+): Promise<{ playerId: string; password: string; status: AuthStatus }> => {
   if (!authHeader) {
-    return { playerId: '', status: AuthStatus.Invalid }
+    return { playerId: '', password: '', status: AuthStatus.Invalid }
   }
   if (authCache.has(authHeader)) {
     return authCache.get(authHeader)!
   }
   const { 0: type, 1: token } = authHeader.split(' ')
   if (type !== 'Basic') {
-    const value = { playerId: '', status: AuthStatus.Invalid }
+    const value = { playerId: '', password: '', status: AuthStatus.Invalid }
     authCache.set(authHeader, value)
     return value
   }
   const { 0: playerId, 1: password } = atob(token).split(':')
   if (!playerId || !password) {
-    const value = { playerId: '', status: AuthStatus.Invalid }
+    const value = { playerId: '', password: '', status: AuthStatus.Invalid }
     authCache.set(authHeader, value)
     return value
   }
@@ -65,20 +67,20 @@ const checkAuth = async (authHeader?: string | null): Promise<{ playerId: string
   try {
     const storedPassword = await Deno.readTextFile(playerFilePath)
     if (storedPassword === password) {
-      const value = { playerId, status: AuthStatus.Valid }
+      const value = { playerId, password, status: AuthStatus.Valid }
       authCache.set(authHeader, value)
       return value
     }
-    const value = { playerId: '', status: AuthStatus.Invalid }
+    const value = { playerId: '', password: '', status: AuthStatus.Invalid }
     authCache.set(authHeader, value)
     return value
   } catch (e) {
     if (e instanceof Deno.errors.NotFound) {
-      const value = { playerId, status: AuthStatus.Missing }
+      const value = { playerId, password, status: AuthStatus.Missing }
       authCache.set(authHeader, value)
       return value
     }
-    const value = { playerId: '', status: AuthStatus.Invalid }
+    const value = { playerId: '', password: '', status: AuthStatus.Invalid }
     authCache.set(authHeader, value)
     return value
   }
