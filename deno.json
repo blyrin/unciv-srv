@@ -10,7 +10,8 @@
   },
   "imports": {
     "@libs/logger": "jsr:@libs/logger@3",
-    "@oak/oak": "jsr:@oak/oak@17"
+    "@oak/oak": "jsr:@oak/oak@17",
+    "@std/cache": "jsr:@std/cache@^0.1"
   },
   "fmt": {
     "lineWidth": 120,

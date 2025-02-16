@@ -1,4 +1,5 @@
 import { Application, Router } from '@oak/oak'
+import { LruCache } from '@std/cache'
 import { type levellike, Logger } from '@libs/logger'
 
 const GAME_ID_REGEX = /^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}(_Preview)?$/
@@ -19,8 +20,8 @@ const log = new Logger({
 })
 
 const DATA_PATH = Deno.env.get('DATA_PATH') || './data'
-const FILES_STORAGE_PATH = `${DATA_PATH}/files`
 const PLAYERS_STORAGE_PATH = `${DATA_PATH}/players`
+const FILES_STORAGE_PATH = `${DATA_PATH}/files`
 
 const mkdirIfNotExist = (path: string) => {
   try {
@@ -33,42 +34,78 @@ const mkdirIfNotExist = (path: string) => {
 mkdirIfNotExist(FILES_STORAGE_PATH)
 mkdirIfNotExist(PLAYERS_STORAGE_PATH)
 
-const extractAuth = (authHeader?: string | null) => {
-  if (!authHeader) return null
-  const { 0: type, 1: token } = authHeader.split(' ')
-  if (type !== 'Basic') return null
-  const { 0: playerId, 1: password } = atob(token).split(':')
-  if (!playerId || !password) return null
-  return { playerId, password }
-}
-
 export enum AuthStatus {
   Valid = 0,
   Invalid = 1,
   Missing = 2,
 }
 
-const checkAuth = async (auth?: { playerId: string; password: string } | null) => {
-  if (!auth) return AuthStatus.Invalid
-  const playerFilePath = `${PLAYERS_STORAGE_PATH}/${auth.playerId}`
+const authCache = new LruCache<string, { playerId: string; status: AuthStatus }>(256)
+
+const checkAuth = async (authHeader?: string | null): Promise<{ playerId: string; status: AuthStatus }> => {
+  if (!authHeader) {
+    return { playerId: '', status: AuthStatus.Invalid }
+  }
+  if (authCache.has(authHeader)) {
+    return authCache.get(authHeader)!
+  }
+  const { 0: type, 1: token } = authHeader.split(' ')
+  if (type !== 'Basic') {
+    const value = { playerId: '', status: AuthStatus.Invalid }
+    authCache.set(authHeader, value)
+    return value
+  }
+  const { 0: playerId, 1: password } = atob(token).split(':')
+  if (!playerId || !password) {
+    const value = { playerId: '', status: AuthStatus.Invalid }
+    authCache.set(authHeader, value)
+    return value
+  }
+  const playerFilePath = `${PLAYERS_STORAGE_PATH}/${playerId}`
   try {
     const storedPassword = await Deno.readTextFile(playerFilePath)
-    if (storedPassword === auth.password) {
-      return AuthStatus.Valid
-    } else {
-      return AuthStatus.Invalid
+    if (storedPassword === password) {
+      const value = { playerId, status: AuthStatus.Valid }
+      authCache.set(authHeader, value)
+      return value
     }
+    const value = { playerId: '', status: AuthStatus.Invalid }
+    authCache.set(authHeader, value)
+    return value
   } catch (e) {
     if (e instanceof Deno.errors.NotFound) {
-      return AuthStatus.Missing
+      const value = { playerId, status: AuthStatus.Missing }
+      authCache.set(authHeader, value)
+      return value
     }
-    return AuthStatus.Invalid
+    const value = { playerId: '', status: AuthStatus.Invalid }
+    authCache.set(authHeader, value)
+    return value
   }
 }
 
-const saveAuth = async (auth: { playerId: string; password: string }) => {
+const saveAuth = async (header: string, auth: { playerId: string; password: string }) => {
   const playerFilePath = `${PLAYERS_STORAGE_PATH}/${auth.playerId}`
   await Deno.writeTextFile(playerFilePath, auth.password, { mode: 0o600 })
+  authCache.delete(header)
+}
+
+const filesCache = new LruCache<string, Uint8Array>(32)
+
+const loadFile = async (gameId: string): Promise<Uint8Array> => {
+  const filePath = `${FILES_STORAGE_PATH}/${gameId}`
+  if (filesCache.has(filePath)) {
+    return filesCache.get(filePath)!
+  }
+  const file = await Deno.readFile(filePath)
+  filesCache.set(filePath, file)
+  return file
+}
+
+const saveFile = async (gameId: string, content: Uint8Array) => {
+  const filePath = `${FILES_STORAGE_PATH}/${gameId}`
+  await Deno.writeFile(filePath, content, { mode: 0o600 })
+  filesCache.set(filePath, content)
 }
 
 const router = new Router()
@@ -82,47 +119,49 @@ router.all('/isalive', (ctx) => {
 })
 
 router.get('/auth', async (ctx) => {
-  const auth = extractAuth(ctx.request.headers.get('authorization'))
-  const authStatus = await checkAuth(auth)
-  if (authStatus === AuthStatus.Valid) {
-    ctx.response.body = { playerId: auth!.playerId }
-  } else if (authStatus === AuthStatus.Invalid) {
+  const header = ctx.request.headers.get('authorization')
+  const { playerId, status } = await checkAuth(header)
+  if (status === AuthStatus.Invalid) {
     ctx.response.status = 401
     ctx.response.body = '密码错误'
-  } else if (authStatus === AuthStatus.Missing) {
-    if (auth!.password.length < 6) {
+    return
+  }
+  if (status === AuthStatus.Missing) {
+    const password = await ctx.request.body.text()
+    if (password.length < 6) {
       ctx.response.status = 400
       ctx.response.body = '密码太短'
       return
     }
-    await saveAuth(auth!)
-    ctx.response.body = { playerId: auth!.playerId }
+    saveAuth(header!, { playerId, password }).catch(log.error)
+    ctx.response.body = playerId
+    return
   }
+  ctx.response.body = playerId
 })
 
 router.put('/auth', async (ctx) => {
-  const auth = extractAuth(ctx.request.headers.get('authorization'))
-  const authStatus = await checkAuth(auth)
-  if (authStatus !== AuthStatus.Valid) {
+  const header = ctx.request.headers.get('authorization')
+  const { playerId, status } = await checkAuth(header)
+  if (status === AuthStatus.Invalid) {
     ctx.response.status = 401
     ctx.response.body = '密码错误'
     return
   }
   const password = await ctx.request.body.text()
-  if (password?.length < 6) {
+  if (password.length < 6) {
     ctx.response.status = 400
     ctx.response.body = '密码太短'
     return
   }
-  await saveAuth({ playerId: auth!.playerId, password })
-  ctx.response.body = { playerId: auth!.playerId }
+  saveAuth(header!, { playerId, password }).catch(log.error)
+  ctx.response.body = playerId
 })
 
 router.get('/files/:gameId', async (ctx) => {
   const gameId = ctx.params.gameId
-  const filePath = `${FILES_STORAGE_PATH}/${gameId}`
   try {
-    ctx.response.body = await Deno.readFile(filePath)
+    ctx.response.body = await loadFile(gameId)
   } catch {
     ctx.response.status = 404
     ctx.response.body = '找不到存档'
@@ -137,10 +176,8 @@ router.all('/files/:gameId', async (ctx) => {
     ctx.response.body = '存档太大'
     return
   }
-  const filePath = `${FILES_STORAGE_PATH}/${gameId}`
-  const content = new Uint8Array(body)
-  await Deno.writeFile(filePath, content, { mode: 0o600 })
-  ctx.response.body = content
+  saveFile(gameId, new Uint8Array(body)).catch(log.error)
+  ctx.response.body = gameId
 })
 
 export const app = new Application()
@@ -162,12 +199,12 @@ app.use(async (ctx, next) => {
   if (!path.startsWith('/files/')) {
     return next()
   }
-  const authStatus = await checkAuth(extractAuth(ctx.request.headers.get('authorization')))
+  const { status: authStatus } = await checkAuth(ctx.request.headers.get('authorization'))
   if (authStatus === AuthStatus.Invalid) {
     ctx.response.status = 401
     ctx.response.body = '密码错误'
     return
-  }else if (authStatus === AuthStatus.Missing) {
+  } else if (authStatus === AuthStatus.Missing) {
     ctx.response.status = 401
     ctx.response.body = '请设置密码'
     return
