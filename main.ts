@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-explicit-any
 import { Application, Router } from '@oak/oak'
 import { type levellike, Logger } from '@libs/logger'
 import { decodeBase64 } from '@std/encoding/base64'
@@ -74,6 +75,19 @@ const saveAuth = async (playerId: string, password: string) => {
             set "password" = ${password}, "updatedAt" = now()`
 }
 
+const decodeFile = async (file?: string | null) => {
+  if (!file) return null
+  try {
+    const blob = new Blob([decodeBase64(file)])
+    const stream = blob.stream().pipeThrough(new DecompressionStream('gzip'))
+    const response = new Response(stream)
+    return await response.json()
+  } catch (err) {
+    log.error(err)
+    return null
+  }
+}
+
 const loadFile = async (gameId: string, preview = false): Promise<string> => {
   const col = preview ? 'preview' : 'content'
   const files = await sql`select ${sql([col])} from "files" where "gameId" = ${gameId}`
@@ -83,25 +97,38 @@ const loadFile = async (gameId: string, preview = false): Promise<string> => {
   return files[0][col]
 }
 
-const saveFile = async (gameId: string, text?: string | null, preview = false) => {
-  const col = preview ? 'preview' : 'content'
-  const data = { gameId, [col]: text }
-  await sql`insert into "files" ${sql(data, 'gameId', col)} on conflict ("gameId") do update set ${
-    sql(col)
-  } = ${text}, "updatedAt" = now()`
-}
-
-const decodeContent = async (content: string) => {
-  if (!content) return null
-  try {
-    const blob = new Blob([decodeBase64(content)])
-    const stream = blob.stream().pipeThrough(new DecompressionStream('gzip'))
-    const response = new Response(stream)
-    return await response.json()
-  } catch (err) {
-    log.error(err)
-    return null
-  }
+const saveFile = async (
+  playerId: string,
+  gameId: string,
+  text?: string | null,
+  preview = false,
+) => {
+  await sql.begin(async (sql) => {
+    const col = preview ? 'preview' : 'content'
+    const existsFile = (await sql`select "gameId", "playerIds" from "files" where "gameId" = ${gameId}`)[0]
+    const exists = !!existsFile
+    if (exists) {
+      const playerIds: string[] = existsFile.playerIds ?? []
+      if (!playerIds.includes(playerId)) {
+        throw new Error('这不是你的存档')
+      }
+      const decoded = await decodeFile(text)
+      const newPlayerIds: string[] = decoded?.civilizations
+        ?.filter((c?: { playerType: string }) => c?.playerType === 'Human')
+        ?.map((c: { playerId: string }) => c.playerId) ?? []
+      const data = { playerIds: newPlayerIds, [col]: text, updatedAt: new Date() }
+      await sql`update "files"
+                set ${sql(data, 'playerIds', col, 'updatedAt')}
+                where "gameId" = ${gameId}`
+    } else {
+      const decoded = await decodeFile(text)
+      const playerIds: string[] = decoded?.civilizations
+        ?.filter((c?: { playerType: string }) => c?.playerType === 'Human')
+        ?.map((c: { playerId: string }) => c.playerId) ?? []
+      const data = { gameId, playerIds, [col]: text }
+      await sql`insert into "files" ${sql(data, 'gameId', 'playerIds', col)}`
+    }
+  })
 }
 
 const router = new Router()
@@ -179,22 +206,13 @@ router.all('/files/:gameId', async (ctx) => {
     return
   }
   const body = await ctx.request.body.text()
-  if (!body.length || body.length > MAX_BODY_SIZE) {
+  if (!body || body.length > MAX_BODY_SIZE) {
     ctx.response.status = 400
-    ctx.response.body = '存档太大'
-    return
-  }
-  const decodedContent = await decodeContent(body)
-  const players: string[] = decodedContent?.civilizations
-    ?.filter((c?: { playerType: string }) => c?.playerType === 'Human')
-    ?.map((c: { playerId: string }) => c.playerId) ?? []
-  if (!players.includes(playerId)) {
-    ctx.response.status = 400
-    ctx.response.body = '这不是你的存档'
+    ctx.response.body = '无内容或存档体积过大'
     return
   }
   const [gameId, isPreview] = ctx.params.gameId.split('_')
-  await saveFile(gameId, body, !!isPreview)
+  await saveFile(playerId, gameId, body, !!isPreview)
   ctx.response.body = gameId
 })
 
@@ -204,7 +222,6 @@ app.use(async (ctx, next) => {
   try {
     await next()
     log.info(ctx.request.method, ctx.request.url.pathname, ctx.response.status)
-    // deno-lint-ignore no-explicit-any
   } catch (err: any) {
     log.error(err)
     ctx.response.status = err.status || 500
