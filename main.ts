@@ -3,6 +3,7 @@ import { Application, Router } from '@oak/oak'
 import { log } from './libs/log.ts'
 import { AuthStatus, checkAuth, saveAuth } from './libs/auth.ts'
 import { loadFile, saveFile } from './libs/files.ts'
+import { startTask } from './task.ts'
 
 const env = Deno.env
 
@@ -133,6 +134,12 @@ app.use(router.routes())
 app.use(router.allowedMethods())
 
 if (import.meta.main) {
+  Deno.addSignalListener('SIGINT', () => {
+    log.info('关闭中...')
+    Deno.exit()
+  })
+  log.info(`监听端口: ${PORT}`)
   app.listen({ port: PORT })
-  log.info(`Listening on port: ${PORT}`)
+  log.info(`初始化定时清理任务...`)
+  await startTask()
 }
