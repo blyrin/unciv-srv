@@ -1,5 +1,6 @@
 import { Application, Router } from '@oak/oak'
 import { type levellike, Logger } from '@libs/logger'
+import { decodeBase64 } from '@std/encoding/base64'
 import postgres from 'npm:postgres'
 
 const env = Deno.env
@@ -13,7 +14,7 @@ const sql = postgres({
 })
 
 const GAME_ID_REGEX = /^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}(_Preview)?$/
-const MAX_BODY_SIZE = 3 * 1024 * 1024
+const MAX_BODY_SIZE = 4 * 1024 * 1024
 
 const PORT = +(env.get('PORT') || 11451)
 const LOG_LEVEL = ['disabled', 'error', 'warn', 'info', 'log', 'debug']
@@ -68,9 +69,7 @@ const checkAuth = async (authHeader?: string | null): Promise<PlayerWithAuth> =>
 
 const saveAuth = async (playerId: string, password: string) => {
   const data = { playerId, password }
-  await sql`insert into "players" ${
-          sql(data, 'playerId', 'password')
-  } on conflict("playerId") do
+  await sql`insert into "players" ${sql(data, 'playerId', 'password')} on conflict("playerId") do
             update
             set "password" = ${password}, "updatedAt" = now()`
 }
@@ -85,11 +84,24 @@ const loadFile = async (gameId: string, preview = false): Promise<string> => {
 }
 
 const saveFile = async (gameId: string, text?: string | null, preview = false) => {
-  const col = preview ? 'preview' :'content'
+  const col = preview ? 'preview' : 'content'
   const data = { gameId, [col]: text }
-  await sql`insert into "files" ${
-    sql(data, 'gameId', col)
-  } on conflict ("gameId") do update set ${sql(col)} = ${text}, "updatedAt" = now()`
+  await sql`insert into "files" ${sql(data, 'gameId', col)} on conflict ("gameId") do update set ${
+    sql(col)
+  } = ${text}, "updatedAt" = now()`
+}
+
+const decodeContent = async (content: string) => {
+  if (!content) return null
+  try {
+    const blob = new Blob([decodeBase64(content)])
+    const stream = blob.stream().pipeThrough(new DecompressionStream('gzip'))
+    const response = new Response(stream)
+    return await response.json()
+  } catch (err) {
+    log.error(err)
+    return null
+  }
 }
 
 const router = new Router()
@@ -111,14 +123,9 @@ router.get('/auth', async (ctx) => {
     return
   }
   if (status === AuthStatus.Missing) {
-    if (password.length < 6) {
+    if (password.length < 6 || password.length > 128) {
       ctx.response.status = 400
-      ctx.response.body = '密码太短'
-      return
-    }
-    if (password.length > 128) {
-      ctx.response.status = 400
-      ctx.response.body = '密码太长'
+      ctx.response.body = '密码长度错误'
       return
     }
     await saveAuth(playerId, password).catch(log.error)
@@ -137,9 +144,9 @@ router.put('/auth', async (ctx) => {
     return
   }
   const password = await ctx.request.body.text()
-  if (password.length < 6) {
+  if (password.length < 6 || password.length > 128) {
     ctx.response.status = 400
-    ctx.response.body = '密码太短'
+    ctx.response.body = '密码长度错误'
     return
   }
   await saveAuth(playerId, password)
@@ -147,6 +154,13 @@ router.put('/auth', async (ctx) => {
 })
 
 router.get('/files/:gameId', async (ctx) => {
+  const { status: authStatus, playerId } = await checkAuth(ctx.request.headers.get('authorization'))
+  log.info('playerId', playerId)
+  if (authStatus !== AuthStatus.Valid) {
+    ctx.response.status = 401
+    ctx.response.body = '密码错误或未设置密码'
+    return
+  }
   const [gameId, isPreview] = ctx.params.gameId.split('_')
   try {
     ctx.response.body = await loadFile(gameId, !!isPreview)
@@ -157,10 +171,26 @@ router.get('/files/:gameId', async (ctx) => {
 })
 
 router.all('/files/:gameId', async (ctx) => {
+  const { status: authStatus, playerId } = await checkAuth(ctx.request.headers.get('authorization'))
+  log.info('playerId', playerId)
+  if (authStatus !== AuthStatus.Valid) {
+    ctx.response.status = 401
+    ctx.response.body = '密码错误或未设置密码'
+    return
+  }
   const body = await ctx.request.body.text()
   if (!body.length || body.length > MAX_BODY_SIZE) {
     ctx.response.status = 400
     ctx.response.body = '存档太大'
+    return
+  }
+  const decodedContent = await decodeContent(body)
+  const players: string[] = decodedContent?.civilizations
+    ?.filter((c?: { playerType: string }) => c?.playerType === 'Human')
+    ?.map((c: { playerId: string }) => c.playerId) ?? []
+  if (!players.includes(playerId)) {
+    ctx.response.status = 400
+    ctx.response.body = '这不是你的存档'
     return
   }
   const [gameId, isPreview] = ctx.params.gameId.split('_')
@@ -182,20 +212,10 @@ app.use(async (ctx, next) => {
   }
 })
 
-app.use(async (ctx, next) => {
+app.use((ctx, next) => {
   const path = ctx.request.url.pathname
   if (!path.startsWith('/files/')) {
     return next()
-  }
-  const { status: authStatus } = await checkAuth(ctx.request.headers.get('authorization'))
-  if (authStatus === AuthStatus.Invalid) {
-    ctx.response.status = 401
-    ctx.response.body = '密码错误'
-    return
-  } else if (authStatus === AuthStatus.Missing) {
-    ctx.response.status = 401
-    ctx.response.body = '请设置密码'
-    return
   }
   const ua = ctx.request.headers.get('user-agent')
   if (!ua?.startsWith('Unciv')) {

@@ -11,6 +11,7 @@
   "imports": {
     "@libs/logger": "jsr:@libs/logger@3",
     "@oak/oak": "jsr:@oak/oak@17",
+    "@std/encoding": "jsr:@std/encoding@^1",
     "npm:postgres": "npm:postgres@^3"
   },
   "fmt": {

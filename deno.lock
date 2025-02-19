@@ -79,6 +79,7 @@
     "dependencies": [
       "jsr:@libs/logger@3",
       "jsr:@oak/oak@17",
+      "jsr:@std/encoding@1",
       "npm:postgres@3"
     ]
   }
