@@ -1,14 +1,24 @@
 import { Application, Router } from '@oak/oak'
-import { LruCache } from '@std/cache'
 import { type levellike, Logger } from '@libs/logger'
+import postgres from 'npm:postgres'
+
+const env = Deno.env
+
+const sql = postgres({
+  host: env.get('DB_HOST') || 'localhost',
+  port: +(env.get('DB_PORT') || 5432),
+  database: env.get('DB_NAME') || 'unciv-srv',
+  user: env.get('DB_USER') || 'postgres',
+  password: env.get('DB_PASSWORD') || 'postgres',
+})
 
 const GAME_ID_REGEX = /^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}(_Preview)?$/
-const MAX_BODY_SIZE = 5 * 1024 * 1024
+const MAX_BODY_SIZE = 3 * 1024 * 1024
 
-const PORT = +(Deno.env.get('PORT') || 11451)
+const PORT = +(env.get('PORT') || 11451)
 const LOG_LEVEL = ['disabled', 'error', 'warn', 'info', 'log', 'debug']
-    .includes(Deno.env.get('LOG_LEVEL') || '')
-  ? Deno.env.get('LOG_LEVEL') as levellike
+    .includes(env.get('LOG_LEVEL') || '')
+  ? env.get('LOG_LEVEL') as levellike
   : 'info'
 
 const log = new Logger({
@@ -19,95 +29,67 @@ const log = new Logger({
   caller: true,
 })
 
-const DATA_PATH = Deno.env.get('DATA_PATH') || './data'
-const PLAYERS_STORAGE_PATH = `${DATA_PATH}/players`
-const FILES_STORAGE_PATH = `${DATA_PATH}/files`
-
-const mkdirIfNotExist = (path: string) => {
-  try {
-    Deno.statSync(path)
-  } catch {
-    Deno.mkdirSync(path, { recursive: true })
-  }
-}
-
-mkdirIfNotExist(FILES_STORAGE_PATH)
-mkdirIfNotExist(PLAYERS_STORAGE_PATH)
-
-export enum AuthStatus {
+enum AuthStatus {
   Valid = 0,
   Invalid = 1,
   Missing = 2,
 }
 
-const authCache = new LruCache<string, { playerId: string; password: string; status: AuthStatus }>(256)
+interface Player {
+  playerId: string
+  password: string
+}
 
-const checkAuth = async (
-  authHeader?: string | null,
-): Promise<{ playerId: string; password: string; status: AuthStatus }> => {
+interface PlayerWithAuth extends Player {
+  status: AuthStatus
+}
+
+const checkAuth = async (authHeader?: string | null): Promise<PlayerWithAuth> => {
   if (!authHeader) {
     return { playerId: '', password: '', status: AuthStatus.Invalid }
   }
-  if (authCache.has(authHeader)) {
-    return authCache.get(authHeader)!
-  }
   const { 0: type, 1: token } = authHeader.split(' ')
   if (type !== 'Basic') {
-    const value = { playerId: '', password: '', status: AuthStatus.Invalid }
-    authCache.set(authHeader, value)
-    return value
+    return { playerId: '', password: '', status: AuthStatus.Invalid }
   }
   const { 0: playerId, 1: password } = atob(token).split(':')
   if (!playerId || !password) {
-    const value = { playerId: '', password: '', status: AuthStatus.Invalid }
-    authCache.set(authHeader, value)
-    return value
+    return { playerId: '', password: '', status: AuthStatus.Invalid }
   }
-  const playerFilePath = `${PLAYERS_STORAGE_PATH}/${playerId}`
-  try {
-    const storedPassword = await Deno.readTextFile(playerFilePath)
-    if (storedPassword === password) {
-      const value = { playerId, password, status: AuthStatus.Valid }
-      authCache.set(authHeader, value)
-      return value
-    }
-    const value = { playerId: '', password: '', status: AuthStatus.Invalid }
-    authCache.set(authHeader, value)
-    return value
-  } catch (e) {
-    if (e instanceof Deno.errors.NotFound) {
-      const value = { playerId, password, status: AuthStatus.Missing }
-      authCache.set(authHeader, value)
-      return value
-    }
-    const value = { playerId: '', password: '', status: AuthStatus.Invalid }
-    authCache.set(authHeader, value)
-    return value
+  const players = await sql<Player[]>`select * from "players" where "playerId" = ${playerId}`
+  if (players.length === 0) {
+    return { playerId, password, status: AuthStatus.Missing }
   }
+  if (players[0].password !== password) {
+    return { playerId: '', password: '', status: AuthStatus.Invalid }
+  }
+  return { playerId, password, status: AuthStatus.Valid }
 }
 
-const saveAuth = async (header: string, auth: { playerId: string; password: string }) => {
-  const playerFilePath = `${PLAYERS_STORAGE_PATH}/${auth.playerId}`
-  await Deno.writeTextFile(playerFilePath, auth.password, { mode: 0o600 })
-  authCache.delete(header)
+const saveAuth = async (playerId: string, password: string) => {
+  const data = { playerId, password }
+  await sql`insert into "players" ${
+          sql(data, 'playerId', 'password')
+  } on conflict("playerId") do
+            update
+            set "password" = ${password}, "updatedAt" = now()`
 }
 
-const filesCache = new LruCache<string, Uint8Array>(32)
-
-const loadFile = async (gameId: string): Promise<Uint8Array> => {
-  const filePath = `${FILES_STORAGE_PATH}/${gameId}`
-  if (filesCache.has(filePath)) {
-    return filesCache.get(filePath)!
+const loadFile = async (gameId: string, preview = false): Promise<string> => {
+  const col = preview ? 'preview' : 'content'
+  const files = await sql`select ${sql([col])} from "files" where "gameId" = ${gameId}`
+  if (files.length === 0) {
+    throw new Error('找不到存档')
   }
-  const file = await Deno.readFile(filePath)
-  filesCache.set(filePath, file)
-  return file
+  return files[0][col]
 }
 
-const saveFile = async (gameId: string, content: Uint8Array) => {
-  const filePath = `${FILES_STORAGE_PATH}/${gameId}`
-  await Deno.writeFile(filePath, content, { mode: 0o600 })
-  filesCache.set(filePath, content)
+const saveFile = async (gameId: string, text?: string | null, preview = false) => {
+  const col = preview ? 'preview' :'content'
+  const data = { gameId, [col]: text }
+  await sql`insert into "files" ${
+    sql(data, 'gameId', col)
+  } on conflict ("gameId") do update set ${sql(col)} = ${text}, "updatedAt" = now()`
 }
 
 const router = new Router()
@@ -134,7 +116,12 @@ router.get('/auth', async (ctx) => {
       ctx.response.body = '密码太短'
       return
     }
-    saveAuth(header!, { playerId, password }).catch(log.error)
+    if (password.length > 128) {
+      ctx.response.status = 400
+      ctx.response.body = '密码太长'
+      return
+    }
+    await saveAuth(playerId, password).catch(log.error)
     ctx.response.body = playerId
     return
   }
@@ -155,14 +142,14 @@ router.put('/auth', async (ctx) => {
     ctx.response.body = '密码太短'
     return
   }
-  saveAuth(header!, { playerId, password }).catch(log.error)
+  await saveAuth(playerId, password)
   ctx.response.body = playerId
 })
 
 router.get('/files/:gameId', async (ctx) => {
-  const gameId = ctx.params.gameId
+  const [gameId, isPreview] = ctx.params.gameId.split('_')
   try {
-    ctx.response.body = await loadFile(gameId)
+    ctx.response.body = await loadFile(gameId, !!isPreview)
   } catch {
     ctx.response.status = 404
     ctx.response.body = '找不到存档'
@@ -170,14 +157,14 @@ router.get('/files/:gameId', async (ctx) => {
 })
 
 router.all('/files/:gameId', async (ctx) => {
-  const gameId = ctx.params.gameId
-  const body = await ctx.request.body.arrayBuffer()
-  if (!body.byteLength || body.byteLength > MAX_BODY_SIZE) {
+  const body = await ctx.request.body.text()
+  if (!body.length || body.length > MAX_BODY_SIZE) {
     ctx.response.status = 400
     ctx.response.body = '存档太大'
     return
   }
-  saveFile(gameId, new Uint8Array(body)).catch(log.error)
+  const [gameId, isPreview] = ctx.params.gameId.split('_')
+  await saveFile(gameId, body, !!isPreview)
   ctx.response.body = gameId
 })
 
@@ -230,6 +217,5 @@ app.use(router.allowedMethods())
 
 if (import.meta.main) {
   app.listen({ port: PORT })
-  log.info(`Data store path: ${DATA_PATH}`)
   log.info(`Listening on port: ${PORT}`)
 }
