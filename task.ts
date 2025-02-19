@@ -2,10 +2,8 @@ import { sql } from './libs/db.ts'
 import { log } from './libs/log.ts'
 
 const cleanup = async () => {
-  log.info('执行清理...')
-  const whitelist = (await Deno.readTextFile('./whitelist'))
-    .split(/\r?\n|\r/)
-    .filter((line) => line.trim() !== '')
+  const whitelist = (await sql`select * from "whitelist"`).map((f) => f.gameId)
+  log.info(`加载白名单，共 ${whitelist.length} 个`)
   const result = await sql`delete
                            from "files"
                            where "gameId" not in ${sql(whitelist)}
