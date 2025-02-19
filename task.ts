@@ -2,7 +2,7 @@ import { sql } from './libs/db.ts'
 import { log } from './libs/log.ts'
 
 const cleanup = async () => {
-  const whitelist = (await sql`select * from "whitelist"`).map((f) => f.gameId)
+  const whitelist = (await sql`select "gameId" from "whitelist"`).map((f) => f.gameId)
   log.info(`加载白名单，共 ${whitelist.length} 个`)
   const result = await sql`delete
                            from "files"
