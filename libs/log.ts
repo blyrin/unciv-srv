@@ -11,6 +11,6 @@ export const log = new Logger({
   level: LOG_LEVEL,
   date: true,
   time: true,
-  delta: true,
-  caller: true,
+  delta: false,
+  caller: false,
 })

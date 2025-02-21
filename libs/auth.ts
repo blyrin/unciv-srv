@@ -27,9 +27,9 @@ export const checkAuth = async (authHeader?: string | null): Promise<PlayerWithA
   if (!playerId || !password) {
     return { playerId: '', password: '', status: AuthStatus.Invalid }
   }
-  const players = await sql<Player[]>`select "playerId", "password"
-                                      from "players"
-                                      where "playerId" = ${playerId}`
+  const players = await sql<Player[]>`select player_id, password
+                                      from players
+                                      where player_id = ${playerId}`
   if (players.length === 0) {
     return { playerId, password, status: AuthStatus.Missing }
   }
@@ -40,7 +40,10 @@ export const checkAuth = async (authHeader?: string | null): Promise<PlayerWithA
 }
 
 export const saveAuth = async (playerId: string, password: string) => {
-  const data = { playerId, password }
-  await sql`insert into "players" ${sql(data, 'playerId', 'password')}
-            on conflict("playerId") do update set "password" = ${password}, "updatedAt" = now()`
+  await sql`
+      insert into players(player_id, password)
+      values (${playerId}, ${password})
+      on conflict(player_id) do update
+          set password   = ${password},
+              updated_at = now()`
 }

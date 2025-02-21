@@ -8,4 +8,5 @@ export const sql = postgres({
   database: env.get('DB_NAME') || 'unciv-srv',
   user: env.get('DB_USER') || 'postgres',
   password: env.get('DB_PASSWORD') || 'postgres',
+  transform: postgres.camel,
 })

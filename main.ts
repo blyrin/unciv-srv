@@ -36,7 +36,7 @@ router.get('/auth', async (ctx) => {
       ctx.response.body = '密码长度错误'
       return
     }
-    await saveAuth(playerId, password).catch(log.error)
+    await saveAuth(playerId, password)
     ctx.response.body = playerId
     return
   }
@@ -63,7 +63,6 @@ router.put('/auth', async (ctx) => {
 
 router.get('/files/:gameId', async (ctx) => {
   const { status: authStatus, playerId } = await checkAuth(ctx.request.headers.get('authorization'))
-  log.info('playerId', playerId)
   if (authStatus !== AuthStatus.Valid) {
     ctx.response.status = 401
     ctx.response.body = '密码错误或未设置密码'
@@ -80,7 +79,6 @@ router.get('/files/:gameId', async (ctx) => {
 
 router.put('/files/:gameId', async (ctx) => {
   const { status: authStatus, playerId } = await checkAuth(ctx.request.headers.get('authorization'))
-  log.info('playerId', playerId)
   if (authStatus !== AuthStatus.Valid) {
     ctx.response.status = 401
     ctx.response.body = '密码错误或未设置密码'
@@ -100,13 +98,25 @@ router.put('/files/:gameId', async (ctx) => {
 export const app = new Application()
 
 app.use(async (ctx, next) => {
+  const startTime = Date.now()
+  const l = log.with({ t: startTime })
   try {
     await next()
-    log.info(ctx.request.method, ctx.request.url.pathname, ctx.response.status)
+    const endTime = Date.now()
+    const status = ctx.response.status
+    if (status == 200) {
+      l.info(ctx.response.status, `${ctx.request.method} ${ctx.request.url.pathname}`)
+      l.info(`耗时 ${endTime - startTime} ms`)
+    } else {
+      l.warn(ctx.response.status, `${ctx.request.method} ${ctx.request.url.pathname}`)
+      l.warn(`耗时 ${endTime - startTime} ms`)
+    }
   } catch (err: any) {
-    log.error(err)
+    l.error(ctx.response.status, `${ctx.request.method} ${ctx.request.url.pathname}`)
+    l.error(`耗时 ${Date.now() - startTime} ms`)
+    l.error(`${err}`)
     ctx.response.status = err.status || 500
-    ctx.response.body = err.message || '内部服务器错误'
+    ctx.response.body = err.message || '服务器错误'
   }
 })
 
