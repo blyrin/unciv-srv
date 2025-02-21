@@ -1,4 +1,5 @@
 import { sql } from './db.ts'
+import { cache } from './cache.ts'
 
 export enum AuthStatus {
   Valid = 0,
@@ -15,6 +16,20 @@ export interface PlayerWithAuth extends Player {
   status: AuthStatus
 }
 
+export const loadUser = async (playerId: string): Promise<Player | null> => {
+  const cached = await cache.get(`player:${playerId}`)
+  if (cached) {
+    return JSON.parse(cached)
+  }
+  const players = await sql<Player[]>`
+      select player_id, password
+      from players
+      where player_id = ${playerId}
+      limit 1`
+  await cache.setEx(`player:${playerId}`, 60 * 5, JSON.stringify(players[0]))
+  return players[0]
+}
+
 export const checkAuth = async (authHeader?: string | null): Promise<PlayerWithAuth> => {
   if (!authHeader) {
     return { playerId: '', password: '', status: AuthStatus.Invalid }
@@ -27,13 +42,11 @@ export const checkAuth = async (authHeader?: string | null): Promise<PlayerWithA
   if (!playerId || !password) {
     return { playerId: '', password: '', status: AuthStatus.Invalid }
   }
-  const players = await sql<Player[]>`select player_id, password
-                                      from players
-                                      where player_id = ${playerId}`
-  if (players.length === 0) {
+  const player = await loadUser(playerId)
+  if (!player) {
     return { playerId, password, status: AuthStatus.Missing }
   }
-  if (players[0].password !== password) {
+  if (player.password !== password) {
     return { playerId: '', password: '', status: AuthStatus.Invalid }
   }
   return { playerId, password, status: AuthStatus.Valid }
@@ -46,4 +59,5 @@ export const saveAuth = async (playerId: string, password: string) => {
       on conflict(player_id) do update
           set password   = ${password},
               updated_at = now()`
+  await cache.setEx(`player:${playerId}`, 60 * 5, JSON.stringify({ playerId, password }))
 }

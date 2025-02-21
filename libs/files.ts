@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { decodeBase64, encodeBase64 } from '@std/encoding/base64'
 import { sql } from './db.ts'
+import { cache } from './cache.ts'
 
 export const decodeFile = async (file?: string | null): Promise<any> => {
   if (!file) return null
@@ -20,23 +21,37 @@ export const encodeFile = async (file: any): Promise<string> => {
 
 export const loadFile = async (gameId: string, preview = false): Promise<string> => {
   const col = preview ? 'preview' : 'content'
+  const cacheKey = `file:${gameId}:${col}`
+  const cached = await cache.get(cacheKey)
+  if (cached) {
+    return cached
+  }
   const files = await sql`select ${sql([col])}
                           from files
                           where game_id = ${gameId}`
   if (files.length === 0) {
     throw new Error('找不到存档')
   }
-  return await encodeFile(files[0][col])
+  const encoded = await encodeFile(files[0][col])
+  await cache.setEx(cacheKey, 60, encoded)
+  return encoded
 }
 
 export const getPlayerIdsFromFile = async (gameId: string, column: string): Promise<string[]> => {
+  const cacheKey = `playerIds:${gameId}:${column}`
+  const cached = await cache.get(cacheKey)
+  if (cached) {
+    return JSON.parse(cached)
+  }
   const file = await sql`
       select jsonb_extract_path(player, 'playerId') AS player_id
       from files,
            jsonb_array_elements(jsonb_extract_path(${sql(column)}, 'gameParameters', 'players')) as player
       where jsonb_extract_path_text(player, 'playerType') = 'Human'
         and game_id = ${gameId}`
-  return file.map((f: any) => f.playerId)
+  const playerIds = file.map((f: any) => f.playerId)
+  cache.setEx(cacheKey, 60, JSON.stringify(playerIds))
+  return playerIds
 }
 
 export const saveFile = async (
@@ -58,4 +73,8 @@ export const saveFile = async (
       on conflict(game_id) do update
           set ${colSql}  = ${decoded},
               updated_at = now()`
+  await Promise.allSettled([
+    cache.del(`file:${gameId}:${col}`),
+    cache.del(`playerIds:${gameId}:${col}`),
+  ])
 }

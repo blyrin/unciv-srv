@@ -1,5 +1,6 @@
 import { sql } from './libs/db.ts'
 import { log } from './libs/log.ts'
+import { cache } from './libs/cache.ts'
 
 const cleanup = async () => {
   const [deletedGameCount, deletedPlayerCount] = await sql.begin(async (sql) => {
@@ -22,6 +23,7 @@ const cleanup = async () => {
         returning player_id`
     return [deletedGames.length, deletedPlayers.length]
   })
+  await cache.flushDb()
   log.info(`清理完成, 共删除 ${deletedGameCount} 个存档, ${deletedPlayerCount} 个玩家`)
 }
 

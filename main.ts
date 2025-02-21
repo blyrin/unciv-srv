@@ -4,6 +4,7 @@ import { log } from './libs/log.ts'
 import { AuthStatus, checkAuth, saveAuth } from './libs/auth.ts'
 import { loadFile, saveFile } from './libs/files.ts'
 import { startTask } from './task.ts'
+import { cache } from './libs/cache.ts'
 
 const env = Deno.env
 
@@ -62,7 +63,7 @@ router.put('/auth', async (ctx) => {
 })
 
 router.get('/files/:gameId', async (ctx) => {
-  const { status: authStatus, playerId } = await checkAuth(ctx.request.headers.get('authorization'))
+  const { status: authStatus } = await checkAuth(ctx.request.headers.get('authorization'))
   if (authStatus !== AuthStatus.Valid) {
     ctx.response.status = 401
     ctx.response.body = '密码错误或未设置密码'
@@ -144,12 +145,21 @@ app.use(router.routes())
 app.use(router.allowedMethods())
 
 if (import.meta.main) {
-  Deno.addSignalListener('SIGINT', () => {
+  const abortController = new AbortController()
+  Deno.addSignalListener('SIGINT', async () => {
     log.info('关闭中...')
+    abortController.abort()
+    await cache.disconnect()
     Deno.exit()
   })
-  log.info(`监听端口: ${PORT}`)
-  app.listen({ port: PORT })
-  log.info(`初始化定时清理任务...`)
-  await startTask()
+  try {
+    await cache.connect()
+    log.info(`监听端口: ${PORT}`)
+    app.listen({ port: PORT, signal: abortController.signal })
+    log.info(`初始化定时清理任务...`)
+    await startTask()
+  } catch (err) {
+    log.error(err)
+    Deno.exit()
+  }
 }
