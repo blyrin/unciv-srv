@@ -26,8 +26,9 @@ export const loadUser = async (playerId: string): Promise<Player | null> => {
       from players
       where player_id = ${playerId}
       limit 1`
-  await cache.set(`player:${playerId}`, JSON.stringify(players[0]))
-  return players[0]
+  const player = players[0] ?? null
+  await cache.set(`player:${playerId}`, JSON.stringify(player))
+  return player
 }
 
 export const checkAuth = async (authHeader?: string | null): Promise<PlayerWithAuth> => {
