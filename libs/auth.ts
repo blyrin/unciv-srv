@@ -26,7 +26,7 @@ export const loadUser = async (playerId: string): Promise<Player | null> => {
       from players
       where player_id = ${playerId}
       limit 1`
-  await cache.setEx(`player:${playerId}`, 60 * 5, JSON.stringify(players[0]))
+  await cache.set(`player:${playerId}`, JSON.stringify(players[0]))
   return players[0]
 }
 
@@ -59,5 +59,5 @@ export const saveAuth = async (playerId: string, password: string) => {
       on conflict(player_id) do update
           set password   = ${password},
               updated_at = now()`
-  await cache.setEx(`player:${playerId}`, 60 * 5, JSON.stringify({ playerId, password }))
+  await cache.set(`player:${playerId}`, JSON.stringify({ playerId, password }))
 }

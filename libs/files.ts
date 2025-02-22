@@ -1,9 +1,9 @@
-// deno-lint-ignore-file no-explicit-any
 import { decodeBase64, encodeBase64 } from '@std/encoding/base64'
 import { sql } from './db.ts'
 import { cache } from './cache.ts'
+import { throwError } from './error.ts'
 
-export const decodeFile = async (file?: string | null): Promise<any> => {
+export const decodeFile = async <T = unknown>(file?: string | null): Promise<T | null> => {
   if (!file) return null
   const blob = new Blob([decodeBase64(file)])
   const stream = blob.stream().pipeThrough(new DecompressionStream('gzip'))
@@ -11,7 +11,7 @@ export const decodeFile = async (file?: string | null): Promise<any> => {
   return await response.json()
 }
 
-export const encodeFile = async (file: any): Promise<string> => {
+export const encodeFile = async <T = unknown>(file: Promise<T | null>): Promise<string> => {
   const blob = new Blob([JSON.stringify(file)])
   const stream = blob.stream().pipeThrough(new CompressionStream('gzip'))
   const response = new Response(stream)
@@ -30,7 +30,7 @@ export const loadFile = async (gameId: string, preview = false): Promise<string>
                           from files
                           where game_id = ${gameId}`
   if (files.length === 0) {
-    throw new Error('找不到存档')
+    throwError(404, '找不到存档')
   }
   const encoded = await encodeFile(files[0][col])
   await cache.setEx(cacheKey, 60, encoded)
@@ -43,14 +43,14 @@ export const getPlayerIdsFromFile = async (gameId: string, column: string): Prom
   if (cached) {
     return JSON.parse(cached)
   }
-  const file = await sql`
+  const file = await sql<{ playerId: string }[]>`
       select jsonb_extract_path(player, 'playerId') AS player_id
       from files,
-           jsonb_array_elements(jsonb_extract_path(${sql(column)}, 'gameParameters', 'players')) as player
+           jsonb_array_elements(jsonb_extract_path(${sql(column)}, 'civilizations')) as player
       where jsonb_extract_path_text(player, 'playerType') = 'Human'
         and game_id = ${gameId}`
-  const playerIds = file.map((f: any) => f.playerId)
-  cache.setEx(cacheKey, 60, JSON.stringify(playerIds))
+  const playerIds = file.map((f) => f.playerId)
+  await cache.set(cacheKey, JSON.stringify(playerIds))
   return playerIds
 }
 
@@ -63,18 +63,16 @@ export const saveFile = async (
   const col = preview ? 'preview' : 'content'
   const playerIds = await getPlayerIdsFromFile(gameId, col)
   if (playerIds?.length > 1 && !playerIds.includes(playerId)) {
-    throw new Error('这不是你的存档')
+    throwError(400, '这不是你的存档')
   }
   const colSql = sql(col)
-  const decoded = await decodeFile(text)
+  // deno-lint-ignore no-explicit-any
+  const decoded: any = await decodeFile(text)
   await sql`
       insert into files(game_id, ${colSql})
       values (${gameId}, ${decoded})
       on conflict(game_id) do update
           set ${colSql}  = ${decoded},
               updated_at = now()`
-  await Promise.allSettled([
-    cache.del(`file:${gameId}:${col}`),
-    cache.del(`playerIds:${gameId}:${col}`),
-  ])
+  await cache.del(`file:${gameId}:${col}`)
 }
