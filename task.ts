@@ -8,7 +8,8 @@ const cleanup = async () => {
         delete
         from files
         where "whitelist" = false
-          and updated_at < (now() - interval '3 months')
+          and ((now() - interval '3 months') > updated_at
+            or (created_at + interval '10 minutes') > updated_at)
         returning game_id`
     const deletedPlayers = await sql`
         delete
@@ -19,7 +20,7 @@ const cleanup = async () => {
                from files,
                     jsonb_array_elements(jsonb_extract_path(preview, 'gameParameters', 'players')) as players
                where jsonb_extract_path_text(players, 'playerType') = 'Human')
-          and updated_at < (now() - interval '3 months')
+          and (now() - interval '3 months') > updated_at
         returning player_id`
     return [deletedGames.length, deletedPlayers.length]
   })
