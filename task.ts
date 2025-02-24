@@ -9,7 +9,8 @@ const cleanup = async () => {
         from files
         where "whitelist" = false
           and ((now() - interval '3 months') > updated_at
-            or (created_at + interval '10 minutes') > updated_at)
+            or ((now() - interval '3 days') > created_at
+                and (created_at + interval '10 minutes') > updated_at))
         returning game_id`
     const deletedPlayers = await sql`
         delete
