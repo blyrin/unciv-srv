@@ -101,7 +101,7 @@ app.use(async (ctx, next) => {
     const endTime = Date.now()
     const l = log.with({ t: endTime - startTime, s: ctx.response.status })
     if (err instanceof UncivError) {
-      l.warn(`${ctx.request.method} ${path}`).warn(err.message)
+      l.warn(`${ctx.request.method} ${path}`).warn(err.message, err.info)
       ctx.response.status = err.status
       ctx.response.body = err.message
     } else if (err instanceof Error) {

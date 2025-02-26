@@ -61,18 +61,24 @@ export const saveFile = async (
   preview = false,
 ) => {
   const col = preview ? 'preview' : 'content'
-  const playerIds = await getPlayerIdsFromFile(gameId, col)
-  if (playerIds?.length > 1 && !playerIds.includes(playerId)) {
-    throwError(400, '这不是你的存档')
-  }
-  const colSql = sql(col)
-  // deno-lint-ignore no-explicit-any
-  const decoded: any = await decodeFile(text)
-  await sql`
+  await sql.begin(async (sql) => {
+    const playerIds = await getPlayerIdsFromFile(gameId, col)
+    if (playerIds?.length > 1 && !playerIds.includes(playerId)) {
+      throwError(400, '这不是你的存档', `${playerId} 试图修改不是自己的存档 ${gameId}`)
+    }
+    const colSql = sql(col)
+    // deno-lint-ignore no-explicit-any
+    const decoded: any = await decodeFile(text)
+    if (gameId !== decoded.gameId) {
+      throwError(400, '存档ID不匹配', `${playerId} 上传的存档 ${decoded.gameId} 不是 ${gameId}`)
+    }
+    await sql`
       insert into files(game_id, ${colSql})
       values (${gameId}, ${decoded})
       on conflict(game_id) do update
           set ${colSql}  = ${decoded},
               updated_at = now()`
-  await cache.del(`file:${gameId}:${col}`)
+    await cache.del(`file:${gameId}:${col}`)
+    await cache.del(`playerIds:${gameId}:${col}`)
+  })
 }
