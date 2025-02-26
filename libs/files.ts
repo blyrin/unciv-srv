@@ -46,7 +46,7 @@ export const getPlayerIdsFromFile = async (gameId: string, column: string): Prom
   const file = await sql<{ playerId: string }[]>`
       select jsonb_extract_path(player, 'playerId') AS player_id
       from files,
-           jsonb_array_elements(jsonb_extract_path(${sql(column)}, 'civilizations')) as player
+          jsonb_array_elements(jsonb_extract_path(${sql(column)}, 'gameParameters', 'players'))
       where jsonb_extract_path_text(player, 'playerType') = 'Human'
         and game_id = ${gameId}`
   const playerIds = file.map((f) => f.playerId)
