@@ -35,9 +35,6 @@ export const loadFile = async (gameId: string, preview = false): Promise<string>
   }
   const encoded = await encodeFile(files[0][col])
   await cache.setEx(cacheKey, 60, encoded)
-  if ((encoded as any)?.gameParameters?.anyoneCanSpectate === false) {
-    return throwError(404, '😠', `存档 ${gameId} 不允许观战`)
-  }
   return encoded
 }
 
