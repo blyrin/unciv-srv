@@ -31,7 +31,7 @@ export const loadFile = async (gameId: string, preview = false): Promise<string>
                           from files
                           where game_id = ${gameId}`
   if (files.length === 0) {
-    throwError(404, '找不到存档')
+    throwError(404, '😠', `找不到存档 ${gameId}`)
   }
   const encoded = await encodeFile(files[0][col])
   await cache.setEx(cacheKey, 60, encoded)

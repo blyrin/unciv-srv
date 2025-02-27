@@ -68,7 +68,7 @@ export const saveAuth = async (playerId: string, password: string, ip: string) =
 export const loadPlayerId = async (authorization?: string | null): Promise<string> => {
   const { status: authStatus, playerId } = await loadAuth(authorization)
   if (authStatus !== AuthStatus.Valid) {
-    throwError(401, '😠', '密码错误或未设置密码')
+    throwError(401, '密码错误或未设置密码', '密码错误或未设置密码')
   }
   return playerId
 }
