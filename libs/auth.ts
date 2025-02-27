@@ -1,5 +1,6 @@
 import { sql } from './db.ts'
 import { cache } from './cache.ts'
+import { throwError } from './error.ts'
 
 export enum AuthStatus {
   Valid = 0,
@@ -31,7 +32,7 @@ export const loadUser = async (playerId: string): Promise<Player | null> => {
   return player
 }
 
-export const checkAuth = async (authHeader?: string | null): Promise<PlayerWithAuth> => {
+export const loadAuth = async (authHeader?: string | null): Promise<PlayerWithAuth> => {
   if (!authHeader) {
     return { playerId: '', password: '', status: AuthStatus.Invalid }
   }
@@ -53,12 +54,21 @@ export const checkAuth = async (authHeader?: string | null): Promise<PlayerWithA
   return { playerId, password, status: AuthStatus.Valid }
 }
 
-export const saveAuth = async (playerId: string, password: string) => {
+export const saveAuth = async (playerId: string, password: string, ip: string) => {
   await sql`
-      insert into players(player_id, password)
-      values (${playerId}, ${password})
+      insert into players(player_id, password, create_ip)
+      values (${playerId}, ${password}, ${ip})
       on conflict(player_id) do update
           set password   = ${password},
-              updated_at = now()`
+              updated_at = now(),
+              update_ip  = ${ip}`
   await cache.set(`player:${playerId}`, JSON.stringify({ playerId, password }))
+}
+
+export const loadPlayerId = async (authorization?: string | null): Promise<string> => {
+  const { status: authStatus, playerId } = await loadAuth(authorization)
+  if (authStatus !== AuthStatus.Valid) {
+    throwError(401, '😠', '密码错误或未设置密码')
+  }
+  return playerId
 }

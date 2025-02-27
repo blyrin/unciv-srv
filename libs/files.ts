@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-explicit-any
 import { decodeBase64, encodeBase64 } from '@std/encoding/base64'
 import { sql } from './db.ts'
 import { cache } from './cache.ts'
@@ -37,21 +38,20 @@ export const loadFile = async (gameId: string, preview = false): Promise<string>
   return encoded
 }
 
-export const getPlayerIdsFromFile = async (gameId: string, column: string): Promise<string[]> => {
-  const cacheKey = `playerIds:${gameId}:${column}`
-  const cached = await cache.get(cacheKey)
-  if (cached) {
-    return JSON.parse(cached)
-  }
+export const getPlayerIdsFromFileId = async (gameId: string, column: string): Promise<string[]> => {
   const file = await sql<{ playerId: string }[]>`
       select jsonb_extract_path(player, 'playerId') AS player_id
       from files,
           jsonb_array_elements(jsonb_extract_path(${sql(column)}, 'gameParameters', 'players')) AS player
       where jsonb_extract_path_text(player, 'playerType') = 'Human'
         and game_id = ${gameId}`
-  const playerIds = file.map((f) => f.playerId)
-  await cache.set(cacheKey, JSON.stringify(playerIds))
-  return playerIds
+  return file.map((f) => f.playerId)
+}
+
+export const getPlayerIdsFromFile = (decodedFile?: any): string[] => {
+  return decodedFile?.gameParameters?.players
+    ?.filter?.((player: any) => player.playerType === 'Human')
+    ?.map?.((player: any) => player.playerId) ?? []
 }
 
 export const saveFile = async (
@@ -60,18 +60,21 @@ export const saveFile = async (
   text?: string | null,
   preview = false,
 ) => {
+  const decoded: any = await decodeFile(text)
+    .catch(() => throwError(400, '😠', `${playerId} 上传的存档 ${gameId} 无法解析`))
+  if (gameId !== decoded.gameId) {
+    throwError(400, '😠', `${playerId} 上传的存档 ${decoded.gameId} 不是 ${gameId}`)
+  }
+  if (!getPlayerIdsFromFile(decoded).includes(playerId)) {
+    throwError(400, '😠', `${playerId} 试图修改不是自己的存档 ${gameId}`)
+  }
   const col = preview ? 'preview' : 'content'
   await sql.begin(async (sql) => {
-    const playerIds = await getPlayerIdsFromFile(gameId, col)
+    const playerIds = await getPlayerIdsFromFileId(gameId, col)
     if (playerIds?.length > 1 && !playerIds.includes(playerId)) {
-      throwError(400, '这不是你的存档', `${playerId} 试图修改不是自己的存档 ${gameId}`)
+      throwError(400, '😠', `${playerId} 试图修改不是自己的存档 ${gameId}`)
     }
     const colSql = sql(col)
-    // deno-lint-ignore no-explicit-any
-    const decoded: any = await decodeFile(text)
-    if (gameId !== decoded.gameId) {
-      throwError(400, '存档ID不匹配', `${playerId} 上传的存档 ${decoded.gameId} 不是 ${gameId}`)
-    }
     await sql`
       insert into files(game_id, ${colSql})
       values (${gameId}, ${decoded})
@@ -79,6 +82,5 @@ export const saveFile = async (
           set ${colSql}  = ${decoded},
               updated_at = now()`
     await cache.del(`file:${gameId}:${col}`)
-    await cache.del(`playerIds:${gameId}:${col}`)
   })
 }
