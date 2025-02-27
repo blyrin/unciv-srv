@@ -69,7 +69,8 @@ router.put('/files/:gameId', async (ctx) => {
     throwError(400, '😠', '无效的存档')
   }
   const [gameId, isPreview] = ctx.params.gameId.split('_')
-  await saveFile(playerId, gameId, body, !!isPreview)
+  const ip = ctx.request.ip
+  await saveFile(playerId, gameId, body, !!isPreview, ip)
   ctx.response.body = gameId
 })
 

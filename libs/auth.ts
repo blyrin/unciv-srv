@@ -56,7 +56,7 @@ export const loadAuth = async (authHeader?: string | null): Promise<PlayerWithAu
 
 export const saveAuth = async (playerId: string, password: string, ip: string) => {
   await sql`
-      insert into players(player_id, password, create_ip)
+      insert into players(player_id, password, create_ip, update_ip)
       values (${playerId}, ${password}, ${ip})
       on conflict(player_id) do update
           set password   = ${password},

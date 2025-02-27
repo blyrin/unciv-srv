@@ -57,8 +57,9 @@ export const getPlayerIdsFromFile = (decodedFile?: any): string[] => {
 export const saveFile = async (
   playerId: string,
   gameId: string,
-  text?: string | null,
+  text: string | null | undefined,
   preview = false,
+  ip: string,
 ) => {
   const decoded: any = await decodeFile(text)
     .catch(() => throwError(400, '😠', `${playerId} 上传的存档 ${gameId} 无法解析`))
@@ -76,11 +77,12 @@ export const saveFile = async (
     }
     const colSql = sql(col)
     await sql`
-      insert into files(game_id, ${colSql})
-      values (${gameId}, ${decoded})
+      insert into files(game_id, ${colSql}, create_ip, update_ip)
+      values (${gameId}, ${decoded}, ${ip}, ${ip})
       on conflict(game_id) do update
           set ${colSql}  = ${decoded},
-              updated_at = now()`
+              updated_at = now(),
+              update_ip = ${ip}`
     await cache.del(`file:${gameId}:${col}`)
   })
 }
