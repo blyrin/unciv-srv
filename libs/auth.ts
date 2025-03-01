@@ -20,8 +20,7 @@ export const loadUser = async (playerId: string): Promise<Player | null> => {
   const players = await sql<Player[]>`
       select player_id, password
       from players
-      where player_id = ${playerId}
-      limit 1`
+      where player_id = ${playerId}`
   return players[0] ?? null
 }
 

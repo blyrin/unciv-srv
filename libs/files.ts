@@ -21,9 +21,10 @@ export const encodeFile = async <T = unknown>(file: Promise<T | null>): Promise<
 
 export const loadFile = async (gameId: string, preview = false): Promise<string> => {
   const col = preview ? 'preview' : 'content'
-  const files = await sql`select ${sql([col])}
-                          from files
-                          where game_id = ${gameId}`
+  const files = await sql`
+      select ${sql([col])}
+      from files
+      where game_id = ${gameId}`
   if (files.length === 0) {
     throwError(404, '😠', `找不到存档 ${gameId}`)
   }
@@ -32,10 +33,10 @@ export const loadFile = async (gameId: string, preview = false): Promise<string>
 
 export const getPlayerIdsFromFileId = async (gameId: string, column: string): Promise<string[]> => {
   const file = await sql<{ playerId: string }[]>`
-      select jsonb_extract_path(player, 'playerId') AS player_id
+      select player ->> 'playerId' AS player_id
       from files,
-          jsonb_array_elements(jsonb_extract_path(${sql(column)}, 'gameParameters', 'players')) AS player
-      where jsonb_extract_path_text(player, 'playerType') = 'Human'
+           jsonb_array_elements(${sql(column)} -> 'gameParameters' -> 'players') AS player
+      where player ->> 'playerType' = 'Human'
         and game_id = ${gameId}`
   return file.map((f) => f.playerId)
 }
@@ -68,12 +69,21 @@ export const saveFile = async (
       throwError(400, '😠', `${playerId} 试图修改不是自己的存档 ${gameId}`)
     }
     const colSql = sql(col)
-    await sql`
-        insert into files(game_id, ${colSql}, create_ip, update_ip)
-        values (${gameId}, ${decoded}, ${ip}, ${ip})
-        on conflict(game_id) do update
-            set ${colSql}  = ${decoded},
-                updated_at = now(),
-                update_ip  = ${ip}`
+    const exists = (await sql`
+        select game_id
+        from files
+        where game_id = ${gameId}
+        limit 1`).length > 0
+    if (exists) {
+      await sql`
+          update files
+          set ${colSql}  = ${decoded},
+              updated_at = now(),
+              update_ip  = ${ip}`
+    } else {
+      await sql`
+          insert into files(game_id, ${colSql}, create_ip, update_ip)
+          values (${gameId}, ${decoded}, ${ip}, ${ip})`
+    }
   })
 }

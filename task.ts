@@ -16,10 +16,10 @@ const cleanup = async () => {
         from players
         where whitelist = false
           and players.player_id not in
-              (select distinct jsonb_extract_path_text(players, 'playerId')::uuid AS player_id
+              (select distinct (players ->> 'playerId')::uuid AS player_id
                from files,
-                    jsonb_array_elements(jsonb_extract_path(preview, 'gameParameters', 'players')) as players
-               where jsonb_extract_path_text(players, 'playerType') = 'Human')
+                    jsonb_array_elements(preview -> 'gameParameters' -> 'players') as players
+               where players ->> 'playerType' = 'Human')
           and (now() - interval '3 months') > updated_at
         returning player_id`
     return [deletedGames.length, deletedPlayers.length]
