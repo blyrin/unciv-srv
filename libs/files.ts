@@ -80,7 +80,7 @@ export const saveFile = async (
           set ${colSql}  = ${decoded},
               updated_at = now(),
               update_ip  = ${ip}
-          where gameId = ${gameId}`
+          where game_id = ${gameId}`
     } else {
       await sql`
           insert into files(game_id, ${colSql}, create_ip, update_ip)
