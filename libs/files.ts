@@ -1,7 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { decodeBase64, encodeBase64 } from '@std/encoding/base64'
 import { sql } from './db.ts'
-import { cache } from './cache.ts'
 import { throwError } from './error.ts'
 
 export const decodeFile = async <T = unknown>(file?: string | null): Promise<T | null> => {
@@ -22,20 +21,13 @@ export const encodeFile = async <T = unknown>(file: Promise<T | null>): Promise<
 
 export const loadFile = async (gameId: string, preview = false): Promise<string> => {
   const col = preview ? 'preview' : 'content'
-  const cacheKey = `file:${gameId}:${col}`
-  const cached = await cache.get(cacheKey)
-  if (cached) {
-    return cached
-  }
   const files = await sql`select ${sql([col])}
                           from files
                           where game_id = ${gameId}`
   if (files.length === 0) {
     throwError(404, '😠', `找不到存档 ${gameId}`)
   }
-  const encoded = await encodeFile(files[0][col])
-  await cache.setEx(cacheKey, 60, encoded)
-  return encoded
+  return await encodeFile(files[0][col])
 }
 
 export const getPlayerIdsFromFileId = async (gameId: string, column: string): Promise<string[]> => {
@@ -77,12 +69,11 @@ export const saveFile = async (
     }
     const colSql = sql(col)
     await sql`
-      insert into files(game_id, ${colSql}, create_ip, update_ip)
-      values (${gameId}, ${decoded}, ${ip}, ${ip})
-      on conflict(game_id) do update
-          set ${colSql}  = ${decoded},
-              updated_at = now(),
-              update_ip = ${ip}`
-    await cache.del(`file:${gameId}:${col}`)
+        insert into files(game_id, ${colSql}, create_ip, update_ip)
+        values (${gameId}, ${decoded}, ${ip}, ${ip})
+        on conflict(game_id) do update
+            set ${colSql}  = ${decoded},
+                updated_at = now(),
+                update_ip  = ${ip}`
   })
 }

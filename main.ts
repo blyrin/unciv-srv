@@ -3,7 +3,6 @@ import { log } from './libs/log.ts'
 import { AuthStatus, loadAuth, loadPlayerId, saveAuth } from './libs/auth.ts'
 import { loadFile, saveFile } from './libs/files.ts'
 import { startTask } from './task.ts'
-import { cache } from './libs/cache.ts'
 import { throwError, UncivError } from './libs/error.ts'
 
 const env = Deno.env
@@ -127,11 +126,9 @@ if (import.meta.main) {
   Deno.addSignalListener('SIGINT', async () => {
     log.info('关闭中...')
     abortController.abort()
-    await cache.disconnect()
     Deno.exit()
   })
   try {
-    await cache.connect()
     log.info(`监听端口: ${PORT}`)
     app.listen({ port: PORT, signal: abortController.signal })
     log.info(`初始化定时清理任务...`)

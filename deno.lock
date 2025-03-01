@@ -12,8 +12,6 @@
     "jsr:@std/http@1": "1.0.13",
     "jsr:@std/media-types@1": "1.1.0",
     "jsr:@std/path@1": "1.0.8",
-    "npm:@redis/client@*": "1.6.0",
-    "npm:@redis/client@1": "1.6.0",
     "npm:path-to-regexp@^6.3.0": "6.3.0",
     "npm:postgres@3": "3.4.5"
   },
@@ -70,28 +68,11 @@
     }
   },
   "npm": {
-    "@redis/client@1.6.0": {
-      "integrity": "sha512-aR0uffYI700OEEH4gYnitAnv3vzVGXCFvYfdpu/CJKvk4pHfLPEy/JSZyrpQ+15WhXe1yJRXLtfQ84s4mEXnPg==",
-      "dependencies": [
-        "cluster-key-slot",
-        "generic-pool",
-        "yallist"
-      ]
-    },
-    "cluster-key-slot@1.1.2": {
-      "integrity": "sha512-RMr0FhtfXemyinomL4hrWcYJxmX6deFdCxpJzhDttxgO1+bcCnkk+9drydLVDmAMG7NE6aN/fl4F7ucU/90gAA=="
-    },
-    "generic-pool@3.9.0": {
-      "integrity": "sha512-hymDOu5B53XvN4QT9dBmZxPX4CWhBPPLguTZ9MMFeFa/Kg0xWVfylOVNlJji/E7yTZWFd/q9GO5TxDLq156D7g=="
-    },
     "path-to-regexp@6.3.0": {
       "integrity": "sha512-Yhpw4T9C6hPpgPeA28us07OJeqZ5EzQTkbfwuhsUg0c237RomFoETJgmp2sa3F/41gfLE6G5cqcYwznmeEeOlQ=="
     },
     "postgres@3.4.5": {
       "integrity": "sha512-cDWgoah1Gez9rN3H4165peY9qfpEo+SA61oQv65O3cRUE1pOEoJWwddwcqKE8XZYjbblOJlYDlLV4h67HrEVDg=="
-    },
-    "yallist@4.0.0": {
-      "integrity": "sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A=="
     }
   },
   "workspace": {
@@ -99,7 +80,6 @@
       "jsr:@libs/logger@3",
       "jsr:@oak/oak@17",
       "jsr:@std/encoding@1",
-      "npm:@redis/client@1",
       "npm:postgres@3"
     ]
   }
