@@ -20,24 +20,25 @@ export const encodeFile = async <T = unknown>(file: Promise<T | null>): Promise<
 }
 
 export const loadFile = async (gameId: string, preview = false): Promise<string> => {
-  const col = preview ? 'preview' : 'content'
+  const tableSql = sql(preview ? 'files_preview' : 'files_content')
   const files = await sql`
-      select ${sql([col])}
-      from files
-      where game_id = ${gameId}`
+      select data
+      from ${tableSql}
+      where game_id = ${gameId}
+      order by created_at desc, turns desc
+      limit 1`
   if (files.length === 0) {
     throwError(404, '😠', `找不到存档 ${gameId}`)
   }
-  return await encodeFile(files[0][col])
+  return await encodeFile(files[0].data)
 }
 
-export const getPlayerIdsFromFileId = async (gameId: string, column: string): Promise<string[]> => {
+export const getPlayerIdsFromGameId = async (gameId: string): Promise<string[]> => {
   const file = await sql<{ playerId: string }[]>`
-      select player ->> 'playerId' AS player_id
+      select distinct player_id
       from files,
-           jsonb_array_elements(${sql(column)} -> 'gameParameters' -> 'players') AS player
-      where player ->> 'playerType' = 'Human'
-        and game_id = ${gameId}`
+           jsonb_array_elements(files.players) AS player_id
+      where game_id = ${gameId}`
   return file.map((f) => f.playerId)
 }
 
@@ -59,32 +60,30 @@ export const saveFile = async (
   if (gameId !== decoded.gameId) {
     throwError(400, '😠', `${playerId} 上传的存档 ${decoded.gameId} 不是 ${gameId}`)
   }
-  if (!getPlayerIdsFromFile(decoded).includes(playerId)) {
+  const newPlayerIds = getPlayerIdsFromFile(decoded)
+  if (!newPlayerIds.includes(playerId)) {
     throwError(400, '😠', `${playerId} 试图修改不是自己的存档 ${gameId}`)
   }
-  const col = preview ? 'preview' : 'content'
   await sql.begin(async (sql) => {
-    const playerIds = await getPlayerIdsFromFileId(gameId, col)
+    const playerIds = await getPlayerIdsFromGameId(gameId)
     if (playerIds?.length > 1 && !playerIds.includes(playerId)) {
       throwError(400, '😠', `${playerId} 试图修改不是自己的存档 ${gameId}`)
     }
-    const colSql = sql(col)
-    const exists = (await sql`
-        select game_id
-        from files
-        where game_id = ${gameId}
-        limit 1`).length > 0
-    if (exists) {
+    await sql`
+        insert into files(game_id, players)
+        values (${gameId}, ${newPlayerIds})
+        on conflict(game_id) do update
+            set updated_at = now(),
+                players    = ${newPlayerIds}`
+    const turns = decoded.turns ?? 0
+    if (preview) {
       await sql`
-          update files
-          set ${colSql}  = ${decoded},
-              updated_at = now(),
-              update_ip  = ${ip}
-          where game_id = ${gameId}`
+          insert into files_preview(game_id, turns, data, created_player, created_ip)
+          values (${gameId}, ${turns}, ${decoded}, ${playerId}, ${ip})`
     } else {
       await sql`
-          insert into files(game_id, ${colSql}, create_ip, update_ip)
-          values (${gameId}, ${decoded}, ${ip}, ${ip})`
+          insert into files_content(game_id, turns, data, created_player, created_ip)
+          values (${gameId}, ${turns}, ${decoded}, ${playerId}, ${ip})`
     }
   })
 }

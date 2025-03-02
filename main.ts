@@ -123,7 +123,7 @@ app.use(router.allowedMethods())
 
 if (import.meta.main) {
   const abortController = new AbortController()
-  Deno.addSignalListener('SIGINT', async () => {
+  Deno.addSignalListener('SIGINT', () => {
     log.info('关闭中...')
     abortController.abort()
     Deno.exit()
