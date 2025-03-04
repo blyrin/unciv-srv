@@ -22,6 +22,28 @@ const cleanup = async () => {
           from files_content
           where game_id in ${gameIds}`
     }
+    await sql`
+        with latest_records
+                 as (select id
+                     from files_preview
+                     where (game_id, created_at) in
+                           (select game_id, max(created_at)
+                            from files_preview
+                            group by game_id))
+        delete
+        from files_preview
+        where id not in (select id from latest_records)`
+    await sql`
+        with latest_records
+                 as (select id
+                     from files_content
+                     where (game_id, created_at) in
+                           (select game_id, max(created_at)
+                            from files_content
+                            group by game_id))
+        delete
+        from files_content
+        where id not in (select id from latest_records)`
     const deletedPlayers = await sql`
         delete
         from players
