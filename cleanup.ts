@@ -59,7 +59,4 @@ const cleanup = async () => {
   log.info(`清理完成, 共删除 ${deletedGameCount} 个存档, ${deletedPlayerCount} 个玩家`)
 }
 
-export const startTask = async () => {
-  await cleanup()
-  await Deno.cron('cleanup', '* 5 * * 2', cleanup)
-}
+await cleanup()
