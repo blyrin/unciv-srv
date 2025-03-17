@@ -60,3 +60,5 @@ const cleanup = async () => {
 }
 
 await cleanup()
+
+Deno.exit()
