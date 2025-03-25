@@ -21,23 +21,22 @@ export const encodeFile = async <T = unknown>(file: Promise<T | null>): Promise<
 
 export const loadFile = async (gameId: string, preview = false): Promise<string> => {
   const tableSql = sql(preview ? 'files_preview' : 'files_content')
-  const files = await sql`
+  const [file] = await sql`
       select data
       from ${tableSql}
       where game_id = ${gameId}
       order by created_at desc, turns desc
       limit 1`
-  if (files.length === 0) {
+  if (!file) {
     throwError(404, '😠', `找不到存档 ${gameId}`)
   }
-  return await encodeFile(files[0].data)
+  return await encodeFile(file.data)
 }
 
 export const getPlayerIdsFromGameId = async (gameId: string): Promise<string[]> => {
   const file = await sql<{ playerId: string }[]>`
       select distinct player_id
-      from files,
-           jsonb_array_elements(files.players) AS player_id
+      from files, jsonb_array_elements(files.players) AS player_id
       where game_id = ${gameId}`
   return file.map((f) => f.playerId)
 }
@@ -76,14 +75,9 @@ export const saveFile = async (
             set updated_at = now(),
                 players    = ${newPlayerIds}`
     const turns = decoded.turns ?? 0
-    if (preview) {
-      await sql`
-          insert into files_preview(game_id, turns, data, created_player, created_ip)
-          values (${gameId}, ${turns}, ${decoded}, ${playerId}, ${ip})`
-    } else {
-      await sql`
-          insert into files_content(game_id, turns, data, created_player, created_ip)
-          values (${gameId}, ${turns}, ${decoded}, ${playerId}, ${ip})`
-    }
+    const tableName = preview ? 'files_preview' : 'files_content'
+    await sql`
+        insert into ${tableName}(game_id, turns, data, created_player, created_ip)
+        values (${gameId}, ${turns}, ${decoded}, ${playerId}, ${ip})`
   })
 }

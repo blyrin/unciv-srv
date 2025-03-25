@@ -13,14 +13,8 @@ const cleanup = async () => {
         returning game_id`
     if (deletedGames.length > 0) {
       const gameIds = sql(deletedGames.map((g) => g.gameId))
-      await sql`
-          delete
-          from files_preview
-        where game_id in ${gameIds}`
-      await sql`
-          delete
-          from files_content
-          where game_id in ${gameIds}`
+      await sql`delete from files_preview where game_id in ${gameIds}`
+      await sql`delete from files_content where game_id in ${gameIds}`
     }
     await sql`
         with latest_records
