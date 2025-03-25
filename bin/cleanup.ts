@@ -1,5 +1,5 @@
-import { sql } from './libs/db.ts'
-import { log } from './libs/log.ts'
+import { sql } from '../libs/db.ts'
+import { log } from '../libs/log.ts'
 
 const cleanup = async () => {
   const [deletedGameCount, deletedPlayerCount] = await sql.begin(async (sql) => {
