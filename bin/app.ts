@@ -115,3 +115,21 @@ app.use(async (ctx, next) => {
 
 app.use(router.routes())
 app.use(router.allowedMethods())
+
+const PORT = +(Deno.env.get('PORT') || 11451)
+
+if (import.meta.main) {
+  const abortController = new AbortController()
+  Deno.addSignalListener('SIGINT', () => {
+    log.info('关闭中...')
+    abortController.abort()
+    Deno.exit()
+  })
+  try {
+    log.info(`监听端口: ${PORT}`)
+    app.listen({ port: PORT, signal: abortController.signal })
+  } catch (err) {
+    log.error(err)
+    Deno.exit()
+  }
+}
