@@ -12,6 +12,13 @@
 deno i
 ```
 
+### 初始化数据库
+
+```sh
+psql -h localhost -p 5432 -U postgres -d unciv-srv -f structure.sql
+psql -h localhost -p 5432 -U postgres -d unciv-srv -f procedures.sql
+```
+
 ### 配置
 
 UncivSrc 读取环境变量作为配置，可通过 `.env` 文件进行配置

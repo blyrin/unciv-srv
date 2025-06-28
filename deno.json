@@ -2,8 +2,8 @@
   "version": "0.0.1",
   "license": "MPL-2.0",
   "tasks": {
-    "dev": "deno run --watch --allow-all --env-file=.env bin/app.ts",
-    "start": "deno run --allow-all --env-file=.env bin/app.ts",
+    "dev": "deno run --watch --allow-all --env-file=.env app.ts",
+    "start": "deno run --allow-all --env-file=.env app.ts",
     "cleanup": "deno run --allow-all --env-file=.env cleanup.ts",
     "lint": "deno lint",
     "fmt": "deno fmt"
