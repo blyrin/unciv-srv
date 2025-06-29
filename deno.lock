@@ -2,17 +2,10 @@
   "version": "5",
   "specifiers": {
     "jsr:@libs/logger@3": "3.1.3",
-    "jsr:@oak/commons@1": "1.0.0",
-    "jsr:@oak/oak@17": "17.1.4",
-    "jsr:@std/assert@1": "1.0.11",
-    "jsr:@std/bytes@1": "1.0.5",
-    "jsr:@std/crypto@1": "1.0.4",
     "jsr:@std/encoding@1": "1.0.7",
     "jsr:@std/encoding@^1.0.7": "1.0.7",
-    "jsr:@std/http@1": "1.0.13",
-    "jsr:@std/media-types@1": "1.1.0",
-    "jsr:@std/path@1": "1.0.8",
     "npm:@types/node@*": "22.15.15",
+    "npm:h3@1": "1.15.3",
     "npm:path-to-regexp@^6.3.0": "6.3.0",
     "npm:postgres@3": "3.4.5"
   },
@@ -20,52 +13,8 @@
     "@libs/logger@3.1.3": {
       "integrity": "30177fb47e1c81a9fa3bab5795f799283938e67bbeaf480f8cf3bb3605a9fb86"
     },
-    "@oak/commons@1.0.0": {
-      "integrity": "49805b55603c3627a9d6235c0655aa2b6222d3036b3a13ff0380c16368f607ac",
-      "dependencies": [
-        "jsr:@std/assert",
-        "jsr:@std/bytes",
-        "jsr:@std/crypto",
-        "jsr:@std/encoding@1",
-        "jsr:@std/http",
-        "jsr:@std/media-types"
-      ]
-    },
-    "@oak/oak@17.1.4": {
-      "integrity": "60530b582bf276ff741e39cc664026781aa08dd5f2bc5134d756cc427bf2c13e",
-      "dependencies": [
-        "jsr:@oak/commons",
-        "jsr:@std/assert",
-        "jsr:@std/bytes",
-        "jsr:@std/http",
-        "jsr:@std/media-types",
-        "jsr:@std/path",
-        "npm:path-to-regexp"
-      ]
-    },
-    "@std/assert@1.0.11": {
-      "integrity": "2461ef3c368fe88bc60e186e7744a93112f16fd110022e113a0849e94d1c83c1"
-    },
-    "@std/bytes@1.0.5": {
-      "integrity": "4465dd739d7963d964c809202ebea6d5c6b8e3829ef25c6a224290fbb8a1021e"
-    },
-    "@std/crypto@1.0.4": {
-      "integrity": "cee245c453bd5366207f4d8aa25ea3e9c86cecad2be3fefcaa6cb17203d79340"
-    },
     "@std/encoding@1.0.7": {
       "integrity": "f631247c1698fef289f2de9e2a33d571e46133b38d042905e3eac3715030a82d"
-    },
-    "@std/http@1.0.13": {
-      "integrity": "d29618b982f7ae44380111f7e5b43da59b15db64101198bb5f77100d44eb1e1e",
-      "dependencies": [
-        "jsr:@std/encoding@^1.0.7"
-      ]
-    },
-    "@std/media-types@1.1.0": {
-      "integrity": "c9d093f0c05c3512932b330e3cc1fe1d627b301db33a4c2c2185c02471d6eaa4"
-    },
-    "@std/path@1.0.8": {
-      "integrity": "548fa456bb6a04d3c1a1e7477986b6cffbce95102d0bb447c67c4ee70e0364be"
     }
   },
   "npm": {
@@ -75,11 +24,55 @@
         "undici-types"
       ]
     },
+    "cookie-es@1.2.2": {
+      "integrity": "sha512-+W7VmiVINB+ywl1HGXJXmrqkOhpKrIiVZV6tQuV54ZyQC7MMuBt81Vc336GMLoHBq5hV/F9eXgt5Mnx0Rha5Fg=="
+    },
+    "crossws@0.3.5": {
+      "integrity": "sha512-ojKiDvcmByhwa8YYqbQI/hg7MEU0NC03+pSdEq4ZUnZR9xXpwk7E43SMNGkn+JxJGPFtNvQ48+vV2p+P1ml5PA==",
+      "dependencies": [
+        "uncrypto"
+      ]
+    },
+    "defu@6.1.4": {
+      "integrity": "sha512-mEQCMmwJu317oSz8CwdIOdwf3xMif1ttiM8LTufzc3g6kR+9Pe236twL8j3IYT1F7GfRgGcW6MWxzZjLIkuHIg=="
+    },
+    "destr@2.0.5": {
+      "integrity": "sha512-ugFTXCtDZunbzasqBxrK93Ik/DRYsO6S/fedkWEMKqt04xZ4csmnmwGDBAb07QWNaGMAmnTIemsYZCksjATwsA=="
+    },
+    "h3@1.15.3": {
+      "integrity": "sha512-z6GknHqyX0h9aQaTx22VZDf6QyZn+0Nh+Ym8O/u0SGSkyF5cuTJYKlc8MkzW3Nzf9LE1ivcpmYC3FUGpywhuUQ==",
+      "dependencies": [
+        "cookie-es",
+        "crossws",
+        "defu",
+        "destr",
+        "iron-webcrypto",
+        "node-mock-http",
+        "radix3",
+        "ufo",
+        "uncrypto"
+      ]
+    },
+    "iron-webcrypto@1.2.1": {
+      "integrity": "sha512-feOM6FaSr6rEABp/eDfVseKyTMDt+KGpeB35SkVn9Tyn0CqvVsY3EwI0v5i8nMHyJnzCIQf7nsy3p41TPkJZhg=="
+    },
+    "node-mock-http@1.0.1": {
+      "integrity": "sha512-0gJJgENizp4ghds/Ywu2FCmcRsgBTmRQzYPZm61wy+Em2sBarSka0OhQS5huLBg6od1zkNpnWMCZloQDFVvOMQ=="
+    },
     "path-to-regexp@6.3.0": {
       "integrity": "sha512-Yhpw4T9C6hPpgPeA28us07OJeqZ5EzQTkbfwuhsUg0c237RomFoETJgmp2sa3F/41gfLE6G5cqcYwznmeEeOlQ=="
     },
     "postgres@3.4.5": {
       "integrity": "sha512-cDWgoah1Gez9rN3H4165peY9qfpEo+SA61oQv65O3cRUE1pOEoJWwddwcqKE8XZYjbblOJlYDlLV4h67HrEVDg=="
+    },
+    "radix3@1.1.2": {
+      "integrity": "sha512-b484I/7b8rDEdSDKckSSBA8knMpcdsXudlE/LNL639wFoHKwLbEkQFZHWEYwDC0wa0FKUcCY+GAF73Z7wxNVFA=="
+    },
+    "ufo@1.6.1": {
+      "integrity": "sha512-9a4/uxlTWJ4+a5i0ooc1rU7C7YOw3wT+UGqdeNNHWnOF9qcMBgLRS+4IYUqbczewFx4mLEig6gawh7X6mFlEkA=="
+    },
+    "uncrypto@0.1.3": {
+      "integrity": "sha512-Ql87qFHB3s/De2ClA9e0gsnS6zXG27SkTiSJwjCc9MebbfapQfuPzumMIUMi38ezPZVNFcHI9sUIepeQfw8J8Q=="
     },
     "undici-types@6.21.0": {
       "integrity": "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="
@@ -88,8 +81,8 @@
   "workspace": {
     "dependencies": [
       "jsr:@libs/logger@3",
-      "jsr:@oak/oak@17",
       "jsr:@std/encoding@1",
+      "npm:h3@1",
       "npm:postgres@3"
     ]
   }

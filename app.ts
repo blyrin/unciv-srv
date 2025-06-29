@@ -1,5 +1,20 @@
 // deno-lint-ignore-file no-explicit-any
-import { Application, Router } from '@oak/oak'
+import {
+  createApp,
+  createRouter,
+  defineEventHandler,
+  getCookie,
+  getHeader,
+  getRouterParam,
+  type H3Event,
+  readBody,
+  sendRedirect,
+  serveStatic,
+  setCookie,
+  setResponseHeader,
+  setResponseStatus,
+  toWebHandler,
+} from 'npm:h3'
 import { decodeBase64, encodeBase64 } from '@std/encoding/base64'
 import { type levellike, Logger } from '@libs/logger'
 import postgres from 'npm:postgres'
@@ -166,16 +181,12 @@ const generateSessionId = (): string => {
   return crypto.randomUUID()
 }
 
-const setSessionCookie = (ctx: any, sessionId: string) => {
-  ctx.response.headers.set('Set-Cookie', `session=${sessionId}; HttpOnly; Path=/; Max-Age=86400`)
+const setSessionCookie = (event: H3Event, sessionId: string) => {
+  setCookie(event, 'session', sessionId, { httpOnly: true, path: '/', maxAge: 86400 })
 }
 
-const getSessionId = (ctx: any): string | null => {
-  const cookies = ctx.request.headers.get('cookie')
-  if (!cookies) return null
-
-  const sessionMatch = cookies.match(/session=([^;]+)/)
-  return sessionMatch ? sessionMatch[1] : null
+const getSessionId = (event: H3Event): string | null => {
+  return getCookie(event, 'session') || null
 }
 
 export const loadAdminAuth = async (authHeader?: string | null): Promise<AdminAuth> => {
@@ -207,13 +218,13 @@ export const loadAdminAuth = async (authHeader?: string | null): Promise<AdminAu
   }
 }
 
-export const getUserSession = async (ctx: any): Promise<UserSession> => {
-  const sessionId = getSessionId(ctx)
+export const getUserSession = async (event: H3Event): Promise<UserSession> => {
+  const sessionId = getSessionId(event)
   if (sessionId && sessions.has(sessionId)) {
     return sessions.get(sessionId)!
   }
 
-  const authHeader = ctx.request.headers.get('authorization')
+  const authHeader = getHeader(event, 'authorization')
 
   const adminAuth = await loadAdminAuth(authHeader)
   if (adminAuth.isAdmin) {
@@ -230,7 +241,26 @@ export const getUserSession = async (ctx: any): Promise<UserSession> => {
   return { isAdmin: false, authenticated: false }
 }
 
-import type { GameInfo, PlayerInfo } from './templates.ts'
+interface PlayerInfo {
+  playerId: string
+  createdAt: Date
+  updatedAt: Date
+  whitelist: boolean
+  remark?: string
+  createIp?: string
+  updateIp?: string
+}
+
+interface GameInfo {
+  gameId: string
+  players: string[]
+  createdAt: Date
+  updatedAt: Date
+  whitelist: boolean
+  remark?: string
+  turns?: number
+  createdPlayer?: string
+}
 
 export const getAllPlayers = (): Promise<PlayerInfo[]> => {
   return sql<PlayerInfo[]>`SELECT * FROM sp_get_all_players()`
@@ -257,304 +287,330 @@ export const updatePlayer = async (playerId: string, whitelist: boolean, remark?
   await sql`SELECT sp_update_player(${playerId}, ${whitelist}, ${remark || null})`
 }
 
-export const getPlayerEditInfo = async (playerId: string): Promise<PlayerInfo | null> => {
-  const players = await sql<PlayerInfo[]>`SELECT * FROM sp_get_player_edit_info(${playerId})`
-  return players[0] ?? null
-}
-
-export const getGameEditInfo = async (gameId: string): Promise<GameInfo | null> => {
-  const games = await sql<GameInfo[]>`SELECT * FROM sp_get_game_edit_info(${gameId})`
-  return games[0] ?? null
-}
-
 export const updateGame = async (gameId: string, whitelist: boolean, remark?: string): Promise<void> => {
   await sql`SELECT sp_update_game(${gameId}, ${whitelist}, ${remark || null})`
 }
 
-export const router = new Router()
+export const router = createRouter()
 
-router.all('/isalive', (ctx) => {
-  ctx.response.body = { authVersion: 1 }
-})
+router.get('/isalive', defineEventHandler(() => ({ authVersion: 1 })))
 
-router.get('/auth', async (ctx) => {
-  const header = ctx.request.headers.get('authorization')
-  const { playerId, password, status } = await loadAuth(header)
-  if (status === AuthStatus.Invalid) {
-    throwError(401, '密码错误')
-  }
-  if (status === AuthStatus.Missing) {
-    if (password.length < 6 || password.length > 128) {
-      throwError(400, '密码长度错误')
+router.get(
+  '/auth',
+  defineEventHandler(async (event) => {
+    const header = getHeader(event, 'authorization')
+    const { playerId, password, status } = await loadAuth(header)
+    if (status === AuthStatus.Invalid) {
+      throwError(401, '密码错误')
     }
-    const ip = ctx.request.ip
+    if (status === AuthStatus.Missing) {
+      if (password.length < 6 || password.length > 128) {
+        throwError(400, '密码长度错误')
+      }
+      const ip = getHeader(event, 'x-forwarded-for') || event.node.req.socket?.remoteAddress || 'unknown'
+      await sql`SELECT sp_save_auth(${playerId}, ${password}, ${ip})`
+      return playerId
+    }
+    return playerId
+  }),
+)
+
+router.put(
+  '/auth',
+  defineEventHandler(async (event) => {
+    const header = getHeader(event, 'authorization')
+    const { playerId, status } = await loadAuth(header)
+    if (status === AuthStatus.Invalid) {
+      throwError(401, '密码错误')
+    }
+    const password = await readBody(event)
+    if (typeof password !== 'string' || password.length < 6 || password.length > 128) {
+      throwError(401, '密码长度错误')
+    }
+    const ip = getHeader(event, 'x-forwarded-for') || event.node.req.socket?.remoteAddress || 'unknown'
     await sql`SELECT sp_save_auth(${playerId}, ${password}, ${ip})`
-    ctx.response.body = playerId
-    return
-  }
-  ctx.response.body = playerId
-})
+    return playerId
+  }),
+)
 
-router.put('/auth', async (ctx) => {
-  const header = ctx.request.headers.get('authorization')
-  const { playerId, status } = await loadAuth(header)
-  if (status === AuthStatus.Invalid) {
-    throwError(401, '密码错误')
-  }
-  const password = await ctx.request.body.text()
-  if (password.length < 6 || password.length > 128) {
-    throwError(401, '密码长度错误')
-  }
-  const ip = ctx.request.ip
-  await sql`SELECT sp_save_auth(${playerId}, ${password}, ${ip})`
-  ctx.response.body = playerId
-})
+router.get(
+  '/files/:gameId',
+  defineEventHandler(async (event) => {
+    await loadPlayerId(getHeader(event, 'authorization'))
+    const gameIdParam = getRouterParam(event, 'gameId') || ''
+    const [gameId, isPreview] = gameIdParam.split('_')
+    return await loadFile(gameId, !!isPreview)
+  }),
+)
 
-router.get('/files/:gameId', async (ctx) => {
-  await loadPlayerId(ctx.request.headers.get('authorization'))
-  const [gameId, isPreview] = ctx.params.gameId.split('_')
-  ctx.response.body = await loadFile(gameId, !!isPreview)
-})
+router.put(
+  '/files/:gameId',
+  defineEventHandler(async (event) => {
+    const playerId = await loadPlayerId(getHeader(event, 'authorization'))
+    const body = await readBody(event)
+    if (!body || (typeof body === 'string' && body.length > MAX_BODY_SIZE)) {
+      throwError(400, '😠', '无效的存档')
+    }
+    const gameIdParam = getRouterParam(event, 'gameId') || ''
+    const [gameId, isPreview] = gameIdParam.split('_')
+    const ip = getHeader(event, 'x-forwarded-for') || event.node.req.socket?.remoteAddress || 'unknown'
+    await saveFile(playerId, gameId, typeof body === 'string' ? body : JSON.stringify(body), !!isPreview, ip)
+    return gameId
+  }),
+)
 
-router.put('/files/:gameId', async (ctx) => {
-  const playerId = await loadPlayerId(ctx.request.headers.get('authorization'))
-  const body = await ctx.request.body.text()
-  if (!body || body.length > MAX_BODY_SIZE) {
-    throwError(400, '😠', '无效的存档')
-  }
-  const [gameId, isPreview] = ctx.params.gameId.split('_')
-  const ip = ctx.request.ip
-  await saveFile(playerId, gameId, body, !!isPreview, ip)
-  ctx.response.body = gameId
-})
+router.get(
+  '/',
+  defineEventHandler((event) => {
+    return sendRedirect(event, '/login.html', 302)
+  }),
+)
 
-import {
-  renderAdminDashboard,
-  renderGameEditModal,
-  renderGamesTable,
-  renderLoginPage,
-  renderPlayerEditModal,
-  renderPlayersTable,
-  renderUserDashboard,
-  renderUserGamesTable,
-} from './templates.ts'
+router.post(
+  '/api/login',
+  defineEventHandler(async (event) => {
+    const body = await readBody(event)
+    const username = body?.username?.toString() || ''
+    const password = body?.password?.toString() || ''
+    const authHeader = `Basic ${btoa(`${username}:${password}`)}`
+    const tempEvent = {
+      ...event,
+      node: {
+        ...event.node,
+        req: {
+          ...event.node.req,
+          headers: {
+            ...event.node.req.headers,
+            authorization: authHeader,
+          },
+        },
+      },
+    } as H3Event
+    const tempSession = await getUserSession(tempEvent)
+    setResponseHeader(event, 'Content-Type', 'application/json')
+    if (!tempSession.authenticated) {
+      return { error: '用户名或密码错误' }
+    }
+    const sessionId = generateSessionId()
+    sessions.set(sessionId, tempSession)
+    setSessionCookie(event, sessionId)
+    if (tempSession.isAdmin) {
+      return { redirect: '/admin.html' }
+    } else {
+      return { redirect: '/user.html' }
+    }
+  }),
+)
 
-router.get('/', (ctx) => {
-  ctx.response.headers.set('Content-Type', 'text/html; charset=utf-8')
-  ctx.response.body = renderLoginPage()
-})
-
-router.post('/login', async (ctx) => {
-  const body = await ctx.request.body.formData()
-  const username = body.get('username')?.toString() || ''
-  const password = body.get('password')?.toString() || ''
-  const authHeader = `Basic ${btoa(`${username}:${password}`)}`
-  const tempSession = await getUserSession({ request: { headers: { get: () => authHeader } } })
-  if (!tempSession.authenticated) {
-    ctx.response.body = '<div class="error">用户名或密码错误</div>'
-    return
-  }
-  const sessionId = generateSessionId()
-  sessions.set(sessionId, tempSession)
-  setSessionCookie(ctx, sessionId)
-  if (tempSession.isAdmin) {
-    ctx.response.headers.set('HX-Redirect', '/dashboard')
-  } else {
-    ctx.response.headers.set('HX-Redirect', '/user')
-  }
-  ctx.response.body = ''
-})
-
-router.get('/dashboard', async (ctx) => {
-  const session = await getUserSession(ctx)
-  if (!session.authenticated || !session.isAdmin) {
-    ctx.response.status = 302
-    ctx.response.headers.set('Location', '/')
-    return
-  }
-  const [players, games] = await Promise.all([
-    getAllPlayers(),
-    getAllGames(),
-  ])
-  ctx.response.headers.set('Content-Type', 'text/html; charset=utf-8')
-  ctx.response.body = renderAdminDashboard(players, games)
-})
-
-router.get('/user', async (ctx) => {
-  const session = await getUserSession(ctx)
-  if (!session.authenticated || session.isAdmin || !session.playerId) {
-    ctx.response.status = 302
-    ctx.response.headers.set('Location', '/')
-    return
-  }
-  const games = await getUserGames(session.playerId)
-  ctx.response.headers.set('Content-Type', 'text/html; charset=utf-8')
-  ctx.response.body = renderUserDashboard(session.playerId, games)
-})
-
-router.get('/logout', (ctx) => {
-  const sessionId = getSessionId(ctx)
-  if (sessionId) {
-    sessions.delete(sessionId)
-  }
-  ctx.response.headers.set('Set-Cookie', 'session=; HttpOnly; Path=/; Max-Age=0')
-  ctx.response.headers.set('Location', '/')
-  ctx.response.status = 302
-})
-
-router.get('/player/:playerId/edit', async (ctx) => {
-  const session = await getUserSession(ctx)
-  if (!session.authenticated || !session.isAdmin) {
-    ctx.response.status = 401
-    return
-  }
-  const playerId = ctx.params.playerId
-  const player = await getPlayerEditInfo(playerId)
-  if (!player) {
-    ctx.response.status = 404
-    return
-  }
-
-  ctx.response.headers.set('Content-Type', 'text/html; charset=utf-8')
-  ctx.response.body = renderPlayerEditModal(player)
-})
-
-router.put('/player/:playerId', async (ctx) => {
-  const session = await getUserSession(ctx)
-  if (!session.authenticated || !session.isAdmin) {
-    ctx.response.status = 401
-    return
-  }
-  const playerId = ctx.params.playerId
-  const body = await ctx.request.body.formData()
-  const whitelist = body.get('whitelist') === 'true'
-  const remark = body.get('remark')?.toString() || ''
-  await updatePlayer(playerId, whitelist, remark)
-  const players = await getAllPlayers()
-  ctx.response.headers.set('Content-Type', 'text/html; charset=utf-8')
-  ctx.response.body = renderPlayersTable(players)
-})
-
-router.get('/game/:gameId/edit', async (ctx) => {
-  const session = await getUserSession(ctx)
-  if (!session.authenticated || !session.isAdmin) {
-    ctx.response.status = 401
-    return
-  }
-  const gameId = ctx.params.gameId
-  const game = await getGameEditInfo(gameId)
-  if (!game) {
-    ctx.response.status = 404
-    return
-  }
-  ctx.response.headers.set('Content-Type', 'text/html; charset=utf-8')
-  ctx.response.body = renderGameEditModal(game)
-})
-
-router.put('/game/:gameId', async (ctx) => {
-  const session = await getUserSession(ctx)
-  if (!session.authenticated || !session.isAdmin) {
-    ctx.response.status = 401
-    return
-  }
-  const gameId = ctx.params.gameId
-  const body = await ctx.request.body.formData()
-  const whitelist = body.get('whitelist') === 'true'
-  const remark = body.get('remark')?.toString() || ''
-  await updateGame(gameId, whitelist, remark)
-  const games = await getAllGames()
-  ctx.response.headers.set('Content-Type', 'text/html; charset=utf-8')
-  ctx.response.body = renderGamesTable(games)
-})
-
-router.delete('/game/:gameId', async (ctx) => {
-  const session = await getUserSession(ctx)
-  if (!session.authenticated) {
-    ctx.response.status = 401
-    return
-  }
-  const gameId = ctx.params.gameId
-  if (!session.isAdmin && session.playerId) {
-    const createdPlayer = await checkGameDeletePermission(gameId)
-    if (!createdPlayer || createdPlayer !== session.playerId) {
-      ctx.response.status = 403
+router.get(
+  '/api/players',
+  defineEventHandler(async (event) => {
+    const session = await getUserSession(event)
+    if (!session.authenticated || !session.isAdmin) {
+      setResponseStatus(event, 401)
       return
     }
-  }
-  await deleteGame(gameId)
-  if (session.isAdmin) {
+    const players = await getAllPlayers()
+    return players
+  }),
+)
+
+router.get(
+  '/api/games',
+  defineEventHandler(async (event) => {
+    const session = await getUserSession(event)
+    if (!session.authenticated || !session.isAdmin) {
+      setResponseStatus(event, 401)
+      return
+    }
     const games = await getAllGames()
-    ctx.response.headers.set('Content-Type', 'text/html; charset=utf-8')
-    ctx.response.body = renderGamesTable(games)
-  } else if (session.playerId) {
+    return games
+  }),
+)
+
+router.get(
+  '/api/user/games',
+  defineEventHandler(async (event) => {
+    const session = await getUserSession(event)
+    if (!session.authenticated || session.isAdmin || !session.playerId) {
+      setResponseStatus(event, 401)
+      return
+    }
     const games = await getUserGames(session.playerId)
-    ctx.response.headers.set('Content-Type', 'text/html; charset=utf-8')
-    ctx.response.body = renderUserGamesTable(games, session.playerId)
-  }
-})
+    return { playerId: session.playerId, games }
+  }),
+)
 
-export const app = new Application()
+router.get(
+  '/api/logout',
+  defineEventHandler((event) => {
+    const sessionId = getSessionId(event)
+    if (sessionId) {
+      sessions.delete(sessionId)
+    }
+    setCookie(event, 'session', '', { httpOnly: true, path: '/', maxAge: 0 })
+    return sendRedirect(event, '/login.html', 302)
+  }),
+)
 
-app.use(async (ctx, next) => {
-  const startTime = Date.now()
-  const path = ctx.request.url.pathname
-  const ip = ctx.request.ip
-  try {
-    if (path.startsWith('/files/')) {
-      const ua = ctx.request.headers.get('user-agent')
-      if (!ua?.startsWith('Unciv')) {
-        throwError(400, '😠', `使用了错误的客户端`)
-      }
-      const gameId = path.match(/^\/files\/([^\/]+)/)?.[1]
-      if (!gameId || !GAME_ID_REGEX.test(gameId)) {
-        throwError(400, '😠', `id格式错误`)
+router.put(
+  '/api/player/:playerId',
+  defineEventHandler(async (event) => {
+    const session = await getUserSession(event)
+    if (!session.authenticated || !session.isAdmin) {
+      setResponseStatus(event, 401)
+      return
+    }
+    const playerId = getRouterParam(event, 'playerId')
+    if (!playerId) {
+      setResponseStatus(event, 400)
+      return { error: 'Missing playerId' }
+    }
+    const body = await readBody(event)
+    await updatePlayer(playerId, body.whitelist, body.remark)
+    setResponseStatus(event, 200)
+    return 'OK'
+  }),
+)
+
+router.put(
+  '/api/game/:gameId',
+  defineEventHandler(async (event) => {
+    const session = await getUserSession(event)
+    if (!session.authenticated || !session.isAdmin) {
+      setResponseStatus(event, 401)
+      return
+    }
+    const gameId = getRouterParam(event, 'gameId')
+    if (!gameId) {
+      setResponseStatus(event, 400)
+      return { error: 'Missing gameId' }
+    }
+    const body = await readBody(event)
+    await updateGame(gameId, body.whitelist, body.remark)
+    setResponseStatus(event, 200)
+    return 'OK'
+  }),
+)
+
+router.delete(
+  '/api/game/:gameId',
+  defineEventHandler(async (event) => {
+    const session = await getUserSession(event)
+    if (!session.authenticated) {
+      setResponseStatus(event, 401)
+      return
+    }
+    const gameId = getRouterParam(event, 'gameId')
+    if (!gameId) {
+      setResponseStatus(event, 400)
+      return { error: 'Missing gameId' }
+    }
+    if (!session.isAdmin && session.playerId) {
+      const createdPlayer = await checkGameDeletePermission(gameId)
+      if (!createdPlayer || createdPlayer !== session.playerId) {
+        setResponseStatus(event, 403)
+        return
       }
     }
-    await next()
+    await deleteGame(gameId)
+    setResponseStatus(event, 200)
+    return 'OK'
+  }),
+)
+
+export const app = createApp({
+  onError: (error, event) => {
     const endTime = Date.now()
-    log.with({ ip, t: endTime - startTime, s: ctx.response.status })
-      .info(`${ctx.request.method} ${path}`)
-  } catch (err: unknown) {
-    const endTime = Date.now()
-    if (err instanceof UncivError) {
-      log.with({ ip, t: endTime - startTime, s: err.status })
-        .warn(`${ctx.request.method} ${path}`)
-        .warn(err.message, err.info)
-      ctx.response.status = err.status
-      ctx.response.body = err.message
-    } else if (err instanceof Error) {
+    const startTime = event.context.startTime || endTime
+    const path = event.node.req.url || ''
+    const ip = getHeader(event, 'x-forwarded-for') || event.node.req.socket?.remoteAddress || 'unknown'
+
+    if (error instanceof UncivError) {
+      log.with({ ip, t: endTime - startTime, s: error.status })
+        .warn(`${event.node.req.method} ${path}`)
+        .warn(error.message, error.info)
+      setResponseStatus(event, error.status)
+      return error.message
+    } else if (error instanceof Error) {
       log.with({ ip, t: endTime - startTime, s: 500 })
-        .error(`${ctx.request.method} ${path}`)
-        .error(err.message)
-      ctx.response.status = 500
-      ctx.response.body = '服务器错误'
+        .error(`${event.node.req.method} ${path}`)
+        .error(error.message)
+      setResponseStatus(event, 500)
+      return '服务器错误'
     } else {
       log.with({ ip, t: endTime - startTime, s: 500 })
-        .error(`${ctx.request.method} ${path}`)
-        .error(err)
-      ctx.response.status = 500
-      ctx.response.body = '未知错误'
+        .error(`${event.node.req.method} ${path}`)
+        .error(error)
+      setResponseStatus(event, 500)
+      return '未知错误'
     }
-  }
+  },
 })
 
-app.use(router.routes())
-app.use(router.allowedMethods())
+app.use(defineEventHandler((event) => {
+  const startTime = Date.now()
+  event.context.startTime = startTime
+  const path = event.node.req.url || ''
+  if (path.startsWith('/files/')) {
+    const ua = getHeader(event, 'user-agent')
+    if (!ua?.startsWith('Unciv')) {
+      throwError(400, '😠', `使用了错误的客户端`)
+    }
+    const gameId = path.match(/^\/files\/([^\/]+)/)?.[1]
+    if (!gameId || !GAME_ID_REGEX.test(gameId)) {
+      throwError(400, '😠', `id格式错误`)
+    }
+  }
+}))
+
+app.use(router.handler)
+
+app.use(
+  defineEventHandler(async (event) => {
+    const url = event.node.req.url || ''
+    if (url.endsWith('.html') || url.endsWith('.css') || url.endsWith('.js') || url.endsWith('.ico')) {
+      log.debug(`Serving static file: ${url}`)
+      return await serveStatic(event, {
+        getContents: async (id) => {
+          const filePath = `./public${id}`
+          try {
+            log.debug(`Reading file: ${filePath}`)
+            return await Deno.readFile(filePath)
+          } catch (error) {
+            log.debug(`Failed to read file ${filePath}:`, error)
+            return undefined
+          }
+        },
+        getMeta: async (id) => {
+          const filePath = `./public${id}`
+          try {
+            log.debug(`Getting meta for file: ${filePath}`)
+            const stats = await Deno.stat(filePath)
+            if (!stats.isFile) {
+              return undefined
+            }
+            return {
+              size: stats.size,
+              mtime: stats.mtime?.getTime() || 0,
+            }
+          } catch (error) {
+            log.debug(`Failed to get meta for file ${filePath}:`, error)
+            return undefined
+          }
+        },
+      })
+    }
+  }),
+)
 
 const PORT = +(Deno.env.get('PORT') || 11451)
 
 if (import.meta.main) {
-  const abortController = new AbortController()
-  Deno.addSignalListener('SIGINT', () => {
-    log.info('关闭中...')
-    abortController.abort()
-    Deno.exit()
+  Deno.serve({
+    port: PORT,
+    handler: (req, _info) => {
+      return toWebHandler(app)(req, {})
+    },
   })
-  try {
-    log.info(`监听端口: ${PORT}`)
-    app.listen({ port: PORT, signal: abortController.signal })
-  } catch (err) {
-    log.error(err)
-    Deno.exit()
-  }
 }

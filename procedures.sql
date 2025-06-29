@@ -350,48 +350,20 @@ BEGIN
 END;
 $$;
 
--- 获取单个玩家编辑信息存储过程
--- Get single player edit information stored procedure
-CREATE
-OR REPLACE FUNCTION "sp_get_player_edit_info" (IN "p_player_id" uuid) RETURNS TABLE (
-    "player_id" uuid,
-    "created_at" timestamptz,
-    "updated_at" timestamptz,
-    "whitelist" bool,
-    "remark" varchar(255),
-    "create_ip" varchar(255),
-    "update_ip" varchar(255)
-) LANGUAGE plpgsql AS $$
-BEGIN
-    -- 查询单个玩家的详细信息用于编辑 / Query single player detailed information for editing
-    RETURN QUERY
-    SELECT
-        p."player_id",
-        p."created_at",
-        p."updated_at",
-        p."whitelist",
-        p."remark",
-        p."create_ip",
-        p."update_ip"
-    FROM "players" p
-    WHERE p."player_id" = "p_player_id";
-END;
-$$;
-
 -- 更新玩家信息存储过程
 -- Update player information stored procedure
 CREATE
 OR REPLACE FUNCTION "sp_update_player" (
     IN "p_player_id" uuid,
-    IN "p_whitelist" bool,
+    IN "p_whitelist" bool DEFAULT NULL,
     IN "p_remark" varchar(255) DEFAULT NULL
 ) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    -- 更新玩家的白名单状态和备注信息 / Update player whitelist status and remark
+    -- 动态构建更新语句，只更新有值的字段 / Dynamically build update statement, only update fields with values
     UPDATE "players"
     SET
-        "whitelist" = "p_whitelist",
-        "remark" = "p_remark",
+        "whitelist" = CASE WHEN "p_whitelist" IS NOT NULL THEN "p_whitelist" ELSE "whitelist" END,
+        "remark" = CASE WHEN "p_remark" IS NOT NULL THEN "p_remark" ELSE "remark" END,
         "updated_at" = now()
     WHERE "player_id" = "p_player_id";
 
@@ -402,55 +374,20 @@ BEGIN
 END;
 $$;
 
--- 获取单个存档编辑信息存储过程
--- Get single game edit information stored procedure
-CREATE
-OR REPLACE FUNCTION "sp_get_game_edit_info" (IN "p_game_id" uuid) RETURNS TABLE (
-    "game_id" uuid,
-    "players" jsonb,
-    "created_at" timestamptz,
-    "updated_at" timestamptz,
-    "whitelist" bool,
-    "remark" varchar(255),
-    "created_player" uuid
-) LANGUAGE plpgsql AS $$
-BEGIN
-    -- 查询单个存档的详细信息用于编辑 / Query single game detailed information for editing
-    RETURN QUERY
-    SELECT
-        f."game_id",
-        f."players",
-        f."created_at",
-        f."updated_at",
-        f."whitelist",
-        f."remark",
-        fc."created_player"
-    FROM "files" f
-    LEFT JOIN LATERAL (
-        SELECT fc_inner."created_player"
-        FROM "files_content" fc_inner
-        WHERE fc_inner."game_id" = f."game_id"
-        ORDER BY fc_inner."created_at" DESC, fc_inner."turns" DESC
-        LIMIT 1
-    ) fc ON true
-    WHERE f."game_id" = "p_game_id";
-END;
-$$;
-
 -- 更新游戏信息存储过程
 -- Update game information stored procedure
 CREATE
 OR REPLACE FUNCTION "sp_update_game" (
     IN "p_game_id" uuid,
-    IN "p_whitelist" bool,
+    IN "p_whitelist" bool DEFAULT NULL,
     IN "p_remark" varchar(255) DEFAULT NULL
 ) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    -- 更新游戏的白名单状态和备注信息 / Update game whitelist status and remark
+    -- 动态构建更新语句，只更新有值的字段 / Dynamically build update statement, only update fields with values
     UPDATE "files"
     SET
-        "whitelist" = "p_whitelist",
-        "remark" = "p_remark",
+        "whitelist" = CASE WHEN "p_whitelist" IS NOT NULL THEN "p_whitelist" ELSE "whitelist" END,
+        "remark" = CASE WHEN "p_remark" IS NOT NULL THEN "p_remark" ELSE "remark" END,
         "updated_at" = now()
     WHERE "game_id" = "p_game_id";
 
