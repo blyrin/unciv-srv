@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>管理员面板 - Unciv Srv</title>
-    <link rel="stylesheet" href="main.css" />
+    <link rel="stylesheet" href="/main.css" />
   </head>
   <body>
     <main class="admin-page">
@@ -204,7 +204,7 @@
 
       async function updatePlayer(playerId, whitelist, remark) {
         try {
-          const response = await fetch(`/api/player/${playerId}`, {
+          const response = await fetch(`/api/players/${playerId}`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -238,7 +238,7 @@
 
       async function updateGame(gameId, whitelist, remark) {
         try {
-          const response = await fetch(`/api/game/${gameId}`, {
+          const response = await fetch(`/api/games/${gameId}`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',

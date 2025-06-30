@@ -1,0 +1,24 @@
+{
+  "name": "unciv-srv",
+  "version": "0.0.1",
+  "description": "Unciv Srv",
+  "license": "MPL-2.0",
+  "type": "module",
+  "main": "app.js",
+  "scripts": {
+    "dev": "nitro dev --host",
+    "prepare": "nitro prepare",
+    "predev": "nitro prepare",
+    "build": "nitro build",
+    "preview": "node .output/server/index.mjs"
+  },
+  "dependencies": {
+    "postgres": "^3.4.7"
+  },
+  "devDependencies": {
+    "nitropack": "latest"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

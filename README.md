@@ -4,12 +4,10 @@
 
 ## 如何运行
 
-> 请使用 [Deno](https://deno.com/)
-
 ### 安装依赖
 
 ```sh
-deno i
+pnpm i
 ```
 
 ### 初始化数据库
@@ -28,7 +26,5 @@ UncivSrc 读取环境变量作为配置，可通过 `.env` 文件进行配置
 ### 启动
 
 ```sh
-deno run dev
-# 或
-deno run start
+pnpm run dev
 ```

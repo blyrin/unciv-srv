@@ -8,5 +8,6 @@ dist
 .output
 .env
 .local
+.nitro
 
 data

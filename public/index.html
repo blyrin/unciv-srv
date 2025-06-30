@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Unciv Srv - 登录</title>
-    <link rel="stylesheet" href="main.css" />
+    <link rel="stylesheet" href="/main.css" />
   </head>
   <body>
     <main class="login-page">
@@ -53,8 +53,8 @@
           const result = await response.json()
           if (result.redirect) {
             window.location.href = result.redirect
-          } else if (result.error) {
-            resultDiv.innerHTML = `<div class="error">${result.error}</div>`
+          } else if (result.message) {
+            resultDiv.innerHTML = `<div class="error">${result.message}</div>`
           }
         } catch (error) {
           resultDiv.innerHTML = '<div class="error">网络错误，请重试</div>'
