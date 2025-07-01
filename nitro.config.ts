@@ -6,4 +6,9 @@ export default defineNitroConfig({
   scheduledTasks: {
     '* 4 * * *': ['cleanup'],
   },
+  rollupConfig: {
+    output: {
+      compact: true,
+    },
+  },
 })

@@ -1,6 +1,8 @@
-import { createGzip, createGunzip } from 'node:zlib'
-import { pipeline } from 'node:stream/promises'
-import { Readable, Writable } from 'node:stream'
+import { gzip, gunzip } from 'node:zlib'
+import { promisify } from 'node:util'
+
+const gzipAsync = promisify(gzip)
+const gunzipAsync = promisify(gunzip)
 
 export const GAME_ID_REGEX = /^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}(_Preview)?$/
 export const MAX_BODY_SIZE = 4 * 1024 * 1024
@@ -8,33 +10,14 @@ export const MAX_BODY_SIZE = 4 * 1024 * 1024
 export const decodeFile = async <T = unknown>(file?: string | null): Promise<T | null> => {
   if (!file) return null
   const buffer = Buffer.from(file, 'base64')
-  const input = Readable.from([buffer])
-  const gunzip = createGunzip()
-  const chunks: Buffer[] = []
-  const output = new Writable({
-    write(chunk, _encoding, callback) {
-      chunks.push(chunk)
-      callback()
-    },
-  })
-  await pipeline(input, gunzip, output)
-  const decompressed = Buffer.concat(chunks).toString('utf-8')
-  return JSON.parse(decompressed)
+  const decompressed = await gunzipAsync(buffer)
+  return JSON.parse(decompressed.toString('utf-8'))
 }
 
 export const encodeFile = async <T = unknown>(data: T): Promise<string> => {
   const jsonString = JSON.stringify(data)
-  const input = Readable.from([jsonString])
-  const gzip = createGzip()
-  const chunks: Buffer[] = []
-  const output = new Writable({
-    write(chunk, _encoding, callback) {
-      chunks.push(chunk)
-      callback()
-    },
-  })
-  await pipeline(input, gzip, output)
-  const compressed = Buffer.concat(chunks)
+  const buffer = Buffer.from(jsonString, 'utf-8')
+  const compressed = await gzipAsync(buffer)
   return compressed.toString('base64')
 }
 
@@ -67,14 +50,17 @@ export const saveFile = async (
   preview = false,
   ip: string
 ) => {
-  const decoded: any = await decodeFile(text).catch((error) => {
+  let decoded: any
+  try {
+    decoded = await decodeFile(text)
+  } catch (error) {
     throw createError({
       status: 400,
       message: '😠',
       data: `${playerId} 上传的存档 ${gameId} 无法解析`,
       cause: error,
     })
-  })
+  }
   if (gameId !== decoded.gameId) {
     throw createError({
       status: 400,
