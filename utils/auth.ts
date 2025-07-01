@@ -1,4 +1,5 @@
 import { type H3Event } from 'h3'
+import process from 'node:process'
 
 export const loadAuth = async (authHeader?: string | null): Promise<PlayerWithAuth> => {
   const invalidAuth = { playerId: '', password: '', status: AuthStatus.Invalid }
@@ -26,9 +27,8 @@ export const loadPlayerId = async (authorization?: string | null): Promise<strin
 }
 
 export const loadAdminAuth = async (authHeader?: string | null): Promise<AdminAuth> => {
-  const config = useRuntimeConfig()
-  const adminUsername = config.adminUsername
-  const adminPassword = config.adminPassword
+  const adminUsername = process.env.ADMIN_USERNAME || ''
+  const adminPassword = process.env.ADMIN_PASSWORD || ''
   if (!authHeader) {
     return { username: '', password: '', isAdmin: false }
   }

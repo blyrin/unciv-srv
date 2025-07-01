@@ -6,7 +6,7 @@ export default defineNitroPlugin((nitro) => {
   })
   nitro.hooks.hook('error', (error, { event }) => {
     const requestTime = event.context.requestTime
-    const data = `${error.message} ${(error as any).data}`
+    const data = `${error.message} ${(error as any).data ?? ''}`
     const time = Date.now() - requestTime
     const method = event.method
     const path = event.path

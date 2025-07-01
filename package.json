@@ -10,7 +10,7 @@
     "prepare": "nitro prepare",
     "predev": "nitro prepare",
     "build": "nitro build",
-    "preview": "node .output/server/index.mjs"
+    "start": "node --env-file=.env .output/server/index.mjs"
   },
   "dependencies": {
     "postgres": "^3.4.7"

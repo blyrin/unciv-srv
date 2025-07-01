@@ -1,16 +1,17 @@
+import process from 'node:process'
 import postgres from 'postgres'
 
 let sql: ReturnType<typeof postgres> | null = null
 
 export function db() {
   if (!sql) {
-    const config = useRuntimeConfig()
+    const env = process.env
     sql = postgres({
-      host: config.dbHost,
-      port: config.dbPort,
-      database: config.dbName,
-      user: config.dbUser,
-      password: config.dbPassword,
+      host: env.DB_HOST || 'localhost',
+      port: +(env.DB_PORT || 5432),
+      database: env.DB_NAME || 'unciv-srv',
+      user: env.DB_USER || 'postgres',
+      password: env.DB_PASSWORD || 'postgres',
       transform: postgres.camel,
     })
   }
