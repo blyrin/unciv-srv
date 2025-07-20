@@ -124,6 +124,9 @@
                   <button class="btn btn-primary" onclick="editPlayerRemark('${player.playerId}', '${player.remark}')">
                     编辑备注
                   </button>
+                  <button class="btn btn-info" onclick="showPlayerPassword('${player.playerId}')">
+                    查看密码
+                  </button>
                 </td>
               </tr>`
               )
@@ -200,6 +203,22 @@
         if (newRemark === null) return
         if (newRemark === currentRemark) return
         updatePlayer(playerId, null, newRemark)
+      }
+
+      async function showPlayerPassword(playerId) {
+        try {
+          const response = await fetch(`/api/players/password/${playerId}`)
+          if (response.ok) {
+            const data = await response.json()
+            alert(`玩家 ${playerId} 的密码是: ${data.password}`)
+          } else {
+            const error = await response.json()
+            alert(`获取密码失败: ${error.message}`)
+          }
+        } catch (error) {
+          console.error('Error fetching password:', error)
+          alert('获取密码失败，请查看控制台')
+        }
       }
 
       async function updatePlayer(playerId, whitelist, remark) {

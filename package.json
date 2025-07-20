@@ -13,9 +13,7 @@
     "start": "node --env-file=.env .output/server/index.mjs"
   },
   "dependencies": {
-    "postgres": "^3.4.7"
-  },
-  "devDependencies": {
+    "postgres": "^3.4.7",
     "nitropack": "latest"
   },
   "engines": {
