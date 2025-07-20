@@ -180,6 +180,9 @@
                   <button class="btn btn-primary" onclick="editGameRemark('${game.gameId}', '${game.remark}')">
                     编辑备注
                   </button>
+                  <a class="btn-link" href="/api/games/${game.gameId}/download" download>
+                    <button class="btn btn-primary">打包下载</button>
+                  </a>
                   <button class="btn btn-danger" onclick="deleteGame('${game.gameId}')">删除</button>
                 </td>
               </tr>
@@ -207,7 +210,7 @@
 
       async function showPlayerPassword(playerId) {
         try {
-          const response = await fetch(`/api/players/password/${playerId}`)
+          const response = await fetch(`/api/players/${playerId}/password`)
           if (response.ok) {
             const data = await response.json()
             alert(`玩家 ${playerId} 的密码是: ${data.password}`)

@@ -393,6 +393,31 @@ END;
 $$;
 
 -- ========================================
+-- 游戏下载相关存储过程 / Game Download Stored Procedures
+-- ========================================
+-- 获取游戏所有回合数据存储过程
+-- Get all turns data for a game stored procedure
+CREATE
+OR REPLACE FUNCTION "sp_get_all_turns_for_game" (IN "p_game_id" uuid) RETURNS TABLE (
+    "turns" int,
+    "content_data" jsonb
+) LANGUAGE plpgsql AS $$
+BEGIN
+    -- 查询所有内容数据 / Query all content data
+    RETURN QUERY
+    SELECT
+        c.turns,
+        c.data AS content_data
+    FROM
+        "files_content" AS c
+    WHERE
+        c.game_id = "p_game_id"
+    ORDER BY
+        c.turns ASC;
+END;
+$$;
+
+-- ========================================
 -- 清理相关存储过程 / Cleanup Stored Procedures
 -- ========================================
 -- 清理过期游戏和玩家数据存储过程

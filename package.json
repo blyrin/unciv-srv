@@ -13,8 +13,9 @@
     "start": "node --env-file=.env .output/server/index.mjs"
   },
   "dependencies": {
-    "postgres": "^3.4.7",
-    "nitropack": "latest"
+    "jszip": "^3.10.1",
+    "nitropack": "latest",
+    "postgres": "^3.4.7"
   },
   "engines": {
     "node": ">=20.0.0"

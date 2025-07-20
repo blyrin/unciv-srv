@@ -79,17 +79,13 @@ td {
 th {
   background-color: #f8f9fa;
   font-weight: 600;
-}
-
-.btn-group {
-  display: inline-flex;
-  justify-content: center;
-  flex-wrap: wrap;
+  word-break: keep-all;
+  white-space: nowrap;
 }
 
 .btn-group .btn {
-  width: 128px;
-  max-width: 164px
+  width: 100px;
+  max-width: 164px;
 }
 
 .btn {
@@ -126,6 +122,13 @@ th {
   cursor: not-allowed;
 }
 
+.btn-link {
+  display: inline-block;
+  padding: 0;
+  margin: 0;
+  text-decoration: none;
+}
+
 button {
   width: 100%;
   padding: 6px;
@@ -149,6 +152,11 @@ button:disabled {
 .status-whitelist {
   background: #d4edda;
   color: #155724;
+}
+
+.status-badge {
+  font-size: 12px;
+  word-break: keep-all;
 }
 
 .status-normal {
@@ -302,7 +310,7 @@ input[type='password'] {
   }
 
   .btn {
-    padding: 4px 8px;
+    padding: 4px;
     font-size: 11px;
     margin: 1px;
   }

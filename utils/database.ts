@@ -118,3 +118,8 @@ export const getPlayerIdsFromGameId = async (gameId: string): Promise<string[]> 
   const file = await sql<{ playerId: string }[]>`SELECT * FROM sp_get_player_ids_from_game(${gameId})`
   return file.map((f) => f.playerId)
 }
+
+export const getAllTurnsForGame = (gameId: string) => {
+  const sql = db()
+  return sql<{ turns: number; contentData: object }[]>`SELECT * FROM sp_get_all_turns_for_game(${gameId})`
+}

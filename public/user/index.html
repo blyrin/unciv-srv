@@ -109,10 +109,13 @@
                   </span>
                 </td>
                 <td data-label="操作" class="btn-group">
+                  <a class="btn-link" href="/api/games/${game.gameId}/download" download>
+                    <button class="btn btn-primary">打包下载</button>
+                  </a>
                   ${
                     game.createdPlayer === currentUserId
                       ? `<button class="btn btn-danger" onclick="deleteGame('${game.gameId}')">删除</button>`
-                      : '-'
+                      : ''
                   }
                 </td>
               </tr>`
