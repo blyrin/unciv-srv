@@ -81,8 +81,18 @@ th {
   font-weight: 600;
 }
 
+.btn-group {
+  display: inline-flex;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn-group .btn {
+  width: 128px;
+  max-width: 164px
+}
+
 .btn {
-  padding: 6px 12px;
   margin: 2px;
   border: none;
   border-radius: 4px;
@@ -118,7 +128,7 @@ th {
 
 button {
   width: 100%;
-  padding: 12px;
+  padding: 6px;
   background-color: #007bff;
   color: white;
   border: none;

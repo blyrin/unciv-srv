@@ -108,7 +108,7 @@
                     ${game.createdPlayer === currentUserId ? '创建者' : '参与者'}
                   </span>
                 </td>
-                <td data-label="操作">
+                <td data-label="操作" class="btn-group">
                   ${
                     game.createdPlayer === currentUserId
                       ? `<button class="btn btn-danger" onclick="deleteGame('${game.gameId}')">删除</button>`
