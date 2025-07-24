@@ -50,33 +50,29 @@ $$;
 -- Load game file stored procedure
 CREATE
 OR REPLACE FUNCTION "sp_load_file_preview" (IN "p_game_id" uuid) RETURNS TABLE ("data" jsonb) LANGUAGE plpgsql AS $$
-DECLARE
-    "table_name" text;
 BEGIN
-    -- 查询最新的游戏文件 / Dynamically query the latest game file
-    RETURN QUERY EXECUTE format('
-        SELECT fc."data"
-        FROM "files_preview" fc
-        WHERE fc."game_id" = $1
-        ORDER BY fc."created_at" DESC, fc."turns" DESC
-        LIMIT 1', "table_name")
-    USING "p_game_id";
+    -- 查询最新的游戏文件 / Query the latest game file
+    RETURN QUERY
+    SELECT
+        fc."data"
+    FROM "files_preview" fc
+    WHERE fc."game_id" = "p_game_id"
+    ORDER BY fc."created_at" DESC, fc."turns" DESC
+    LIMIT 1;
 END;
 $$;
 
 CREATE
 OR REPLACE FUNCTION "sp_load_file_content" (IN "p_game_id" uuid) RETURNS TABLE ("data" jsonb) LANGUAGE plpgsql AS $$
-DECLARE
-    "table_name" text;
 BEGIN
-    -- 查询最新的游戏文件 / Dynamically query the latest game file
-    RETURN QUERY EXECUTE format('
-        SELECT fc."data"
-        FROM "files_content" fc
-        WHERE fc."game_id" = $1
-        ORDER BY fc."created_at" DESC, fc."turns" DESC
-        LIMIT 1', "table_name")
-    USING "p_game_id";
+    -- 查询最新的游戏文件 / Query the latest game file
+    RETURN QUERY
+    SELECT
+        fc."data"
+    FROM "files_content" fc
+    WHERE fc."game_id" = "p_game_id"
+    ORDER BY fc."created_at" DESC, fc."turns" DESC
+    LIMIT 1;
 END;
 $$;
 
@@ -255,6 +251,14 @@ OR REPLACE FUNCTION "sp_get_all_games" () RETURNS TABLE (
 BEGIN
     -- 查询所有游戏信息，包含最新回合数和创建者信息 / Query all games information with latest turns and creator info
     RETURN QUERY
+    WITH "latest_file_content" AS (
+        SELECT
+            fc."game_id",
+            fc."turns",
+            fc."created_player",
+            ROW_NUMBER() OVER(PARTITION BY fc."game_id" ORDER BY fc."created_at" DESC, fc."turns" DESC) as "rn"
+        FROM "files_content" fc
+    )
     SELECT
         f."game_id",
         f."players",
@@ -262,16 +266,10 @@ BEGIN
         f."updated_at",
         f."whitelist",
         f."remark",
-        fc."turns",
-        fc."created_player"
+        lfc."turns",
+        lfc."created_player"
     FROM "files" f
-    LEFT JOIN LATERAL (
-        SELECT fc_inner."turns", fc_inner."created_player"
-        FROM "files_content" fc_inner
-        WHERE fc_inner."game_id" = f."game_id"
-        ORDER BY fc_inner."created_at" DESC, fc_inner."turns" DESC
-        LIMIT 1
-    ) fc ON true
+    LEFT JOIN "latest_file_content" lfc ON f."game_id" = lfc."game_id" AND lfc."rn" = 1
     ORDER BY f."updated_at" DESC;
 END;
 $$;
@@ -292,6 +290,14 @@ OR REPLACE FUNCTION "sp_get_user_games" (IN "p_player_id" uuid) RETURNS TABLE (
 BEGIN
     -- 查询用户相关的游戏信息 / Query user-related games information
     RETURN QUERY
+    WITH "latest_file_content" AS (
+        SELECT
+            fc."game_id",
+            fc."turns",
+            fc."created_player",
+            ROW_NUMBER() OVER(PARTITION BY fc."game_id" ORDER BY fc."created_at" DESC, fc."turns" DESC) as "rn"
+        FROM "files_content" fc
+    )
     SELECT
         f."game_id",
         f."players",
@@ -299,16 +305,10 @@ BEGIN
         f."updated_at",
         f."whitelist",
         f."remark",
-        fc."turns",
-        fc."created_player"
+        lfc."turns",
+        lfc."created_player"
     FROM "files" f
-    LEFT JOIN LATERAL (
-        SELECT fc_inner."turns", fc_inner."created_player"
-        FROM "files_content" fc_inner
-        WHERE fc_inner."game_id" = f."game_id"
-        ORDER BY fc_inner."created_at" DESC, fc_inner."turns" DESC
-        LIMIT 1
-    ) fc ON true
+    LEFT JOIN "latest_file_content" lfc ON f."game_id" = lfc."game_id" AND lfc."rn" = 1
     WHERE f."players" ? "p_player_id"::text
     ORDER BY f."updated_at" DESC;
 END;
@@ -323,11 +323,11 @@ OR REPLACE FUNCTION "sp_update_player" (
     IN "p_remark" varchar(255) DEFAULT NULL
 ) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    -- 动态构建更新语句，只更新有值的字段 / Dynamically build update statement, only update fields with values
+    -- 使用 COALESCE 更新有值的字段 / Update fields with values using COALESCE
     UPDATE "players"
     SET
-        "whitelist" = CASE WHEN "p_whitelist" IS NOT NULL THEN "p_whitelist" ELSE "whitelist" END,
-        "remark" = CASE WHEN "p_remark" IS NOT NULL THEN "p_remark" ELSE "remark" END,
+        "whitelist" = COALESCE("p_whitelist", "whitelist"),
+        "remark" = COALESCE("p_remark", "remark"),
         "updated_at" = now()
     WHERE "player_id" = "p_player_id";
 
@@ -347,11 +347,11 @@ OR REPLACE FUNCTION "sp_update_game" (
     IN "p_remark" varchar(255) DEFAULT NULL
 ) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    -- 动态构建更新语句，只更新有值的字段 / Dynamically build update statement, only update fields with values
+    -- 使用 COALESCE 更新有值的字段 / Update fields with values using COALESCE
     UPDATE "files"
     SET
-        "whitelist" = CASE WHEN "p_whitelist" IS NOT NULL THEN "p_whitelist" ELSE "whitelist" END,
-        "remark" = CASE WHEN "p_remark" IS NOT NULL THEN "p_remark" ELSE "remark" END,
+        "whitelist" = COALESCE("p_whitelist", "whitelist"),
+        "remark" = COALESCE("p_remark", "remark"),
         "updated_at" = now()
     WHERE "game_id" = "p_game_id";
 
@@ -398,10 +398,7 @@ $$;
 -- 获取游戏所有回合数据存储过程
 -- Get all turns data for a game stored procedure
 CREATE
-OR REPLACE FUNCTION "sp_get_all_turns_for_game" (IN "p_game_id" uuid) RETURNS TABLE (
-    "turns" int,
-    "content_data" jsonb
-) LANGUAGE plpgsql AS $$
+OR REPLACE FUNCTION "sp_get_all_turns_for_game" (IN "p_game_id" uuid) RETURNS TABLE ("turns" int, "content_data" jsonb) LANGUAGE plpgsql AS $$
 BEGIN
     -- 查询所有内容数据 / Query all content data
     RETURN QUERY
@@ -425,11 +422,10 @@ $$;
 CREATE
 OR REPLACE FUNCTION "sp_cleanup_data" () RETURNS TABLE ("deleted_game_count" integer) LANGUAGE plpgsql AS $$
 DECLARE
-    "deleted_games" uuid[];
     "game_count" integer := 0;
 BEGIN
     -- 删除过期的游戏文件 / Delete expired game files
-    WITH deleted_games_cte AS (
+    WITH "deleted_games_cte" AS (
         DELETE FROM "files"
         WHERE "whitelist" = false
           AND ((now() - interval '3 months') > "updated_at"
@@ -437,36 +433,28 @@ BEGIN
                 AND ("created_at" + interval '10 minutes') > "updated_at"))
         RETURNING "game_id"
     )
-    SELECT array_agg("game_id"), count(*) INTO "deleted_games", "game_count"
-    FROM deleted_games_cte;
+    SELECT count(*) INTO "game_count"
+    FROM "deleted_games_cte";
 
     -- 清理旧的预览记录，只保留每个游戏的最新记录
     -- Cleanup old preview records, keep only the latest record for each game
-    WITH latest_preview_records AS (
-        SELECT "id"
+    WITH "records_to_delete" AS (
+        SELECT "id",
+               ROW_NUMBER() OVER(PARTITION BY "game_id" ORDER BY "created_at" DESC, "turns" DESC) as "rn"
         FROM "files_preview"
-        WHERE ("game_id", "created_at") IN (
-            SELECT "game_id", max("created_at")
-            FROM "files_preview"
-            GROUP BY "game_id"
-        )
     )
     DELETE FROM "files_preview"
-    WHERE "id" NOT IN (SELECT "id" FROM latest_preview_records);
+    WHERE "id" IN (SELECT "id" FROM "records_to_delete" WHERE "rn" > 1);
 
     -- 清理旧的内容记录，只保留每个游戏的最新记录
     -- Cleanup old content records, keep only the latest record for each game
-    WITH latest_content_records AS (
-        SELECT "id"
+    WITH "records_to_delete" AS (
+        SELECT "id",
+               ROW_NUMBER() OVER(PARTITION BY "game_id" ORDER BY "created_at" DESC, "turns" DESC) as "rn"
         FROM "files_content"
-        WHERE ("game_id", "created_at") IN (
-            SELECT "game_id", max("created_at")
-            FROM "files_content"
-            GROUP BY "game_id"
-        )
     )
     DELETE FROM "files_content"
-    WHERE "id" NOT IN (SELECT "id" FROM latest_content_records);
+    WHERE "id" IN (SELECT "id" FROM "records_to_delete" WHERE "rn" > 1);
 
     -- 返回删除的数量 / Return deleted counts
     RETURN QUERY SELECT "game_count";
