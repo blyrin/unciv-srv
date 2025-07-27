@@ -1,4 +1,5 @@
 export default defineNitroPlugin((nitro) => {
+  const log = logger.withTag('http')
   nitro.hooks.hook('request', (event) => {
     event.context.requestTime = Date.now()
     event.context.ua = getHeader(event, 'user-agent') ?? ''
@@ -13,8 +14,8 @@ export default defineNitroPlugin((nitro) => {
     const status = getResponseStatus(event)
     const ua = event.context.ua
     const ip = event.context.ip
-    logger.error(`${error.name}: ${data}`, '\n', status, method, path, `${time}ms`, ip, ua)
-    logger.debug(error)
+    log.withTag('error').error(`${error.name}: ${data}`, '\n', status, method, path, `${time}ms`, ip, ua)
+    log.withTag('error').debug(error)
   })
   nitro.hooks.hook('afterResponse', (event) => {
     const requestTime = event.context.requestTime
@@ -24,6 +25,6 @@ export default defineNitroPlugin((nitro) => {
     const status = getResponseStatus(event)
     const ua = event.context.ua
     const ip = event.context.ip
-    logger.info(status, method, path, `${time}ms`, ip, ua)
+    log.withTag('request').info(status, method, path, `${time}ms`, ip, ua)
   })
 })

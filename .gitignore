@@ -1,5 +1,6 @@
 .vscode
 .idea
+.claude
 
 node_modules
 dist
@@ -8,6 +9,7 @@ dist
 .output
 .env
 .local
+*.local.md
 .nitro
 
 data
