@@ -1,3 +1,4 @@
+import { name, version } from '../package.json' with { typeof: 'json' }
 import process from 'node:process'
 import postgres from 'postgres'
 
@@ -18,6 +19,9 @@ export function db() {
       user: env.DB_USER || 'postgres',
       password: env.DB_PASSWORD || 'postgres',
       transform: postgres.camel,
+      connection: {
+        application_name: `${name}_${version}`,
+      },
     })
   }
   return sql

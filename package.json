@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "jszip": "^3.10.1",
-    "lru-cache": "^11.1.0",
     "nitropack": "latest",
     "postgres": "^3.4.7"
   },

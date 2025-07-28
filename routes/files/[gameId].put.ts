@@ -1,5 +1,5 @@
 export default defineEventHandler(async (event) => {
-  const playerId = await loadPlayerId(getHeader(event, 'authorization'))
+  const playerId = event.context.playerId
   const body = await readRawBody(event, 'utf8')
   if (!body || body.length > MAX_BODY_SIZE) {
     throw createError({

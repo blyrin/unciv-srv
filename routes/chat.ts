@@ -1,6 +1,5 @@
 import type { H3Error } from 'h3'
 import type { Peer } from 'crossws'
-import { LRUCache } from 'lru-cache'
 
 declare module 'crossws' {
   interface PeerContext {
@@ -47,10 +46,6 @@ export interface ErrorResponse {
 const log = logger.withTag('ws')
 
 const playerPeersMap = new Map<string, Set<Peer>>()
-const gamePlayersMap = new LRUCache<string, string[]>({
-  max: 512,
-  ttl: 1000 * 60 * 3,
-})
 
 export default defineWebSocketHandler({
   async open(peer) {
@@ -86,16 +81,12 @@ export default defineWebSocketHandler({
         } else {
           playerPeersMap.set(playerId, new Set([peer]))
         }
-        const task = msg.gameIds?.map(async (gameId) => {
-          const playerIds = await getPlayerIdsFromGameId(gameId)
-          gamePlayersMap.set(gameId, playerIds)
-        })
-        await Promise.all(task)
         peer.send({ type: 'joinSuccess', gameIds: msg.gameIds } satisfies JoinSuccessResponse)
       } else if (msg.type === 'chat') {
         log.withTag(msg.type).info(playerId, msg.gameId, msg.civName, msg.message)
         const data: ChatResponse = msg
-        gamePlayersMap.get(msg.gameId)?.forEach((playerId) => {
+        const playerIds = await getPlayerIdsFromGameId(msg.gameId)
+        playerIds?.forEach((playerId) => {
           playerPeersMap.get(playerId)?.forEach((peer) => {
             peer.send(data)
           })

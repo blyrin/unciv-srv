@@ -1,5 +1,4 @@
 import JSZip from 'jszip'
-import { getAllTurnsForGame, getPlayerIdsFromGameId } from '~/utils/database'
 
 export default defineEventHandler(async (event) => {
   const session = await getUserSession(event)
