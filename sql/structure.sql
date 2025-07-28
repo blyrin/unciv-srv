@@ -18,7 +18,7 @@ CREATE TABLE
 -- Main game files table - stores basic game information
 DROP TABLE IF EXISTS "files";
 
-CREATE UNLOGGED TABLE
+CREATE TABLE
   "files" (
     "game_id" uuid PRIMARY KEY, -- 游戏唯一标识符 / Unique game identifier
     "players" jsonb NOT NULL DEFAULT '[]'::jsonb, -- 游戏玩家列表 / List of game players
@@ -32,7 +32,7 @@ CREATE UNLOGGED TABLE
 -- Game content table - stores game save data
 DROP TABLE IF EXISTS "files_content";
 
-CREATE UNLOGGED TABLE
+CREATE TABLE
   "files_content" (
     "id" bigserial PRIMARY KEY, -- 自增主键 / Auto-increment primary key
     "game_id" uuid NOT NULL, -- 关联的游戏ID / Associated game ID
@@ -55,7 +55,7 @@ CREATE INDEX ON "files_content" ("turns");
 -- Game preview table - stores game preview data
 DROP TABLE IF EXISTS "files_preview";
 
-CREATE UNLOGGED TABLE
+CREATE TABLE
   "files_preview" (
     "id" bigserial PRIMARY KEY, -- 自增主键 / Auto-increment primary key
     "game_id" uuid NOT NULL, -- 关联的游戏ID / Associated game ID
