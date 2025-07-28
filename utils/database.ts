@@ -6,9 +6,14 @@ let sql: ReturnType<typeof postgres> | null = null
 export function db() {
   if (!sql) {
     const env = process.env
-    sql = postgres({
+    const urlParams = !!env.DB_SOCKET_PATH ? {
+      path: env.DB_SOCKET_PATH,
+    } : {
       host: env.DB_HOST || 'localhost',
       port: +(env.DB_PORT || 5432),
+    }
+    sql = postgres({
+      ...urlParams,
       database: env.DB_NAME || 'unciv-srv',
       user: env.DB_USER || 'postgres',
       password: env.DB_PASSWORD || 'postgres',
