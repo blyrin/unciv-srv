@@ -23,7 +23,7 @@
 go build -ldflags="-s -w" -o unciv-srv ./cmd/server
 
 # 注入版本信息
-go build -ldflags="-s -w -X main.Version=v1.0.0 -X main.BuildTime=2025-12-05_10:30:00 -X main.GitCommit=abc1234" -o unciv-srv ./cmd/server
+go build -ldflags="-s -w -X main.Version=v1.0.0 -X main.BuildTime=2025-12-05T10:30:00Z -X main.GitCommit=abc1234" -o unciv-srv ./cmd/server
 ```
 
 ## 配置

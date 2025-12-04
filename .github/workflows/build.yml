@@ -35,7 +35,7 @@ jobs:
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
-          BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           GIT_COMMIT=${GITHUB_SHA:0:7}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "build_time=$BUILD_TIME" >> $GITHUB_OUTPUT
@@ -46,7 +46,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }} -X main.BuildTime='${{ steps.version.outputs.build_time }}' -X main.GitCommit=${{ steps.version.outputs.git_commit }}" -o ${{ matrix.output }} ./cmd/server
+          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }} -X main.BuildTime=${{ steps.version.outputs.build_time }} -X main.GitCommit=${{ steps.version.outputs.git_commit }}" -o ${{ matrix.output }} ./cmd/server
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
