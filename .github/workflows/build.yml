@@ -2,14 +2,8 @@ name: 编译构建
 
 on:
   push:
-    branches:
-      - main
-      - develop
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - main
 
 jobs:
   build:
@@ -41,9 +35,6 @@ jobs:
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
-          if [[ "$VERSION" == "refs/tags/"* ]]; then
-            VERSION="dev"
-          fi
           BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
           GIT_COMMIT=${GITHUB_SHA:0:7}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
