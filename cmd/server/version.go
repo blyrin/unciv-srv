@@ -2,7 +2,7 @@ package main
 
 // 版本信息
 // 在编译时通过 -ldflags 注入
-// 示例: go build -ldflags "-X main.Version=v1.0.0 -X main.BuildTime=2025-12-05"
+// 示例: go build -ldflags="-X main.Version=v1.0.0 -X main.BuildTime=2025-12-05"
 var (
 	Version   = "dev"      // 版本号
 	BuildTime = "unknown"  // 编译时间
