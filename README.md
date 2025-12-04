@@ -1,30 +1,13 @@
 # UncivSrv
 
-简单的 [Unciv](https://github.com/yairm210/Unciv) 服务器
+简单的 [Unciv](https://github.com/yairm210/Unciv) 多人联机服务器
 
-## 如何运行
+## 功能特性
 
-### 安装依赖
-
-```sh
-pnpm i
-```
-
-### 初始化数据库
-
-```sh
-psql -h localhost -p 5432 -U postgres -d unciv-srv -f structure.sql
-psql -h localhost -p 5432 -U postgres -d unciv-srv -f procedures.sql
-```
-
-### 配置
-
-UncivSrc 读取环境变量作为配置，可通过 `.env` 文件进行配置
-
-[参考配置](example.env)
-
-### 启动
-
-```sh
-pnpm run dev
-```
+- 游戏存档上传/下载（支持 Gzip + Base64 编码）
+- WebSocket 实时聊天
+- Web 管理后台（管理员面板 + 用户面板）
+- 自动数据库版本管理和迁移
+- 定时清理过期数据
+- 白名单系统
+- 登录限流保护

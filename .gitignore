@@ -1,15 +1,22 @@
 .vscode
 .idea
 .claude
+CLAUDE.md
 
-node_modules
-dist
-.data
-.cache
-.output
+bin/
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+
 .env
 .local
 *.local.md
-.nitro
 
 data
