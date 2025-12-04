@@ -22,6 +22,7 @@ func main() {
 		Level: slog.LevelInfo,
 	})))
 
+	slog.Info(VersionInfo())
 	slog.Info("Unciv-Srv 启动中...")
 
 	// 加载 .env 文件
