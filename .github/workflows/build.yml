@@ -15,11 +15,11 @@ jobs:
           - os: linux
             goos: linux
             goarch: amd64
-            output: unciv-srv
+            output: unciv-srv-linux-amd64
           - os: windows
             goos: windows
             goarch: amd64
-            output: unciv-srv.exe
+            output: unciv-srv-windows-amd64.exe
 
     steps:
       - name: 检出代码

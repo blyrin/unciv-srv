@@ -2,6 +2,7 @@
 package router
 
 import (
+	"embed"
 	"net/http"
 
 	"unciv-srv/internal/config"
@@ -9,18 +10,23 @@ import (
 	"unciv-srv/internal/middleware"
 )
 
+const healthCheckResponse = `{"authVersion":1,"chatVersion":1}`
+
+//go:embed web
+var webFS embed.FS
+
 // Setup 配置所有路由
 func Setup(cfg *config.Config, rateLimiter *middleware.RateLimiter) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// 静态文件服务
-	fileServer := http.FileServer(http.Dir("web"))
+	fileServer := http.FileServer(http.FS(webFS))
 	mux.Handle("/", fileServer)
 
 	// 健康检查
 	mux.HandleFunc("GET /isalive", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("{\"authVersion\":1,\"chatVersion\":1}"))
+		w.Write([]byte(healthCheckResponse))
 	})
 
 	// 游戏客户端接口（需要 Basic Auth）
