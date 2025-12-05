@@ -5,55 +5,104 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  packages: write
+  attestations: write
+  id-token: write
+
 jobs:
   build:
-    name: 编译 ${{ matrix.os }} 版本
+    name: 编译 ${{ matrix.platform }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: linux
+          - platform: linux-amd64
             goos: linux
             goarch: amd64
-            output: unciv-srv-linux-amd64
-          - os: windows
+            output: unciv-srv
+          - platform: linux-arm64
+            goos: linux
+            goarch: arm64
+            output: unciv-srv
+          - platform: windows-amd64
             goos: windows
             goarch: amd64
-            output: unciv-srv-windows-amd64.exe
+            output: unciv-srv.exe
+          - platform: windows-arm64
+            goos: windows
+            goarch: arm64
+            output: unciv-srv.exe
+          - platform: darwin-amd64
+            goos: darwin
+            goarch: amd64
+            output: unciv-srv
+          - platform: darwin-arm64
+            goos: darwin
+            goarch: arm64
+            output: unciv-srv
 
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 设置 Go 环境
         uses: actions/setup-go@v6
         with:
-          go-version: '1.25.5'
+          go-version-file: 'go.mod'
           cache: true
 
       - name: 获取版本信息
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
+            VERSION=$(git describe --tags --always --dirty)
+          fi
           BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-          GIT_COMMIT=${GITHUB_SHA:0:7}
+          GIT_COMMIT=$(git rev-parse --short HEAD)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "build_time=$BUILD_TIME" >> $GITHUB_OUTPUT
           echo "git_commit=$GIT_COMMIT" >> $GITHUB_OUTPUT
 
-      - name: 编译 ${{ matrix.os }}
+      - name: 编译 ${{ matrix.platform }}
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
         run: |
-          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }} -X main.BuildTime=${{ steps.version.outputs.build_time }} -X main.GitCommit=${{ steps.version.outputs.git_commit }}" -o ${{ matrix.output }} ./cmd/server
+          mkdir -p dist
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }} -X main.BuildTime=${{ steps.version.outputs.build_time }} -X main.GitCommit=${{ steps.version.outputs.git_commit }}" \
+            -o dist/${{ matrix.output }} \
+            ./cmd/server
+
+          cd dist
+          sha256sum ${{ matrix.output }} > ${{ matrix.output }}.sha256
+
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip unciv-srv-${{ matrix.platform }}.zip ${{ matrix.output }} ${{ matrix.output }}.sha256
+          else
+            tar -czf unciv-srv-${{ matrix.platform }}.tar.gz ${{ matrix.output }} ${{ matrix.output }}.sha256
+          fi
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: unciv-srv-${{ matrix.os }}-amd64
-          path: ${{ matrix.output }}
+          name: unciv-srv-${{ matrix.platform }}
+          path: |
+            dist/unciv-srv-${{ matrix.platform }}.*
           retention-days: 30
+          compression-level: 0
 
   release:
     name: 创建发布版本
@@ -64,24 +113,49 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: 下载 Linux 版本
+      - name: 下载所有构建产物
         uses: actions/download-artifact@v4
         with:
-          name: unciv-srv-linux-amd64
-          path: ./release
+          path: release
+          pattern: unciv-srv-*
+          merge-multiple: true
 
-      - name: 下载 Windows 版本
-        uses: actions/download-artifact@v4
-        with:
-          name: unciv-srv-windows-amd64
-          path: ./release
+      - name: 生成 Release Notes
+        id: release_notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "## 更新内容" > release_notes.md
+            echo "" >> release_notes.md
+            git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" >> release_notes.md
+          else
+            echo "## 首次发布" > release_notes.md
+          fi
+
+          echo "" >> release_notes.md
+          echo "## 下载说明" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "请根据您的操作系统和架构选择对应的版本：" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "- **Linux AMD64**: \`unciv-srv-linux-amd64.tar.gz\`" >> release_notes.md
+          echo "- **Linux ARM64**: \`unciv-srv-linux-arm64.tar.gz\`" >> release_notes.md
+          echo "- **Windows AMD64**: \`unciv-srv-windows-amd64.zip\`" >> release_notes.md
+          echo "- **Windows ARM64**: \`unciv-srv-windows-arm64.zip\`" >> release_notes.md
+          echo "- **macOS Intel**: \`unciv-srv-darwin-amd64.tar.gz\`" >> release_notes.md
+          echo "- **macOS Apple Silicon**: \`unciv-srv-darwin-arm64.tar.gz\`" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "每个压缩包都包含对应的 SHA256 校验文件，请在使用前验证完整性。" >> release_notes.md
 
       - name: 创建发布版本
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: ./release/*
+          files: release/*
+          body_path: release_notes.md
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
