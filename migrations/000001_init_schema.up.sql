@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS players (
   CONSTRAINT chk_players_password_not_empty CHECK (LENGTH(password) > 0)
 );
 
-CREATE INDEX IF NOT EXISTS idx_players_created_at ON players (created_at);
-CREATE INDEX IF NOT EXISTS idx_players_updated_at ON players (updated_at);
+CREATE INDEX IF NOT EXISTS idx_players_created_at ON players (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_players_updated_at ON players (updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_players_whitelist ON players (whitelist);
 
 -- 游戏文件主表 - 存储游戏基本信息
@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS files (
   CONSTRAINT chk_files_players_is_array CHECK (JSONB_TYPEOF(players) = 'array')
 );
 
-CREATE INDEX IF NOT EXISTS idx_files_created_at ON files (created_at);
-CREATE INDEX IF NOT EXISTS idx_files_updated_at ON files (updated_at);
+CREATE INDEX IF NOT EXISTS idx_files_created_at ON files (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_files_updated_at ON files (updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_files_whitelist ON files (whitelist);
 CREATE INDEX IF NOT EXISTS idx_files_players_gin ON files USING GIN (players);
 
@@ -45,9 +45,8 @@ CREATE TABLE IF NOT EXISTS files_content (
   CONSTRAINT chk_files_content_turns_positive CHECK (turns >= 0)
 );
 
-CREATE INDEX IF NOT EXISTS idx_files_content_created_at ON files_content (created_at);
 CREATE INDEX IF NOT EXISTS idx_files_content_game_id ON files_content (game_id);
-CREATE INDEX IF NOT EXISTS idx_files_content_turns ON files_content (turns);
+CREATE INDEX IF NOT EXISTS idx_files_content_turns ON files_content (turns DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_files_content_game_turns ON files_content (game_id, turns DESC, created_at DESC);
 
 -- 游戏预览表 - 存储游戏预览数据
@@ -64,7 +63,6 @@ CREATE TABLE IF NOT EXISTS files_preview (
   CONSTRAINT chk_files_preview_turns_positive CHECK (turns >= 0)
 );
 
-CREATE INDEX IF NOT EXISTS idx_files_preview_created_at ON files_preview (created_at);
 CREATE INDEX IF NOT EXISTS idx_files_preview_game_id ON files_preview (game_id);
-CREATE INDEX IF NOT EXISTS idx_files_preview_turns ON files_preview (turns);
+CREATE INDEX IF NOT EXISTS idx_files_preview_turns ON files_preview (turns DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_files_preview_game_turns ON files_preview (game_id, turns DESC, created_at DESC);
