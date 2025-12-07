@@ -103,7 +103,7 @@ func GetAllTurnsForGame(ctx context.Context, gameID string) ([]FileContent, erro
 		SELECT id, game_id, turns, created_player, created_ip, created_at, data
 		FROM files_content
 		WHERE game_id = $1
-		ORDER BY turns ASC, created_at ASC
+		ORDER BY turns, created_at
 	`, gameID)
 	if err != nil {
 		return nil, err
@@ -135,55 +135,4 @@ func GetAllTurnsForGame(ctx context.Context, gameID string) ([]FileContent, erro
 	}
 
 	return contents, rows.Err()
-}
-
-// GetFileContentByID 根据ID获取存档内容
-func GetFileContentByID(ctx context.Context, id int64) (*FileContent, error) {
-	var fc FileContent
-	var createdPlayer *string
-	var createdIP *string
-	var data []byte
-
-	err := DB.QueryRow(ctx, `
-		SELECT id, game_id, turns, created_player, created_ip, created_at, data
-		FROM files_content
-		WHERE id = $1
-	`, id).Scan(
-		&fc.ID, &fc.GameID, &fc.Turns, &createdPlayer, &createdIP, &fc.CreatedAt, &data,
-	)
-
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	if createdPlayer != nil {
-		fc.CreatedPlayer = *createdPlayer
-	}
-	if createdIP != nil {
-		fc.CreatedIP = *createdIP
-	}
-	fc.Data = data
-
-	return &fc, nil
-}
-
-// GetContentCountForGame 获取游戏的存档数量
-func GetContentCountForGame(ctx context.Context, gameID string) (int, error) {
-	var count int
-	err := DB.QueryRow(ctx, `
-		SELECT COUNT(*) FROM files_content WHERE game_id = $1
-	`, gameID).Scan(&count)
-	return count, err
-}
-
-// GetPreviewCountForGame 获取游戏的预览数量
-func GetPreviewCountForGame(ctx context.Context, gameID string) (int, error) {
-	var count int
-	err := DB.QueryRow(ctx, `
-		SELECT COUNT(*) FROM files_preview WHERE game_id = $1
-	`, gameID).Scan(&count)
-	return count, err
 }

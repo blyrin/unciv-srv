@@ -73,7 +73,7 @@ func PutFile(w http.ResponseWriter, r *http.Request) {
 		utils.ErrorResponse(w, http.StatusBadRequest, "读取请求体失败")
 		return
 	}
-	defer r.Body.Close()
+	defer func(Body io.ReadCloser) { _ = Body.Close() }(r.Body)
 
 	if len(body) == 0 {
 		utils.ErrorResponse(w, http.StatusBadRequest, "存档数据不能为空")
@@ -171,7 +171,11 @@ func PutFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 更新游戏时间戳
-	database.UpdateGameTimestamp(ctx, gameID)
+	if err := database.UpdateGameTimestamp(ctx, gameID); err != nil {
+		slog.Error("保存存档失败", "gameId", gameID, "error", err)
+		utils.ErrorResponse(w, http.StatusInternalServerError, "保存存档失败")
+		return
+	}
 
 	utils.TextResponse(w, http.StatusOK, "存档已保存")
 }

@@ -27,19 +27,19 @@ func DecodeFile(encoded string) (json.RawMessage, error) {
 	// Base64 解码
 	compressed, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, fmt.Errorf("Base64解码失败: %w", err)
+		return nil, fmt.Errorf("base64解码失败: %w", err)
 	}
 
 	// Gzip 解压
 	reader, err := gzip.NewReader(bytes.NewReader(compressed))
 	if err != nil {
-		return nil, fmt.Errorf("Gzip解压初始化失败: %w", err)
+		return nil, fmt.Errorf("gzip解压初始化失败: %w", err)
 	}
-	defer reader.Close()
+	defer func(reader *gzip.Reader) { _ = reader.Close() }(reader)
 
 	decompressed, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, fmt.Errorf("Gzip解压失败: %w", err)
+		return nil, fmt.Errorf("gzip解压失败: %w", err)
 	}
 
 	// 验证 JSON 格式
@@ -59,11 +59,11 @@ func EncodeFile(data json.RawMessage) (string, error) {
 	writer := gzip.NewWriter(&buf)
 
 	if _, err := writer.Write(data); err != nil {
-		return "", fmt.Errorf("Gzip压缩失败: %w", err)
+		return "", fmt.Errorf("gzip压缩失败: %w", err)
 	}
 
 	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("Gzip关闭失败: %w", err)
+		return "", fmt.Errorf("gzip关闭失败: %w", err)
 	}
 
 	// Base64 编码

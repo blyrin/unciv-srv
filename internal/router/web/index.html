@@ -1,74 +1,74 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Unciv Srv - 登录</title>
-    <link rel="stylesheet" href="/main.css" />
-  </head>
-  <body>
-    <main class="login-page">
-      <div class="container">
-        <h1>Unciv Srv</h1>
-        <form id="loginForm">
-          <div class="form-group">
-            <label for="username">用户名:</label>
-            <input type="text" id="username" name="username" required />
-          </div>
-          <div class="form-group">
-            <label for="password">密码:</label>
-            <input type="password" id="password" name="password" required />
-          </div>
-          <button type="submit" id="loginBtn">登录</button>
-        </form>
-        <div id="result"></div>
-        <div class="info">
-          <p>使用游戏中的 ID 和密码登录</p>
-          <p>只能管理自己的存档</p>
-        </div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Unciv Srv - 登录</title>
+  <link rel="stylesheet" href="/main.css" />
+</head>
+<body>
+<main class="login-page">
+  <div class="container">
+    <h1>Unciv Srv</h1>
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="username">用户名:</label>
+        <input type="text" id="username" name="username" required />
       </div>
-    </main>
-    <script>
-      document.getElementById('loginForm').addEventListener('submit', async (e) => {
-        e.preventDefault()
-        const form = e.target
-        const formData = new FormData(form)
-        const submitBtn = document.getElementById('loginBtn')
-        const resultDiv = document.getElementById('result')
-        submitBtn.disabled = true
-        submitBtn.textContent = '登录中...'
-        form.classList.add('loading')
-        resultDiv.innerHTML = ''
-        try {
-          const response = await fetch('/api/login', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              username: formData.get('username'),
-              password: formData.get('password'),
-            }),
-          })
-          const result = await response.json()
-          if (result.success) {
-            // 登录成功，根据用户类型跳转
-            if (result.isAdmin) {
-              window.location.href = '/admin/'
-            } else {
-              window.location.href = '/user/'
-            }
-          } else if (result.message) {
-            resultDiv.innerHTML = `<div class="error">${result.message}</div>`
-          }
-        } catch (error) {
-          resultDiv.innerHTML = '<div class="error">网络错误，请重试</div>'
-        } finally {
-          submitBtn.disabled = false
-          submitBtn.textContent = '登录'
-          form.classList.remove('loading')
-        }
+      <div class="form-group">
+        <label for="password">密码:</label>
+        <input type="password" id="password" name="password" required />
+      </div>
+      <button type="submit" id="loginBtn">登录</button>
+    </form>
+    <div id="result"></div>
+    <div class="info">
+      <p>使用游戏中的 ID 和密码登录</p>
+      <p>只能管理自己的存档</p>
+    </div>
+  </div>
+</main>
+<script>
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const form = e.target
+    const formData = new FormData(form)
+    const submitBtn = document.getElementById('loginBtn')
+    const resultDiv = document.getElementById('result')
+    submitBtn.disabled = true
+    submitBtn.textContent = '登录中...'
+    form.classList.add('loading')
+    resultDiv.innerHTML = ''
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: formData.get('username'),
+          password: formData.get('password'),
+        }),
       })
-    </script>
-  </body>
+      const result = await response.json()
+      if (result.success) {
+        // 登录成功，根据用户类型跳转
+        if (result.isAdmin) {
+          window.location.href = '/admin/'
+        } else {
+          window.location.href = '/user/'
+        }
+      } else if (result.message) {
+        resultDiv.innerHTML = `<div class="error">${result.message}</div>`
+      }
+    } catch (error) {
+      resultDiv.innerHTML = '<div class="error">网络错误，请重试</div>'
+    } finally {
+      submitBtn.disabled = false
+      submitBtn.textContent = '登录'
+      form.classList.remove('loading')
+    }
+  })
+</script>
+</body>
 </html>

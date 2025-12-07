@@ -134,15 +134,6 @@ func GetPlayerPassword(ctx context.Context, playerID string) (string, error) {
 	return password, err
 }
 
-// PlayerExists 检查玩家是否存在
-func PlayerExists(ctx context.Context, playerID string) (bool, error) {
-	var exists bool
-	err := DB.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM players WHERE player_id = $1)
-	`, playerID).Scan(&exists)
-	return exists, err
-}
-
 // GetPlayerCount 获取玩家总数
 func GetPlayerCount(ctx context.Context) (int, error) {
 	var count int
@@ -153,6 +144,6 @@ func GetPlayerCount(ctx context.Context) (int, error) {
 // GetWhitelistPlayerCount 获取白名单玩家数量
 func GetWhitelistPlayerCount(ctx context.Context) (int, error) {
 	var count int
-	err := DB.QueryRow(ctx, `SELECT COUNT(*) FROM players WHERE whitelist = true`).Scan(&count)
+	err := DB.QueryRow(ctx, `SELECT COUNT(*) FROM players WHERE whitelist = TRUE`).Scan(&count)
 	return count, err
 }

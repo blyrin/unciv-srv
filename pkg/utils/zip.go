@@ -41,26 +41,3 @@ func CreateZip(entries []FileEntry) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
-
-// CreateZipRaw 创建 ZIP 压缩包（原始数据，不编码）
-func CreateZipRaw(entries map[string][]byte) ([]byte, error) {
-	var buf bytes.Buffer
-	w := zip.NewWriter(&buf)
-
-	for name, data := range entries {
-		f, err := w.Create(name)
-		if err != nil {
-			return nil, fmt.Errorf("创建ZIP条目 %s 失败: %w", name, err)
-		}
-
-		if _, err := f.Write(data); err != nil {
-			return nil, fmt.Errorf("写入ZIP条目 %s 失败: %w", name, err)
-		}
-	}
-
-	if err := w.Close(); err != nil {
-		return nil, fmt.Errorf("关闭ZIP文件失败: %w", err)
-	}
-
-	return buf.Bytes(), nil
-}

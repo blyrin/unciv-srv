@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,12 +19,9 @@ import (
 
 func main() {
 	// 配置日志
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	slog.Info(VersionInfo())
-	slog.Info("Unciv-Srv 启动中...")
 
 	// 加载 .env 文件
 	if err := config.LoadEnvFile(".env"); err != nil {
@@ -75,7 +73,7 @@ func main() {
 	// 启动服务器
 	go func() {
 		slog.Info("服务器启动", "port", cfg.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("服务器错误", "error", err)
 			os.Exit(1)
 		}

@@ -85,8 +85,8 @@ func GetAllGames(ctx context.Context) ([]GameWithTurns, error) {
 	rows, err := DB.Query(ctx, `
 		SELECT
 			f.game_id, f.players, f.created_at, f.updated_at, f.whitelist, f.remark,
-			COALESCE(lfc.turns, 0) as turns,
-			COALESCE(lfc.created_player::text, '') as created_player
+			COALESCE(lfc.turns, 0) AS turns,
+			COALESCE(lfc.created_player::TEXT, '') AS created_player
 		FROM files f
 		LEFT JOIN LATERAL (
 			SELECT turns, created_player
@@ -94,7 +94,7 @@ func GetAllGames(ctx context.Context) ([]GameWithTurns, error) {
 			WHERE game_id = f.game_id
 			ORDER BY turns DESC, created_at DESC
 			LIMIT 1
-		) lfc ON true
+		) lfc ON TRUE
 		ORDER BY f.updated_at DESC
 	`)
 	if err != nil {
@@ -138,8 +138,8 @@ func GetGamesByPlayer(ctx context.Context, playerID string) ([]GameWithTurns, er
 	rows, err := DB.Query(ctx, `
 		SELECT
 			f.game_id, f.players, f.created_at, f.updated_at, f.whitelist, f.remark,
-			COALESCE(lfc.turns, 0) as turns,
-			COALESCE(lfc.created_player::text, '') as created_player
+			COALESCE(lfc.turns, 0) AS turns,
+			COALESCE(lfc.created_player::TEXT, '') AS created_player
 		FROM files f
 		LEFT JOIN LATERAL (
 			SELECT turns, created_player
@@ -147,7 +147,7 @@ func GetGamesByPlayer(ctx context.Context, playerID string) ([]GameWithTurns, er
 			WHERE game_id = f.game_id
 			ORDER BY turns DESC, created_at DESC
 			LIMIT 1
-		) lfc ON true
+		) lfc ON TRUE
 		WHERE f.players @> $1::jsonb
 		ORDER BY f.updated_at DESC
 	`, `["`+playerID+`"]`)
@@ -203,15 +203,6 @@ func UpdateGameInfo(ctx context.Context, gameID string, whitelist bool, remark s
 	return err
 }
 
-// GameExists 检查游戏是否存在
-func GameExists(ctx context.Context, gameID string) (bool, error) {
-	var exists bool
-	err := DB.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM files WHERE game_id = $1)
-	`, gameID).Scan(&exists)
-	return exists, err
-}
-
 // GetGameCount 获取游戏总数
 func GetGameCount(ctx context.Context) (int, error) {
 	var count int
@@ -222,7 +213,7 @@ func GetGameCount(ctx context.Context) (int, error) {
 // GetWhitelistGameCount 获取白名单游戏数量
 func GetWhitelistGameCount(ctx context.Context) (int, error) {
 	var count int
-	err := DB.QueryRow(ctx, `SELECT COUNT(*) FROM files WHERE whitelist = true`).Scan(&count)
+	err := DB.QueryRow(ctx, `SELECT COUNT(*) FROM files WHERE whitelist = TRUE`).Scan(&count)
 	return count, err
 }
 
@@ -246,10 +237,10 @@ func ValidatePlayerPermission(ctx context.Context, playerID, gameID string) (boo
 func IsGameCreator(ctx context.Context, playerID, gameID string) (bool, error) {
 	var createdPlayer *string
 	err := DB.QueryRow(ctx, `
-		SELECT created_player::text
+		SELECT created_player::TEXT
 		FROM files_content
 		WHERE game_id = $1
-		ORDER BY created_at ASC
+		ORDER BY created_at
 		LIMIT 1
 	`, gameID).Scan(&createdPlayer)
 
@@ -273,7 +264,7 @@ func GetGamesCreatedByPlayer(ctx context.Context, playerID string) (int, error) 
 		SELECT COUNT(DISTINCT fc.game_id)
 		FROM files_content fc
 		INNER JOIN (
-			SELECT game_id, MIN(created_at) as min_created_at
+			SELECT game_id, MIN(created_at) AS min_created_at
 			FROM files_content
 			GROUP BY game_id
 		) first_uploads ON fc.game_id = first_uploads.game_id AND fc.created_at = first_uploads.min_created_at

@@ -21,7 +21,7 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// 消息类型定义
+// MessageType 消息类型定义
 type MessageType string
 
 const (
@@ -95,7 +95,7 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 		slog.Error("WebSocket升级失败", "error", err)
 		return
 	}
-	defer conn.Close()
+	defer func(conn *websocket.Conn) { _ = conn.Close() }(conn)
 
 	slog.Info("WebSocket连接已建立", "playerId", playerID)
 
@@ -115,7 +115,7 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		// 处理 ping 消息
 		if string(message) == "ping" {
-			conn.WriteMessage(websocket.TextMessage, []byte("pong"))
+			_ = conn.WriteMessage(websocket.TextMessage, []byte("pong"))
 			continue
 		}
 
@@ -221,7 +221,7 @@ func handleJoin(conn *websocket.Conn, playerID string, gameIDs []string) {
 }
 
 // handleLeave 处理离开消息
-func handleLeave(conn *websocket.Conn, playerID string, gameIDs []string) {
+func handleLeave(_ *websocket.Conn, playerID string, gameIDs []string) {
 	slog.Info("玩家离开聊天", "playerId", playerID, "gameIds", gameIDs)
 }
 
@@ -267,7 +267,7 @@ func sendJSON(conn *websocket.Conn, v any) {
 		slog.Error("JSON序列化失败", "error", err)
 		return
 	}
-	conn.WriteMessage(websocket.TextMessage, data)
+	_ = conn.WriteMessage(websocket.TextMessage, data)
 }
 
 // sendError 发送错误消息

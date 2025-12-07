@@ -32,7 +32,7 @@ func PutAuth(w http.ResponseWriter, r *http.Request) {
 		utils.ErrorResponse(w, http.StatusBadRequest, "读取请求体失败")
 		return
 	}
-	defer r.Body.Close()
+	defer func(Body io.ReadCloser) { _ = Body.Close() }(r.Body)
 
 	newPassword := string(body)
 	if newPassword == "" {

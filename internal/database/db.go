@@ -41,7 +41,6 @@ func InitDB(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("数据库连接测试失败: %w", err)
 	}
 
-	slog.Info("数据库连接成功")
 	return nil
 }
 
@@ -85,7 +84,7 @@ func RunMigrations(ctx context.Context, migrationsDir string) error {
 
 		// 执行迁移 SQL
 		if _, err := tx.Exec(ctx, m.SQL); err != nil {
-			tx.Rollback(ctx)
+			_ = tx.Rollback(ctx)
 			return fmt.Errorf("执行迁移 %d_%s 失败: %w", m.Version, m.Name, err)
 		}
 
@@ -94,7 +93,7 @@ func RunMigrations(ctx context.Context, migrationsDir string) error {
 			"INSERT INTO schema_migrations (version, name) VALUES ($1, $2)",
 			m.Version, m.Name,
 		); err != nil {
-			tx.Rollback(ctx)
+			_ = tx.Rollback(ctx)
 			return fmt.Errorf("记录迁移历史失败: %w", err)
 		}
 

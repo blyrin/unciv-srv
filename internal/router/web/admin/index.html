@@ -1,73 +1,74 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>管理员面板 - Unciv Srv</title>
-    <link rel="stylesheet" href="/main.css" />
-  </head>
-  <body>
-    <main class="admin-page">
-      <div class="header">
-        <h1>管理员面板</h1>
-        <a href="/api/logout" class="logout">退出登录</a>
-        <div style="clear: both"></div>
-      </div>
-      <div class="stats" id="stats"></div>
-      <div class="tabs">
-        <button class="tab-button active" onclick="showTab('players')">玩家管理</button>
-        <button class="tab-button" onclick="showTab('games')">存档管理</button>
-      </div>
-      <div id="players-tab" class="tab-content">
-        <h3>玩家管理</h3>
-        <div class="table-controls" style="margin-bottom: 15px">
-          <button
-            onclick="toggleMobileView('players')"
-            class="btn btn-primary"
-            style="display: none"
-            id="mobile-toggle-players"
-          >
-            卡片视图
-          </button>
-        </div>
-        <div id="players-table" class="table-container"></div>
-      </div>
-      <div id="games-tab" class="tab-content" style="display: none">
-        <h3>存档管理</h3>
-        <div class="table-controls" style="margin-bottom: 15px">
-          <button
-            onclick="toggleMobileView('games')"
-            class="btn btn-primary"
-            style="display: none"
-            id="mobile-toggle-games"
-          >
-            卡片视图
-          </button>
-        </div>
-        <div id="games-table" class="table-container"></div>
-      </div>
-      <div id="modal"></div>
-    </main>
-    <script>
-      async function loadData() {
-        try {
-          const [playersResponse, gamesResponse] = await Promise.all([fetch('/api/players'), fetch('/api/games')])
-          if (!playersResponse.ok || !gamesResponse.ok) {
-            throw new Error('Failed to fetch data')
-          }
-          const [players, games] = await Promise.all([playersResponse.json(), gamesResponse.json()])
-          renderStats(players || [], games || [])
-          renderPlayersTable(players || [])
-          renderGamesTable(games || [])
-        } catch (error) {
-          console.error('Error loading data:', error)
-          alert('加载数据失败，请刷新页面重试')
-        }
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>管理员面板 - Unciv Srv</title>
+  <link rel="stylesheet" href="/main.css" />
+</head>
+<body>
+<main class="admin-page">
+  <div class="header">
+    <h1>管理员面板</h1>
+    <a href="/api/logout" class="logout">退出登录</a>
+    <div style="clear: both"></div>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="tabs">
+    <button class="tab-button active" onclick="showTab('players')">玩家管理</button>
+    <button class="tab-button" onclick="showTab('games')">存档管理</button>
+  </div>
+  <div id="players-tab" class="tab-content">
+    <h3>玩家管理</h3>
+    <div class="table-controls" style="margin-bottom: 15px">
+      <button
+        onclick="toggleMobileView('players')"
+        class="btn btn-primary"
+        style="display: none"
+        id="mobile-toggle-players"
+      >
+        卡片视图
+      </button>
+    </div>
+    <div id="players-table" class="table-container"></div>
+  </div>
+  <div id="games-tab" class="tab-content" style="display: none">
+    <h3>存档管理</h3>
+    <div class="table-controls" style="margin-bottom: 15px">
+      <button
+        onclick="toggleMobileView('games')"
+        class="btn btn-primary"
+        style="display: none"
+        id="mobile-toggle-games"
+      >
+        卡片视图
+      </button>
+    </div>
+    <div id="games-table" class="table-container"></div>
+  </div>
+  <div id="modal"></div>
+</main>
+<script>
+  async function loadData() {
+    try {
+      const [playersResponse, gamesResponse] = await Promise.all([fetch('/api/players'), fetch('/api/games')])
+      if (!playersResponse.ok || !gamesResponse.ok) {
+        throw new Error('Failed to fetch data')
       }
-      document.addEventListener('DOMContentLoaded', loadData)
+      const [players, games] = await Promise.all([playersResponse.json(), gamesResponse.json()])
+      renderStats(players || [], games || [])
+      renderPlayersTable(players || [])
+      renderGamesTable(games || [])
+    } catch (error) {
+      console.error('Error loading data:', error)
+      alert('加载数据失败，请刷新页面重试')
+    }
+  }
 
-      function renderStats(players, games) {
-        const statsHtml = `
+  document.addEventListener('DOMContentLoaded', loadData)
+
+  function renderStats(players, games) {
+    const statsHtml = `
         <div class="stat-card">
           <div class="stat-number">${players.length}</div>
           <div class="stat-label">总玩家数</div>
@@ -85,20 +86,20 @@
           <div class="stat-label">白名单存档</div>
         </div>
       `
-        document.getElementById('stats').innerHTML = statsHtml
-      }
+    document.getElementById('stats').innerHTML = statsHtml
+  }
 
-      function renderPlayersTable(players) {
-        if (players.length === 0) {
-          document.getElementById('players-table').innerHTML = `
+  function renderPlayersTable(players) {
+    if (players.length === 0) {
+      document.getElementById('players-table').innerHTML = `
           <div class="empty-state">
             <p>暂无玩家数据</p>
           </div>
         `
-          return
-        }
+      return
+    }
 
-        const tableHtml = `
+    const tableHtml = `
         <table id="players">
           <thead>
             <tr>
@@ -111,8 +112,8 @@
           </thead>
           <tbody>
             ${players
-              .map(
-                (player) => `
+      .map(
+        (player) => `
               <tr>
                 <td data-label="玩家ID">${player.playerId}</td>
                 <td data-label="创建时间">${new Date(player.createdAt).toLocaleString('zh-CN')}</td>
@@ -130,27 +131,27 @@
                     查看密码
                   </button>
                 </td>
-              </tr>`
-              )
-              .join('')}
+              </tr>`,
+      )
+      .join('')}
           </tbody>
         </table>
       `
-        document.getElementById('players-table').innerHTML = tableHtml
-        checkMobileView()
-      }
+    document.getElementById('players-table').innerHTML = tableHtml
+    checkMobileView()
+  }
 
-      function renderGamesTable(games) {
-        if (games.length === 0) {
-          document.getElementById('games-table').innerHTML = `
+  function renderGamesTable(games) {
+    if (games.length === 0) {
+      document.getElementById('games-table').innerHTML = `
           <div class="empty-state">
             <p>暂无存档数据</p>
           </div>
         `
-          return
-        }
+      return
+    }
 
-        const tableHtml = `
+    const tableHtml = `
         <table id="games">
           <thead>
             <tr>
@@ -165,8 +166,8 @@
           </thead>
           <tbody>
             ${games
-              .map(
-                (game) => `
+      .map(
+        (game) => `
               <tr>
                 <td data-label="游戏ID">${game.gameId}</td>
                 <td data-label="玩家">${(game.players || []).join(', ')}</td>
@@ -188,151 +189,151 @@
                   <button class="btn btn-danger" onclick="deleteGame('${game.gameId}')">删除</button>
                 </td>
               </tr>
-            `
-              )
-              .join('')}
+            `,
+      )
+      .join('')}
           </tbody>
         </table>
       `
-        document.getElementById('games-table').innerHTML = tableHtml
-        checkMobileView()
-      }
+    document.getElementById('games-table').innerHTML = tableHtml
+    checkMobileView()
+  }
 
-      function togglePlayerWhitelist(playerId, whitelist) {
-        if (whitelist === null) return
-        updatePlayer(playerId, whitelist, null)
-      }
+  function togglePlayerWhitelist(playerId, whitelist) {
+    if (whitelist === null) return
+    updatePlayer(playerId, whitelist, null)
+  }
 
-      function editPlayerRemark(playerId, currentRemark) {
-        const newRemark = prompt('请输入新的备注:', currentRemark)
-        if (newRemark === null) return
-        if (newRemark === currentRemark) return
-        updatePlayer(playerId, null, newRemark)
-      }
+  function editPlayerRemark(playerId, currentRemark) {
+    const newRemark = prompt('请输入新的备注:', currentRemark)
+    if (newRemark === null) return
+    if (newRemark === currentRemark) return
+    updatePlayer(playerId, null, newRemark)
+  }
 
-      async function showPlayerPassword(playerId) {
-        try {
-          const response = await fetch(`/api/players/${playerId}/password`)
-          if (response.ok) {
-            const data = await response.json()
-            alert(`玩家 ${playerId} 的密码是: ${data.password}`)
-          } else {
-            const error = await response.json()
-            alert(`获取密码失败: ${error.message}`)
-          }
-        } catch (error) {
-          console.error('Error fetching password:', error)
-          alert('获取密码失败，请查看控制台')
-        }
+  async function showPlayerPassword(playerId) {
+    try {
+      const response = await fetch(`/api/players/${playerId}/password`)
+      if (response.ok) {
+        const data = await response.json()
+        alert(`玩家 ${playerId} 的密码是: ${data.password}`)
+      } else {
+        const error = await response.json()
+        alert(`获取密码失败: ${error.message}`)
       }
+    } catch (error) {
+      console.error('Error fetching password:', error)
+      alert('获取密码失败，请查看控制台')
+    }
+  }
 
-      async function updatePlayer(playerId, whitelist, remark) {
-        try {
-          const response = await fetch(`/api/players/${playerId}`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ whitelist, remark }),
-          })
-          if (response.ok) {
-            alert('玩家信息更新成功')
-            loadData()
-          } else {
-            const error = await response.json()
-            alert(`更新失败: ${error.error}`)
-          }
-        } catch (error) {
-          console.error('Error updating player:', error)
-          alert('更新失败，请重试')
-        }
+  async function updatePlayer(playerId, whitelist, remark) {
+    try {
+      const response = await fetch(`/api/players/${playerId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ whitelist, remark }),
+      })
+      if (response.ok) {
+        alert('玩家信息更新成功')
+        loadData()
+      } else {
+        const error = await response.json()
+        alert(`更新失败: ${error.error}`)
       }
+    } catch (error) {
+      console.error('Error updating player:', error)
+      alert('更新失败，请重试')
+    }
+  }
 
-      async function toggleGameWhitelist(gameId, whitelist) {
-        if (whitelist === null) return
-        updateGame(gameId, whitelist, null)
+  async function toggleGameWhitelist(gameId, whitelist) {
+    if (whitelist === null) return
+    updateGame(gameId, whitelist, null)
+  }
+
+  async function editGameRemark(gameId, currentRemark) {
+    const newRemark = prompt('请输入新的备注:', currentRemark)
+    if (newRemark === null) return
+    if (newRemark === currentRemark) return
+    updateGame(gameId, null, newRemark)
+  }
+
+  async function updateGame(gameId, whitelist, remark) {
+    try {
+      const response = await fetch(`/api/games/${gameId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ whitelist, remark }),
+      })
+      if (response.ok) {
+        alert('存档信息更新成功')
+        loadData()
+      } else {
+        const error = await response.json()
+        alert(`更新失败: ${error.error}`)
       }
+    } catch (error) {
+      console.error('Error updating game:', error)
+      alert('更新失败，请重试')
+    }
+  }
 
-      async function editGameRemark(gameId, currentRemark) {
-        const newRemark = prompt('请输入新的备注:', currentRemark)
-        if (newRemark === null) return
-        if (newRemark === currentRemark) return
-        updateGame(gameId, null, newRemark)
+  async function deleteGame(gameId) {
+    if (!confirm(`确定要删除游戏 ${gameId} 吗？此操作不可撤销。`)) {
+      return
+    }
+    try {
+      const response = await fetch(`/api/games/${gameId}`, {
+        method: 'DELETE',
+      })
+      if (response.ok) {
+        alert('删除成功')
+        loadData()
+      } else {
+        const error = await response.json()
+        alert(`删除失败: ${error.error}`)
       }
+    } catch (error) {
+      console.error('Error deleting game:', error)
+      alert('删除失败，请重试')
+    }
+  }
 
-      async function updateGame(gameId, whitelist, remark) {
-        try {
-          const response = await fetch(`/api/games/${gameId}`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ whitelist, remark }),
-          })
-          if (response.ok) {
-            alert('存档信息更新成功')
-            loadData()
-          } else {
-            const error = await response.json()
-            alert(`更新失败: ${error.error}`)
-          }
-        } catch (error) {
-          console.error('Error updating game:', error)
-          alert('更新失败，请重试')
-        }
-      }
+  function showTab(tabName) {
+    document.querySelectorAll('.tab-content').forEach((tab) => {
+      tab.style.display = 'none'
+    })
+    document.querySelectorAll('.tab-button').forEach((button) => {
+      button.classList.remove('active')
+    })
+    document.getElementById(`${tabName}-tab`).style.display = 'block'
+    event.target.classList.add('active')
+  }
 
-      async function deleteGame(gameId) {
-        if (!confirm(`确定要删除游戏 ${gameId} 吗？此操作不可撤销。`)) {
-          return
-        }
-        try {
-          const response = await fetch(`/api/games/${gameId}`, {
-            method: 'DELETE',
-          })
-          if (response.ok) {
-            alert('删除成功')
-            loadData()
-          } else {
-            const error = await response.json()
-            alert(`删除失败: ${error.error}`)
-          }
-        } catch (error) {
-          console.error('Error deleting game:', error)
-          alert('删除失败，请重试')
-        }
-      }
+  function toggleMobileView(tableId) {
+    const table = document.getElementById(tableId)
+    const button = document.getElementById(`mobile-toggle-${tableId}`)
+    if (table) {
+      table.classList.toggle('mobile-card-view')
+      button.textContent = table.classList.contains('mobile-card-view') ? '表格视图' : '卡片视图'
+    }
+  }
 
-      function showTab(tabName) {
-        document.querySelectorAll('.tab-content').forEach((tab) => {
-          tab.style.display = 'none'
-        })
-        document.querySelectorAll('.tab-button').forEach((button) => {
-          button.classList.remove('active')
-        })
-        document.getElementById(`${tabName}-tab`).style.display = 'block'
-        event.target.classList.add('active')
-      }
+  function checkMobileView() {
+    const isMobile = window.innerWidth <= 768
+    const toggleButtons = document.querySelectorAll('[id^="mobile-toggle-"]')
+    toggleButtons.forEach((button) => {
+      button.style.display = isMobile ? 'inline-block' : 'none'
+    })
+  }
 
-      function toggleMobileView(tableId) {
-        const table = document.getElementById(tableId)
-        const button = document.getElementById(`mobile-toggle-${tableId}`)
-        if (table) {
-          table.classList.toggle('mobile-card-view')
-          button.textContent = table.classList.contains('mobile-card-view') ? '表格视图' : '卡片视图'
-        }
-      }
-
-      function checkMobileView() {
-        const isMobile = window.innerWidth <= 768
-        const toggleButtons = document.querySelectorAll('[id^="mobile-toggle-"]')
-        toggleButtons.forEach((button) => {
-          button.style.display = isMobile ? 'inline-block' : 'none'
-        })
-      }
-
-      window.addEventListener('resize', checkMobileView)
-      document.addEventListener('DOMContentLoaded', checkMobileView)
-    </script>
-  </body>
+  window.addEventListener('resize', checkMobileView)
+  document.addEventListener('DOMContentLoaded', checkMobileView)
+</script>
+</body>
 </html>

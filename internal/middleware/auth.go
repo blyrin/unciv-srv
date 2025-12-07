@@ -89,7 +89,7 @@ func BasicAuth(next http.Handler) http.Handler {
 			}
 
 			// 更新最后活跃时间
-			database.UpdatePlayerLastActive(ctx, playerID, ip)
+			_ = database.UpdatePlayerLastActive(ctx, playerID, ip)
 		}
 
 		// 将玩家ID和密码存入上下文
@@ -103,14 +103,6 @@ func BasicAuth(next http.Handler) http.Handler {
 // GetPlayerID 从上下文获取玩家ID
 func GetPlayerID(r *http.Request) string {
 	if v := r.Context().Value(PlayerIDKey); v != nil {
-		return v.(string)
-	}
-	return ""
-}
-
-// GetPlayerPassword 从上下文获取玩家密码
-func GetPlayerPassword(r *http.Request) string {
-	if v := r.Context().Value(PlayerPasswordKey); v != nil {
 		return v.(string)
 	}
 	return ""

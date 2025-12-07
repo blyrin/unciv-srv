@@ -14,7 +14,7 @@ func CleanupExpiredGames(ctx context.Context) (int64, error) {
 	// 清理超过3个月未更新的非白名单游戏
 	result1, err := DB.Exec(ctx, `
 		DELETE FROM files
-		WHERE whitelist = false
+		WHERE whitelist = FALSE
 		AND updated_at < NOW() - INTERVAL '3 months'
 	`)
 	if err != nil {
@@ -25,7 +25,7 @@ func CleanupExpiredGames(ctx context.Context) (int64, error) {
 	// 清理创建后1天内无更新且创建时间超过10分钟的非白名单游戏
 	result2, err := DB.Exec(ctx, `
 		DELETE FROM files
-		WHERE whitelist = false
+		WHERE whitelist = FALSE
 		AND created_at < NOW() - INTERVAL '10 minutes'
 		AND updated_at = created_at
 		AND created_at < NOW() - INTERVAL '1 day'

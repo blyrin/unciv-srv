@@ -10,14 +10,14 @@ import (
 func JSONResponse(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 // TextResponse 发送文本响应
 func TextResponse(w http.ResponseWriter, status int, text string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(status)
-	w.Write([]byte(text))
+	_, _ = w.Write([]byte(text))
 }
 
 // ErrorResponse 发送错误响应
@@ -35,7 +35,7 @@ func ZipResponse(w http.ResponseWriter, filename string, data []byte) {
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // GetClientIP 获取客户端 IP

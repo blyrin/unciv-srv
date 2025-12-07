@@ -26,7 +26,7 @@ func Setup(cfg *config.Config, rateLimiter *middleware.RateLimiter) *http.ServeM
 	// 健康检查
 	mux.HandleFunc("GET /isalive", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(healthCheckResponse))
+		_, _ = w.Write([]byte(healthCheckResponse))
 	})
 
 	// 游戏客户端接口（需要 Basic Auth）
@@ -39,50 +39,25 @@ func Setup(cfg *config.Config, rateLimiter *middleware.RateLimiter) *http.ServeM
 	mux.Handle("/chat", middleware.Logger(http.HandlerFunc(handler.ChatWebSocket)))
 
 	// 登录处理器
-	loginHandler := &handler.LoginHandler{
-		Config:      cfg,
-		RateLimiter: rateLimiter,
-	}
+	loginHandler := &handler.LoginHandler{Config: cfg, RateLimiter: rateLimiter}
 
 	// Web API - 登录/登出
-	mux.Handle("POST /api/login", middleware.Logger(
-		middleware.RateLimit(rateLimiter)(http.HandlerFunc(loginHandler.Login)),
-	))
+	mux.Handle("POST /api/login", middleware.Logger(middleware.RateLimit(rateLimiter)(http.HandlerFunc(loginHandler.Login))))
 	mux.Handle("GET /api/logout", middleware.Logger(http.HandlerFunc(handler.Logout)))
 
 	// Web API - 管理员接口
-	mux.Handle("GET /api/players", middleware.Logger(
-		middleware.AdminOnly(http.HandlerFunc(handler.GetAllPlayers)),
-	))
-	mux.Handle("PUT /api/players/{playerId}", middleware.Logger(
-		middleware.AdminOnly(http.HandlerFunc(handler.UpdatePlayer)),
-	))
-	mux.Handle("GET /api/players/{playerId}/password", middleware.Logger(
-		middleware.AdminOnly(http.HandlerFunc(handler.GetPlayerPassword)),
-	))
-	mux.Handle("GET /api/games", middleware.Logger(
-		middleware.AdminOnly(http.HandlerFunc(handler.GetAllGames)),
-	))
-	mux.Handle("PUT /api/games/{gameId}", middleware.Logger(
-		middleware.AdminOnly(http.HandlerFunc(handler.UpdateGame)),
-	))
-	mux.Handle("GET /api/stats", middleware.Logger(
-		middleware.AdminOnly(http.HandlerFunc(handler.GetStats)),
-	))
+	mux.Handle("GET /api/players", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.GetAllPlayers))))
+	mux.Handle("PUT /api/players/{playerId}", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.UpdatePlayer))))
+	mux.Handle("GET /api/players/{playerId}/password", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.GetPlayerPassword))))
+	mux.Handle("GET /api/games", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.GetAllGames))))
+	mux.Handle("PUT /api/games/{gameId}", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.UpdateGame))))
+	mux.Handle("GET /api/stats", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.GetStats))))
 
 	// Web API - 用户接口
-	mux.Handle("GET /api/users/games", middleware.Logger(
-		middleware.SessionAuth(http.HandlerFunc(handler.GetUserGames)),
-	))
-	mux.Handle("GET /api/users/stats", middleware.Logger(
-		middleware.SessionAuth(http.HandlerFunc(handler.GetUserStats)),
-	))
-	mux.Handle("DELETE /api/games/{gameId}", middleware.Logger(
-		middleware.SessionAuth(http.HandlerFunc(handler.DeleteGame)),
-	))
-	mux.Handle("GET /api/games/{gameId}/download", middleware.Logger(
-		middleware.SessionAuth(http.HandlerFunc(handler.DownloadGameHistory)),
-	))
+	mux.Handle("GET /api/users/games", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.GetUserGames))))
+	mux.Handle("GET /api/users/stats", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.GetUserStats))))
+	mux.Handle("DELETE /api/games/{gameId}", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.DeleteGame))))
+	mux.Handle("GET /api/games/{gameId}/download", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.DownloadGameHistory))))
 
 	return mux
 }

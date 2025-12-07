@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 )
@@ -98,7 +99,10 @@ func LoadEnvFile(filename string) error {
 		if key != "" {
 			// 只设置未定义的环境变量
 			if os.Getenv(key) == "" {
-				os.Setenv(key, value)
+				if err := os.Setenv(key, value); err != nil {
+					slog.Warn("设置环境变量失败", "key", key, "error", err)
+					continue
+				}
 			}
 		}
 	}
