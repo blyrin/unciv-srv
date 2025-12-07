@@ -19,18 +19,11 @@ func CreateZip(entries []FileEntry) ([]byte, error) {
 	w := zip.NewWriter(&buf)
 
 	for _, entry := range entries {
-		// 将 JSON 数据编码为游戏存档格式（Base64 + Gzip）
-		encoded, err := EncodeFile(entry.Data)
-		if err != nil {
-			return nil, fmt.Errorf("编码文件 %s 失败: %w", entry.Name, err)
-		}
-
 		f, err := w.Create(entry.Name)
 		if err != nil {
 			return nil, fmt.Errorf("创建ZIP条目 %s 失败: %w", entry.Name, err)
 		}
-
-		if _, err := f.Write([]byte(encoded)); err != nil {
+		if _, err := f.Write(entry.Data); err != nil {
 			return nil, fmt.Errorf("写入ZIP条目 %s 失败: %w", entry.Name, err)
 		}
 	}

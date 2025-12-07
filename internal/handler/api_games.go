@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	"unciv-srv/internal/database"
 	"unciv-srv/internal/middleware"
@@ -147,7 +148,7 @@ func DownloadGameHistory(w http.ResponseWriter, r *http.Request) {
 	// 创建 ZIP 文件
 	var entries []utils.FileEntry
 	for _, content := range contents {
-		filename := fmt.Sprintf("turn_%d_%s.json", content.Turns, content.CreatedAt.Format("20060102_150405"))
+		filename := fmt.Sprintf("turn_%d_%s.json", content.Turns, content.CreatedAt.Format(time.RFC3339))
 		entries = append(entries, utils.FileEntry{
 			Name: filename,
 			Data: content.Data,
@@ -160,6 +161,6 @@ func DownloadGameHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filename := gameID + ".zip"
+	filename := "game_" + gameID + ".zip"
 	utils.ZipResponse(w, filename, zipData)
 }
