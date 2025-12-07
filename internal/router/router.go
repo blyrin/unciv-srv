@@ -3,6 +3,7 @@ package router
 
 import (
 	"embed"
+	"io/fs"
 	"net/http"
 
 	"unciv-srv/internal/config"
@@ -20,7 +21,11 @@ func Setup(cfg *config.Config, rateLimiter *middleware.RateLimiter) *http.ServeM
 	mux := http.NewServeMux()
 
 	// 静态文件服务
-	fileServer := http.FileServer(http.FS(webFS))
+	sub, err := fs.Sub(webFS, "web")
+	if err != nil {
+		return nil
+	}
+	fileServer := http.FileServer(http.FS(sub))
 	mux.Handle("/", fileServer)
 
 	// 健康检查
