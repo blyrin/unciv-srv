@@ -55,21 +55,19 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 验证管理员账户
-	if req.Username == h.Config.AdminUsername {
-		if req.Password == h.Config.AdminPassword {
-			// 登录成功，重置限流
-			h.RateLimiter.ResetAttempts(ip)
+	if req.Username == h.Config.AdminUsername && req.Password == h.Config.AdminPassword {
+		// 登录成功，重置限流
+		h.RateLimiter.ResetAttempts(ip)
 
-			// 创建 Session
-			sessionID := middleware.CreateSession(req.Username, true)
-			middleware.SetSessionCookie(w, sessionID)
+		// 创建 Session
+		sessionID := middleware.CreateSession(req.Username, true)
+		middleware.SetSessionCookie(w, sessionID)
 
-			utils.JSONResponse(w, http.StatusOK, LoginResponse{
-				Success: true,
-				IsAdmin: true,
-			})
-			return
-		}
+		utils.JSONResponse(w, http.StatusOK, LoginResponse{
+			Success: true,
+			IsAdmin: true,
+		})
+		return
 	}
 
 	// 验证玩家账户

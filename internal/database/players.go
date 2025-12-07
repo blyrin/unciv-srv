@@ -133,17 +133,3 @@ func GetPlayerPassword(ctx context.Context, playerID string) (string, error) {
 	}
 	return password, err
 }
-
-// GetPlayerCount 获取玩家总数
-func GetPlayerCount(ctx context.Context) (int, error) {
-	var count int
-	err := DB.QueryRow(ctx, `SELECT COUNT(*) FROM players`).Scan(&count)
-	return count, err
-}
-
-// GetWhitelistPlayerCount 获取白名单玩家数量
-func GetWhitelistPlayerCount(ctx context.Context) (int, error) {
-	var count int
-	err := DB.QueryRow(ctx, `SELECT COUNT(*) FROM players WHERE whitelist = TRUE`).Scan(&count)
-	return count, err
-}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -80,6 +79,34 @@ func UpdateGameTimestamp(ctx context.Context, gameID string) error {
 	return err
 }
 
+// scanGameWithTurns 从查询结果中扫描 GameWithTurns 记录
+func scanGameWithTurns(rows pgx.Rows) (GameWithTurns, error) {
+	var g GameWithTurns
+	var playersJSON []byte
+	var remark *string
+	var createdPlayer *string
+
+	if err := rows.Scan(
+		&g.GameID, &playersJSON, &g.CreatedAt, &g.UpdatedAt,
+		&g.Whitelist, &remark, &g.Turns, &createdPlayer,
+	); err != nil {
+		return g, err
+	}
+
+	if err := json.Unmarshal(playersJSON, &g.Players); err != nil {
+		return g, err
+	}
+
+	if remark != nil {
+		g.Remark = *remark
+	}
+	if createdPlayer != nil {
+		g.CreatedPlayer = *createdPlayer
+	}
+
+	return g, nil
+}
+
 // GetAllGames 获取所有游戏列表（包含最新回合数）
 func GetAllGames(ctx context.Context) ([]GameWithTurns, error) {
 	rows, err := DB.Query(ctx, `
@@ -104,29 +131,10 @@ func GetAllGames(ctx context.Context) ([]GameWithTurns, error) {
 
 	var games []GameWithTurns
 	for rows.Next() {
-		var g GameWithTurns
-		var playersJSON []byte
-		var remark *string
-		var createdPlayer *string
-
-		if err := rows.Scan(
-			&g.GameID, &playersJSON, &g.CreatedAt, &g.UpdatedAt,
-			&g.Whitelist, &remark, &g.Turns, &createdPlayer,
-		); err != nil {
+		g, err := scanGameWithTurns(rows)
+		if err != nil {
 			return nil, err
 		}
-
-		if err := json.Unmarshal(playersJSON, &g.Players); err != nil {
-			return nil, err
-		}
-
-		if remark != nil {
-			g.Remark = *remark
-		}
-		if createdPlayer != nil {
-			g.CreatedPlayer = *createdPlayer
-		}
-
 		games = append(games, g)
 	}
 
@@ -135,6 +143,11 @@ func GetAllGames(ctx context.Context) ([]GameWithTurns, error) {
 
 // GetGamesByPlayer 获取玩家参与的游戏
 func GetGamesByPlayer(ctx context.Context, playerID string) ([]GameWithTurns, error) {
+	playerJSON, err := json.Marshal([]string{playerID})
+	if err != nil {
+		return nil, err
+	}
+
 	rows, err := DB.Query(ctx, `
 		SELECT
 			f.game_id, f.players, f.created_at, f.updated_at, f.whitelist, f.remark,
@@ -150,7 +163,7 @@ func GetGamesByPlayer(ctx context.Context, playerID string) ([]GameWithTurns, er
 		) lfc ON TRUE
 		WHERE f.players @> $1::jsonb
 		ORDER BY f.updated_at DESC
-	`, `["`+playerID+`"]`)
+	`, playerJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -158,29 +171,10 @@ func GetGamesByPlayer(ctx context.Context, playerID string) ([]GameWithTurns, er
 
 	var games []GameWithTurns
 	for rows.Next() {
-		var g GameWithTurns
-		var playersJSON []byte
-		var remark *string
-		var createdPlayer *string
-
-		if err := rows.Scan(
-			&g.GameID, &playersJSON, &g.CreatedAt, &g.UpdatedAt,
-			&g.Whitelist, &remark, &g.Turns, &createdPlayer,
-		); err != nil {
+		g, err := scanGameWithTurns(rows)
+		if err != nil {
 			return nil, err
 		}
-
-		if err := json.Unmarshal(playersJSON, &g.Players); err != nil {
-			return nil, err
-		}
-
-		if remark != nil {
-			g.Remark = *remark
-		}
-		if createdPlayer != nil {
-			g.CreatedPlayer = *createdPlayer
-		}
-
 		games = append(games, g)
 	}
 
@@ -201,36 +195,6 @@ func UpdateGameInfo(ctx context.Context, gameID string, whitelist bool, remark s
 		WHERE game_id = $4
 	`, whitelist, remark, time.Now(), gameID)
 	return err
-}
-
-// GetGameCount 获取游戏总数
-func GetGameCount(ctx context.Context) (int, error) {
-	var count int
-	err := DB.QueryRow(ctx, `SELECT COUNT(*) FROM files`).Scan(&count)
-	return count, err
-}
-
-// GetWhitelistGameCount 获取白名单游戏数量
-func GetWhitelistGameCount(ctx context.Context) (int, error) {
-	var count int
-	err := DB.QueryRow(ctx, `SELECT COUNT(*) FROM files WHERE whitelist = TRUE`).Scan(&count)
-	return count, err
-}
-
-// ValidatePlayerPermission 验证玩家是否有权限操作游戏
-func ValidatePlayerPermission(ctx context.Context, playerID, gameID string) (bool, error) {
-	game, err := GetGameByID(ctx, gameID)
-	if err != nil {
-		return false, err
-	}
-
-	// 游戏不存在，允许创建
-	if game == nil {
-		return true, nil
-	}
-
-	// 检查玩家是否存在于游戏中
-	return slices.Contains(game.Players, playerID), nil
 }
 
 // IsGameCreator 检查玩家是否是游戏的创建者（第一个上传存档的玩家）
@@ -261,14 +225,12 @@ func IsGameCreator(ctx context.Context, playerID, gameID string) (bool, error) {
 func GetGamesCreatedByPlayer(ctx context.Context, playerID string) (int, error) {
 	var count int
 	err := DB.QueryRow(ctx, `
-		SELECT COUNT(DISTINCT fc.game_id)
-		FROM files_content fc
-		INNER JOIN (
-			SELECT game_id, MIN(created_at) AS min_created_at
+		SELECT COUNT(*) FROM (
+			SELECT DISTINCT ON (game_id) game_id, created_player
 			FROM files_content
-			GROUP BY game_id
-		) first_uploads ON fc.game_id = first_uploads.game_id AND fc.created_at = first_uploads.min_created_at
-		WHERE fc.created_player = $1
+			ORDER BY game_id, created_at
+		) first_uploads
+		WHERE first_uploads.created_player = $1
 	`, playerID).Scan(&count)
 	return count, err
 }

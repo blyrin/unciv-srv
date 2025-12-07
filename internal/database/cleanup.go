@@ -11,36 +11,26 @@ import (
 // 1. 删除超过3个月未更新的非白名单游戏
 // 2. 删除创建后1天内无更新且创建时间超过10分钟的游戏
 func CleanupExpiredGames(ctx context.Context) (int64, error) {
-	// 清理超过3个月未更新的非白名单游戏
-	result1, err := DB.Exec(ctx, `
+	// 合并两个清理条件为一条 SQL，减少数据库往返
+	// 1. 删除超过3个月未更新的非白名单游戏
+	// 2. 删除创建后1天内无更新且创建时间超过10分钟的游戏
+	result, err := DB.Exec(ctx, `
 		DELETE FROM files
-		WHERE whitelist = FALSE
-		AND updated_at < NOW() - INTERVAL '3 months'
+		WHERE whitelist = FALSE AND (
+			updated_at < NOW() - INTERVAL '3 months'
+			OR (created_at < NOW() - INTERVAL '10 minutes' AND updated_at = created_at AND created_at < NOW() - INTERVAL '1 day')
+		)
 	`)
 	if err != nil {
 		return 0, err
 	}
-	count1 := result1.RowsAffected()
 
-	// 清理创建后1天内无更新且创建时间超过10分钟的非白名单游戏
-	result2, err := DB.Exec(ctx, `
-		DELETE FROM files
-		WHERE whitelist = FALSE
-		AND created_at < NOW() - INTERVAL '10 minutes'
-		AND updated_at = created_at
-		AND created_at < NOW() - INTERVAL '1 day'
-	`)
-	if err != nil {
-		return count1, err
-	}
-	count2 := result2.RowsAffected()
-
-	total := count1 + count2
-	if total > 0 {
-		slog.Info("清理过期游戏", "count", total)
+	count := result.RowsAffected()
+	if count > 0 {
+		slog.Info("清理过期游戏", "count", count)
 	}
 
-	return total, nil
+	return count, nil
 }
 
 // CleanupOldPreviews 清理旧的预览记录，只保留每个游戏最新的一条
@@ -48,9 +38,11 @@ func CleanupOldPreviews(ctx context.Context) (int64, error) {
 	result, err := DB.Exec(ctx, `
 		DELETE FROM files_preview
 		WHERE id NOT IN (
-			SELECT DISTINCT ON (game_id) id
-			FROM files_preview
-			ORDER BY game_id, turns DESC, created_at DESC
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY turns DESC, created_at DESC) AS rn
+				FROM files_preview
+			) ranked
+			WHERE rn = 1
 		)
 	`)
 	if err != nil {
@@ -70,9 +62,11 @@ func CleanupOldContents(ctx context.Context) (int64, error) {
 	result, err := DB.Exec(ctx, `
 		DELETE FROM files_content
 		WHERE id NOT IN (
-			SELECT DISTINCT ON (game_id) id
-			FROM files_content
-			ORDER BY game_id, turns DESC, created_at DESC
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY turns DESC, created_at DESC) AS rn
+				FROM files_content
+			) ranked
+			WHERE rn = 1
 		)
 	`)
 	if err != nil {

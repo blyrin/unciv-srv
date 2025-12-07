@@ -66,6 +66,7 @@ func PutFile(w http.ResponseWriter, r *http.Request) {
 
 	// 限制请求体大小
 	r.Body = http.MaxBytesReader(w, r.Body, utils.MaxBodySize)
+	defer func() { _ = r.Body.Close() }()
 
 	// 读取请求体
 	body, err := io.ReadAll(r.Body)
@@ -73,7 +74,6 @@ func PutFile(w http.ResponseWriter, r *http.Request) {
 		utils.ErrorResponse(w, http.StatusBadRequest, "读取请求体失败")
 		return
 	}
-	defer func(Body io.ReadCloser) { _ = Body.Close() }(r.Body)
 
 	if len(body) == 0 {
 		utils.ErrorResponse(w, http.StatusBadRequest, "存档数据不能为空")
@@ -136,13 +136,7 @@ func PutFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// 验证玩家权限
-		hasPermission, err := database.ValidatePlayerPermission(ctx, playerID, gameID)
-		if err != nil {
-			slog.Error("验证权限失败", "playerId", playerID, "gameId", gameID, "error", err)
-			utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误")
-			return
-		}
+		hasPermission := slices.Contains(game.Players, playerID)
 		if !hasPermission {
 			utils.ErrorResponse(w, http.StatusForbidden, "无权操作此游戏")
 			return

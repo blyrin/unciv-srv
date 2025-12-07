@@ -43,36 +43,13 @@ func GetUserGames(w http.ResponseWriter, r *http.Request) {
 // GetStats 处理 GET /api/stats
 // 获取统计信息（管理员）
 func GetStats(w http.ResponseWriter, r *http.Request) {
-	playerCount, err := database.GetPlayerCount(r.Context())
+	stats, err := database.GetAllStats(r.Context())
 	if err != nil {
 		utils.ErrorResponse(w, http.StatusInternalServerError, "获取统计信息失败")
 		return
 	}
 
-	gameCount, err := database.GetGameCount(r.Context())
-	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "获取统计信息失败")
-		return
-	}
-
-	whitelistPlayerCount, err := database.GetWhitelistPlayerCount(r.Context())
-	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "获取统计信息失败")
-		return
-	}
-
-	whitelistGameCount, err := database.GetWhitelistGameCount(r.Context())
-	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "获取统计信息失败")
-		return
-	}
-
-	utils.SuccessResponse(w, map[string]int{
-		"playerCount":          playerCount,
-		"gameCount":            gameCount,
-		"whitelistPlayerCount": whitelistPlayerCount,
-		"whitelistGameCount":   whitelistGameCount,
-	})
+	utils.SuccessResponse(w, stats)
 }
 
 // GetUserStats 处理 GET /api/users/stats

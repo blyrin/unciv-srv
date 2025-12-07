@@ -12,7 +12,7 @@ import (
 
 // GetAuth 处理 GET /auth
 // 用于验证用户身份，如果用户不存在则自动注册
-func GetAuth(w http.ResponseWriter, r *http.Request) {
+func GetAuth(w http.ResponseWriter, _ *http.Request) {
 	// 认证由中间件完成，到达这里说明认证成功
 	utils.TextResponse(w, http.StatusOK, "认证成功")
 }

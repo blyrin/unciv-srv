@@ -28,8 +28,8 @@ type Game struct {
 	Remark    string    `json:"remark"`
 }
 
-// FileContent 游戏内容模型
-type FileContent struct {
+// FileData 游戏文件基础模型（公共字段）
+type FileData struct {
 	ID            int64           `json:"id"`
 	GameID        string          `json:"gameId"`
 	Turns         int             `json:"turns"`
@@ -39,15 +39,14 @@ type FileContent struct {
 	Data          json.RawMessage `json:"data"`
 }
 
+// FileContent 游戏内容模型
+type FileContent struct {
+	FileData
+}
+
 // FilePreview 游戏预览模型
 type FilePreview struct {
-	ID            int64           `json:"id"`
-	GameID        string          `json:"gameId"`
-	Turns         int             `json:"turns"`
-	CreatedPlayer string          `json:"createdPlayer"`
-	CreatedIP     string          `json:"createdIp,omitempty"`
-	CreatedAt     time.Time       `json:"createdAt"`
-	Data          json.RawMessage `json:"data"`
+	FileData
 }
 
 // GameWithTurns 游戏及其回合数

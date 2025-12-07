@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"unciv-srv/internal/database"
 
@@ -73,9 +74,36 @@ type GenericMessage struct {
 	Message string      `json:"message,omitempty"`
 }
 
+// peerConn 封装 WebSocket 连接和写锁，保证并发写入安全
+type peerConn struct {
+	conn    *websocket.Conn
+	writeMu sync.Mutex
+}
+
+// sendJSON 安全发送 JSON 消息
+func (p *peerConn) sendJSON(v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		slog.Error("JSON序列化失败", "error", err)
+		return
+	}
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	_ = p.conn.WriteMessage(websocket.TextMessage, data)
+}
+
+// sendError 发送错误消息
+func (p *peerConn) sendError(message string) {
+	response := ChatErrorResponse{
+		Type:    TypeError,
+		Message: message,
+	}
+	p.sendJSON(response)
+}
+
 // 玩家连接管理
 var (
-	playerPeers   = make(map[string]map[*websocket.Conn]bool)
+	playerPeers   = make(map[string]map[*peerConn]bool)
 	playerPeersMu sync.RWMutex
 )
 
@@ -99,9 +127,12 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("WebSocket连接已建立", "playerId", playerID)
 
+	// 创建封装的连接
+	peer := &peerConn{conn: conn}
+
 	// 注册连接
-	registerPeer(playerID, conn)
-	defer unregisterPeer(playerID, conn)
+	registerPeer(playerID, peer)
+	defer unregisterPeer(playerID, peer)
 
 	// 消息处理循环
 	for {
@@ -115,23 +146,25 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		// 处理 ping 消息
 		if string(message) == "ping" {
+			peer.writeMu.Lock()
 			_ = conn.WriteMessage(websocket.TextMessage, []byte("pong"))
+			peer.writeMu.Unlock()
 			continue
 		}
 
 		// 解析消息
 		var msg GenericMessage
 		if err := json.Unmarshal(message, &msg); err != nil {
-			sendError(conn, "无效的消息格式")
+			peer.sendError("无效的消息格式")
 			continue
 		}
 
 		// 处理不同类型的消息
 		switch msg.Type {
 		case TypeJoin:
-			handleJoin(conn, playerID, msg.GameIDs)
+			handleJoin(peer, playerID, msg.GameIDs)
 		case TypeLeave:
-			handleLeave(conn, playerID, msg.GameIDs)
+			handleLeave(peer, playerID, msg.GameIDs)
 		case TypeChat:
 			handleChat(playerID, msg)
 		default:
@@ -186,23 +219,23 @@ func parseWebSocketAuth(ctx context.Context, r *http.Request) (string, error) {
 }
 
 // registerPeer 注册连接
-func registerPeer(playerID string, conn *websocket.Conn) {
+func registerPeer(playerID string, peer *peerConn) {
 	playerPeersMu.Lock()
 	defer playerPeersMu.Unlock()
 
 	if playerPeers[playerID] == nil {
-		playerPeers[playerID] = make(map[*websocket.Conn]bool)
+		playerPeers[playerID] = make(map[*peerConn]bool)
 	}
-	playerPeers[playerID][conn] = true
+	playerPeers[playerID][peer] = true
 }
 
 // unregisterPeer 注销连接
-func unregisterPeer(playerID string, conn *websocket.Conn) {
+func unregisterPeer(playerID string, peer *peerConn) {
 	playerPeersMu.Lock()
 	defer playerPeersMu.Unlock()
 
 	if peers, ok := playerPeers[playerID]; ok {
-		delete(peers, conn)
+		delete(peers, peer)
 		if len(peers) == 0 {
 			delete(playerPeers, playerID)
 		}
@@ -210,18 +243,18 @@ func unregisterPeer(playerID string, conn *websocket.Conn) {
 }
 
 // handleJoin 处理加入消息
-func handleJoin(conn *websocket.Conn, playerID string, gameIDs []string) {
+func handleJoin(peer *peerConn, playerID string, gameIDs []string) {
 	slog.Info("玩家加入聊天", "playerId", playerID, "gameIds", gameIDs)
 
 	response := JoinSuccessResponse{
 		Type:    TypeJoinSuccess,
 		GameIDs: gameIDs,
 	}
-	sendJSON(conn, response)
+	peer.sendJSON(response)
 }
 
 // handleLeave 处理离开消息
-func handleLeave(_ *websocket.Conn, playerID string, gameIDs []string) {
+func handleLeave(_ *peerConn, playerID string, gameIDs []string) {
 	slog.Info("玩家离开聊天", "playerId", playerID, "gameIds", gameIDs)
 }
 
@@ -229,8 +262,12 @@ func handleLeave(_ *websocket.Conn, playerID string, gameIDs []string) {
 func handleChat(playerID string, msg GenericMessage) {
 	slog.Info("聊天消息", "playerId", playerID, "gameId", msg.GameID, "civName", msg.CivName, "message", msg.Message)
 
+	// 使用带超时的 context 避免潜在阻塞
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// 获取游戏中的所有玩家
-	game, err := database.GetGameByID(context.Background(), msg.GameID)
+	game, err := database.GetGameByID(ctx, msg.GameID)
 	if err != nil {
 		slog.Error("获取游戏失败", "gameId", msg.GameID, "error", err)
 		return
@@ -253,28 +290,10 @@ func handleChat(playerID string, msg GenericMessage) {
 
 	for _, pID := range game.Players {
 		if peers, ok := playerPeers[pID]; ok {
-			for conn := range peers {
-				sendJSON(conn, response)
+			for peer := range peers {
+				peer.sendJSON(response)
 			}
 		}
 	}
 }
 
-// sendJSON 发送 JSON 消息
-func sendJSON(conn *websocket.Conn, v any) {
-	data, err := json.Marshal(v)
-	if err != nil {
-		slog.Error("JSON序列化失败", "error", err)
-		return
-	}
-	_ = conn.WriteMessage(websocket.TextMessage, data)
-}
-
-// sendError 发送错误消息
-func sendError(conn *websocket.Conn, message string) {
-	response := ChatErrorResponse{
-		Type:    TypeError,
-		Message: message,
-	}
-	sendJSON(conn, response)
-}

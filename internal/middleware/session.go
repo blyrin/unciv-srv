@@ -149,34 +149,17 @@ func SessionAuth(next http.Handler) http.Handler {
 }
 
 // AdminOnly 管理员权限中间件
+// 复用 SessionAuth 进行认证，然后检查管理员权限
 func AdminOnly(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 先进行 Session 认证
-		cookie, err := r.Cookie(SessionCookieName)
-		if err != nil {
-			utils.ErrorResponse(w, http.StatusUnauthorized, "未登录")
-			return
-		}
-
-		session, exists := GetSession(cookie.Value)
-		if !exists {
-			ClearSessionCookie(w)
-			utils.ErrorResponse(w, http.StatusUnauthorized, "会话已过期")
-			return
-		}
-
+	return SessionAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 检查是否是管理员
-		if !session.IsAdmin {
+		if !IsSessionAdmin(r) {
 			utils.ErrorResponse(w, http.StatusForbidden, "需要管理员权限")
 			return
 		}
 
-		// 将用户信息存入上下文
-		ctx := context.WithValue(r.Context(), SessionUserIDKey, session.UserID)
-		ctx = context.WithValue(ctx, SessionIsAdminKey, session.IsAdmin)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+		next.ServeHTTP(w, r)
+	}))
 }
 
 // GetSessionUserID 从上下文获取用户ID
