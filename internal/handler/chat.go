@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"unciv-srv/internal/database"
+	"unciv-srv/internal/middleware"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -229,22 +229,7 @@ func parseWebSocketAuth(ctx context.Context, r *http.Request) (string, error) {
 	playerID := pair[:colonIdx]
 	password := pair[colonIdx+1:]
 
-	// 验证 UUID 格式
-	if _, err := uuid.Parse(playerID); err != nil {
-		return "", err
-	}
-
-	// 验证玩家
-	player, err := database.GetPlayerByID(ctx, playerID)
-	if err != nil {
-		return "", err
-	}
-
-	if player == nil || player.Password != password {
-		return "", nil
-	}
-
-	return playerID, nil
+	return middleware.ValidatePlayer(ctx, playerID, password)
 }
 
 // registerPeer 注册连接

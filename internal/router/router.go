@@ -37,9 +37,9 @@ func Setup(cfg *config.Config, rateLimiter *middleware.RateLimiter) *http.ServeM
 		}
 	})
 
-	// 游戏客户端接口（需要 Basic Auth）
-	mux.Handle("GET /auth", middleware.Logger(middleware.BasicAuth(http.HandlerFunc(handler.GetAuth))))
-	mux.Handle("PUT /auth", middleware.Logger(middleware.BasicAuth(http.HandlerFunc(handler.PutAuth))))
+	// 游戏客户端接口
+	mux.Handle("GET /auth", middleware.Logger(middleware.BasicAuthWithRegister(http.HandlerFunc(handler.GetAuth))))
+	mux.Handle("PUT /auth", middleware.Logger(middleware.BasicAuthWithRegister(http.HandlerFunc(handler.PutAuth))))
 	mux.Handle("GET /files/{gameId}", middleware.Logger(middleware.ValidateGameID(middleware.BasicAuth(http.HandlerFunc(handler.GetFile)))))
 	mux.Handle("PUT /files/{gameId}", middleware.Logger(middleware.ValidateGameID(middleware.BasicAuth(http.HandlerFunc(handler.PutFile)))))
 
