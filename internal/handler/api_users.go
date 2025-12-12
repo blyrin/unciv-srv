@@ -34,7 +34,7 @@ func GetUserGames(w http.ResponseWriter, r *http.Request) {
 		games = []database.GameWithTurns{}
 	}
 
-	utils.SuccessResponse(w, UserGamesResponse{
+	utils.JSONResponse(w, http.StatusOK, UserGamesResponse{
 		PlayerID: userID,
 		Games:    games,
 	})
@@ -49,7 +49,7 @@ func GetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.SuccessResponse(w, stats)
+	utils.JSONResponse(w, http.StatusOK, stats)
 }
 
 // GetUserStats 处理 GET /api/users/stats
@@ -75,7 +75,7 @@ func GetUserStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.SuccessResponse(w, map[string]int{
+	utils.JSONResponse(w, http.StatusOK, map[string]int{
 		"gameCount":    len(games),
 		"createdCount": createdCount,
 	})

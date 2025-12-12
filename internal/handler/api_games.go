@@ -27,7 +27,7 @@ func GetAllGames(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.SuccessResponse(w, games)
+	utils.JSONResponse(w, http.StatusOK, games)
 }
 
 // UpdateGame 处理 PUT /api/games/{gameId}
@@ -50,7 +50,7 @@ func UpdateGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.SuccessResponse(w, map[string]bool{"success": true})
+	utils.SuccessResponse(w)
 }
 
 // DeleteGame 处理 DELETE /api/games/{gameId}
@@ -97,7 +97,7 @@ func DeleteGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.SuccessResponse(w, map[string]bool{"success": true})
+	utils.SuccessResponse(w)
 }
 
 // DownloadGameHistory 处理 GET /api/games/{gameId}/download

@@ -16,10 +16,8 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
-// LoginResponse 登录响应
-type LoginResponse struct {
-	Success  bool   `json:"success"`
-	Message  string `json:"message,omitempty"`
+// LoginSuccessResponse 登录成功响应
+type LoginSuccessResponse struct {
 	IsAdmin  bool   `json:"isAdmin,omitempty"`
 	PlayerID string `json:"playerId,omitempty"`
 }
@@ -37,20 +35,14 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// 检查是否被限流
 	if h.RateLimiter.IsLocked(ip) {
 		remaining := h.RateLimiter.GetLockRemainingTime(ip)
-		utils.JSONResponse(w, http.StatusTooManyRequests, LoginResponse{
-			Success: false,
-			Message: "请求过于频繁，请 " + remaining.String() + " 后再试",
-		})
+		utils.ErrorResponse(w, http.StatusTooManyRequests, "请求过于频繁，请 "+remaining.String()+" 后再试", nil)
 		return
 	}
 
 	// 解析请求
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.JSONResponse(w, http.StatusBadRequest, LoginResponse{
-			Success: false,
-			Message: "无效的请求格式",
-		})
+		utils.ErrorResponse(w, http.StatusBadRequest, "无效的请求格式", nil)
 		return
 	}
 
@@ -63,8 +55,7 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 		sessionID := middleware.CreateSession(req.Username, true)
 		middleware.SetSessionCookie(w, sessionID)
 
-		utils.JSONResponse(w, http.StatusOK, LoginResponse{
-			Success: true,
+		utils.JSONResponse(w, http.StatusOK, LoginSuccessResponse{
 			IsAdmin: true,
 		})
 		return
@@ -73,10 +64,7 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// 验证玩家账户
 	player, err := database.GetPlayerByID(r.Context(), req.Username)
 	if err != nil {
-		utils.JSONResponse(w, http.StatusInternalServerError, LoginResponse{
-			Success: false,
-			Message: "数据库错误",
-		})
+		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", nil)
 		return
 	}
 
@@ -88,8 +76,7 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 		sessionID := middleware.CreateSession(req.Username, false)
 		middleware.SetSessionCookie(w, sessionID)
 
-		utils.JSONResponse(w, http.StatusOK, LoginResponse{
-			Success:  true,
+		utils.JSONResponse(w, http.StatusOK, LoginSuccessResponse{
 			IsAdmin:  false,
 			PlayerID: player.PlayerID,
 		})
@@ -98,18 +85,12 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// 登录失败，记录尝试
 	if h.RateLimiter.RecordAttempt(ip) {
-		utils.JSONResponse(w, http.StatusTooManyRequests, LoginResponse{
-			Success: false,
-			Message: "登录失败次数过多，请稍后再试",
-		})
+		utils.ErrorResponse(w, http.StatusTooManyRequests, "登录失败次数过多，请稍后再试", nil)
 		return
 	}
 
 	remaining := h.RateLimiter.GetRemainingAttempts(ip)
-	utils.JSONResponse(w, http.StatusUnauthorized, LoginResponse{
-		Success: false,
-		Message: "用户名或密码错误，剩余尝试次数: " + string(rune('0'+remaining)),
-	})
+	utils.ErrorResponse(w, http.StatusUnauthorized, "用户名或密码错误，剩余尝试次数: "+string(rune('0'+remaining)), nil)
 }
 
 // Logout 处理 GET /api/logout

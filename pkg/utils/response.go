@@ -7,6 +7,12 @@ import (
 	"net/http"
 )
 
+// ErrorResponseBody 统一错误响应结构
+type ErrorResponseBody struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
 // JSONResponse 发送 JSON 响应
 func JSONResponse(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -25,17 +31,21 @@ func TextResponse(w http.ResponseWriter, status int, text string) {
 	}
 }
 
-// ErrorResponse 发送错误响应
+// ErrorResponse 发送统一格式的错误响应
+// 格式: { "type": "error", "message": "错误信息" }
 func ErrorResponse(w http.ResponseWriter, status int, message string, err error) {
 	if err != nil {
 		slog.Error(message, "error", err)
 	}
-	TextResponse(w, status, message)
+	JSONResponse(w, status, ErrorResponseBody{
+		Type:    "error",
+		Message: message,
+	})
 }
 
-// SuccessResponse 发送成功响应
-func SuccessResponse(w http.ResponseWriter, data any) {
-	JSONResponse(w, http.StatusOK, data)
+// SuccessResponse 发送成功响应（无内容）
+func SuccessResponse(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ZipResponse 发送 ZIP 文件响应

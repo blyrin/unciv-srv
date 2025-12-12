@@ -51,14 +51,14 @@
         }),
       })
       const result = await response.json()
-      if (result.success) {
+      if (response.ok) {
         // 登录成功，根据用户类型跳转
         if (result.isAdmin) {
           window.location.href = '/admin/'
         } else {
           window.location.href = '/user/'
         }
-      } else if (result.message) {
+      } else if (result.type === 'error') {
         resultDiv.innerHTML = `<div class="error">${result.message}</div>`
       }
     } catch (error) {

@@ -241,7 +241,7 @@
         loadData()
       } else {
         const error = await response.json()
-        alert(`更新失败: ${error.error}`)
+        alert(`更新失败: ${error.message}`)
       }
     } catch (error) {
       console.error('Error updating player:', error)
@@ -275,7 +275,7 @@
         loadData()
       } else {
         const error = await response.json()
-        alert(`更新失败: ${error.error}`)
+        alert(`更新失败: ${error.message}`)
       }
     } catch (error) {
       console.error('Error updating game:', error)
@@ -296,7 +296,7 @@
         loadData()
       } else {
         const error = await response.json()
-        alert(`删除失败: ${error.error}`)
+        alert(`删除失败: ${error.message}`)
       }
     } catch (error) {
       console.error('Error deleting game:', error)

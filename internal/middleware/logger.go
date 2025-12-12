@@ -40,7 +40,7 @@ func Logger(next http.Handler) http.Handler {
 
 		// 记录日志
 		duration := time.Since(start)
-		slog.Info("HTTP请求",
+		slog.Info("HTTP",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rw.statusCode,

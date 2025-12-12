@@ -34,7 +34,6 @@ func parseBasicAuth(r *http.Request, w http.ResponseWriter) (*basicAuthResult, b
 	// 获取 Authorization 头
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
-		w.Header().Set("WWW-Authenticate", `Basic realm="Unciv Server"`)
 		utils.ErrorResponse(w, http.StatusUnauthorized, "需要认证", nil)
 		return nil, false
 	}
@@ -60,12 +59,18 @@ func parseBasicAuth(r *http.Request, w http.ResponseWriter) (*basicAuthResult, b
 		return nil, false
 	}
 
-	playerID := pair[:colonIdx]
-	password := pair[colonIdx+1:]
+	playerID := strings.TrimSpace(pair[:colonIdx])
+	password := strings.TrimSpace(pair[colonIdx+1:])
 
 	// 验证 playerID 格式（必须是 UUID）
 	if _, err := uuid.Parse(playerID); err != nil {
-		utils.ErrorResponse(w, http.StatusBadRequest, "无效的玩家ID格式", err)
+		utils.ErrorResponse(w, http.StatusUnauthorized, "无效的玩家ID格式", err)
+		return nil, false
+	}
+
+	// 需要密码登录
+	if password == "" || len(password) < 6 {
+		utils.ErrorResponse(w, http.StatusUnauthorized, "密码至少6位", nil)
 		return nil, false
 	}
 

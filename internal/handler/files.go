@@ -160,5 +160,5 @@ func PutFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.TextResponse(w, http.StatusOK, "存档已保存")
+	utils.SuccessResponse(w)
 }

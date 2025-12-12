@@ -28,7 +28,7 @@ func GetAllPlayers(w http.ResponseWriter, r *http.Request) {
 		players[i].Password = ""
 	}
 
-	utils.SuccessResponse(w, players)
+	utils.JSONResponse(w, http.StatusOK, players)
 }
 
 // UpdatePlayer 处理 PUT /api/players/{playerId}
@@ -51,7 +51,7 @@ func UpdatePlayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.SuccessResponse(w, map[string]bool{"success": true})
+	utils.SuccessResponse(w)
 }
 
 // GetPlayerPassword 处理 GET /api/players/{playerId}/password
@@ -74,5 +74,5 @@ func GetPlayerPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.SuccessResponse(w, map[string]string{"password": password})
+	utils.JSONResponse(w, http.StatusOK, map[string]string{"password": password})
 }
