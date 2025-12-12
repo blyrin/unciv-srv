@@ -125,6 +125,16 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func(conn *websocket.Conn) { _ = conn.Close() }(conn)
 
+	// 设置消息大小限制（512KB）
+	conn.SetReadLimit(512 * 1024)
+
+	// 设置读取超时
+	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
 	slog.Info("WebSocket连接已建立", "playerId", playerID)
 
 	// 创建封装的连接
@@ -134,6 +144,27 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	registerPeer(playerID, peer)
 	defer unregisterPeer(playerID, peer)
 
+	// 启动心跳 goroutine
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				peer.writeMu.Lock()
+				if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
+					peer.writeMu.Unlock()
+					return
+				}
+				peer.writeMu.Unlock()
+			case <-done:
+				return
+			}
+		}
+	}()
+
 	// 消息处理循环
 	for {
 		_, message, err := conn.ReadMessage()
@@ -142,14 +173,6 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 				slog.Error("WebSocket读取错误", "playerId", playerID, "error", err)
 			}
 			break
-		}
-
-		// 处理 ping 消息
-		if string(message) == "ping" {
-			peer.writeMu.Lock()
-			_ = conn.WriteMessage(websocket.TextMessage, []byte("pong"))
-			peer.writeMu.Unlock()
-			continue
 		}
 
 		// 解析消息
@@ -166,7 +189,7 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 		case TypeLeave:
 			handleLeave(peer, playerID, msg.GameIDs)
 		case TypeChat:
-			handleChat(playerID, msg)
+			handleChat(peer, playerID, msg)
 		default:
 			slog.Warn("未知消息类型", "playerId", playerID, "type", msg.Type)
 		}
@@ -259,7 +282,7 @@ func handleLeave(_ *peerConn, playerID string, gameIDs []string) {
 }
 
 // handleChat 处理聊天消息
-func handleChat(playerID string, msg GenericMessage) {
+func handleChat(peer *peerConn, playerID string, msg GenericMessage) {
 	slog.Info("聊天消息", "playerId", playerID, "gameId", msg.GameID, "civName", msg.CivName, "message", msg.Message)
 
 	// 使用带超时的 context 避免潜在阻塞
@@ -270,10 +293,12 @@ func handleChat(playerID string, msg GenericMessage) {
 	game, err := database.GetGameByID(ctx, msg.GameID)
 	if err != nil {
 		slog.Error("获取游戏失败", "gameId", msg.GameID, "error", err)
+		peer.sendError("发送消息失败")
 		return
 	}
 
 	if game == nil {
+		peer.sendError("游戏不存在")
 		return
 	}
 
@@ -285,15 +310,20 @@ func handleChat(playerID string, msg GenericMessage) {
 		Message: msg.Message,
 	}
 
+	// 在持有锁时收集需要发送的连接列表
 	playerPeersMu.RLock()
-	defer playerPeersMu.RUnlock()
-
+	var targetPeers []*peerConn
 	for _, pID := range game.Players {
 		if peers, ok := playerPeers[pID]; ok {
 			for peer := range peers {
-				peer.sendJSON(response)
+				targetPeers = append(targetPeers, peer)
 			}
 		}
 	}
-}
+	playerPeersMu.RUnlock()
 
+	// 释放锁后再执行 IO 操作
+	for _, peer := range targetPeers {
+		peer.sendJSON(response)
+	}
+}
