@@ -128,7 +128,7 @@ func SessionAuth(next http.Handler) http.Handler {
 		// 获取 Session Cookie
 		cookie, err := r.Cookie(SessionCookieName)
 		if err != nil {
-			utils.ErrorResponse(w, http.StatusUnauthorized, "未登录")
+			utils.ErrorResponse(w, http.StatusUnauthorized, "未登录", nil)
 			return
 		}
 
@@ -136,7 +136,7 @@ func SessionAuth(next http.Handler) http.Handler {
 		session, exists := GetSession(cookie.Value)
 		if !exists {
 			ClearSessionCookie(w)
-			utils.ErrorResponse(w, http.StatusUnauthorized, "会话已过期")
+			utils.ErrorResponse(w, http.StatusUnauthorized, "会话已过期", nil)
 			return
 		}
 
@@ -154,7 +154,7 @@ func AdminOnly(next http.Handler) http.Handler {
 	return SessionAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 检查是否是管理员
 		if !IsSessionAdmin(r) {
-			utils.ErrorResponse(w, http.StatusForbidden, "需要管理员权限")
+			utils.ErrorResponse(w, http.StatusForbidden, "需要管理员权限", nil)
 			return
 		}
 

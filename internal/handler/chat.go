@@ -89,7 +89,9 @@ func (p *peerConn) sendJSON(v any) {
 	}
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
-	_ = p.conn.WriteMessage(websocket.TextMessage, data)
+	if err := p.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		slog.Error("WebSocket写入失败", "error", err)
+	}
 }
 
 // sendError 发送错误消息
@@ -129,9 +131,13 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn.SetReadLimit(512 * 1024)
 
 	// 设置读取超时
-	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		slog.Error("设置读取超时失败", "error", err)
+	}
 	conn.SetPongHandler(func(string) error {
-		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+			slog.Error("设置读取超时失败", "error", err)
+		}
 		return nil
 	})
 

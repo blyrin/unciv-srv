@@ -19,7 +19,7 @@ type UpdatePlayerRequest struct {
 func GetAllPlayers(w http.ResponseWriter, r *http.Request) {
 	players, err := database.GetAllPlayers(r.Context())
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "获取玩家列表失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "获取玩家列表失败", err)
 		return
 	}
 
@@ -36,18 +36,18 @@ func GetAllPlayers(w http.ResponseWriter, r *http.Request) {
 func UpdatePlayer(w http.ResponseWriter, r *http.Request) {
 	playerID := r.PathValue("playerId")
 	if playerID == "" {
-		utils.ErrorResponse(w, http.StatusBadRequest, "缺少玩家ID")
+		utils.ErrorResponse(w, http.StatusBadRequest, "缺少玩家ID", nil)
 		return
 	}
 
 	var req UpdatePlayerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.ErrorResponse(w, http.StatusBadRequest, "无效的请求格式")
+		utils.ErrorResponse(w, http.StatusBadRequest, "无效的请求格式", err)
 		return
 	}
 
 	if err := database.UpdatePlayerInfo(r.Context(), playerID, req.Whitelist, req.Remark); err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "更新玩家信息失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "更新玩家信息失败", err)
 		return
 	}
 
@@ -59,18 +59,18 @@ func UpdatePlayer(w http.ResponseWriter, r *http.Request) {
 func GetPlayerPassword(w http.ResponseWriter, r *http.Request) {
 	playerID := r.PathValue("playerId")
 	if playerID == "" {
-		utils.ErrorResponse(w, http.StatusBadRequest, "缺少玩家ID")
+		utils.ErrorResponse(w, http.StatusBadRequest, "缺少玩家ID", nil)
 		return
 	}
 
 	password, err := database.GetPlayerPassword(r.Context(), playerID)
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "获取密码失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "获取密码失败", err)
 		return
 	}
 
 	if password == "" {
-		utils.ErrorResponse(w, http.StatusNotFound, "玩家不存在")
+		utils.ErrorResponse(w, http.StatusNotFound, "玩家不存在", nil)
 		return
 	}
 

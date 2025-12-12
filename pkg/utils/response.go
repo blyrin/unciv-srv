@@ -3,6 +3,7 @@ package utils
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 )
 
@@ -10,18 +11,25 @@ import (
 func JSONResponse(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		slog.Error("JSON响应写入失败", "error", err)
+	}
 }
 
 // TextResponse 发送文本响应
 func TextResponse(w http.ResponseWriter, status int, text string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte(text))
+	if _, err := w.Write([]byte(text)); err != nil {
+		slog.Error("文本响应写入失败", "error", err)
+	}
 }
 
 // ErrorResponse 发送错误响应
-func ErrorResponse(w http.ResponseWriter, status int, message string) {
+func ErrorResponse(w http.ResponseWriter, status int, message string, err error) {
+	if err != nil {
+		slog.Error(message, "error", err)
+	}
 	TextResponse(w, status, message)
 }
 
@@ -35,7 +43,9 @@ func ZipResponse(w http.ResponseWriter, filename string, data []byte) {
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	if _, err := w.Write(data); err != nil {
+		slog.Error("ZIP响应写入失败", "error", err)
+	}
 }
 
 // GetClientIP 获取客户端 IP

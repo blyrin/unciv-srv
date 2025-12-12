@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/base64"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -30,20 +31,20 @@ func BasicAuth(next http.Handler) http.Handler {
 		auth := r.Header.Get("Authorization")
 		if auth == "" {
 			w.Header().Set("WWW-Authenticate", `Basic realm="Unciv Server"`)
-			utils.ErrorResponse(w, http.StatusUnauthorized, "需要认证")
+			utils.ErrorResponse(w, http.StatusUnauthorized, "需要认证", nil)
 			return
 		}
 
 		// 解析 Basic Auth
 		if !strings.HasPrefix(auth, "Basic ") {
-			utils.ErrorResponse(w, http.StatusUnauthorized, "无效的认证格式")
+			utils.ErrorResponse(w, http.StatusUnauthorized, "无效的认证格式", nil)
 			return
 		}
 
 		// Base64 解码
 		payload, err := base64.StdEncoding.DecodeString(auth[6:])
 		if err != nil {
-			utils.ErrorResponse(w, http.StatusUnauthorized, "无效的认证数据")
+			utils.ErrorResponse(w, http.StatusUnauthorized, "无效的认证数据", err)
 			return
 		}
 
@@ -51,7 +52,7 @@ func BasicAuth(next http.Handler) http.Handler {
 		pair := string(payload)
 		colonIdx := strings.Index(pair, ":")
 		if colonIdx < 0 {
-			utils.ErrorResponse(w, http.StatusUnauthorized, "无效的认证格式")
+			utils.ErrorResponse(w, http.StatusUnauthorized, "无效的认证格式", nil)
 			return
 		}
 
@@ -60,7 +61,7 @@ func BasicAuth(next http.Handler) http.Handler {
 
 		// 验证 playerID 格式（必须是 UUID）
 		if _, err := uuid.Parse(playerID); err != nil {
-			utils.ErrorResponse(w, http.StatusBadRequest, "无效的玩家ID格式")
+			utils.ErrorResponse(w, http.StatusBadRequest, "无效的玩家ID格式", err)
 			return
 		}
 
@@ -71,25 +72,27 @@ func BasicAuth(next http.Handler) http.Handler {
 		// 查询玩家
 		player, err := database.GetPlayerByID(ctx, playerID)
 		if err != nil {
-			utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误")
+			utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
 			return
 		}
 
 		if player == nil {
 			// 新玩家，自动注册
 			if err := database.CreatePlayer(ctx, playerID, password, ip); err != nil {
-				utils.ErrorResponse(w, http.StatusInternalServerError, "创建玩家失败")
+				utils.ErrorResponse(w, http.StatusInternalServerError, "创建玩家失败", err)
 				return
 			}
 		} else {
 			// 验证密码
 			if player.Password != password {
-				utils.ErrorResponse(w, http.StatusUnauthorized, "密码错误")
+				utils.ErrorResponse(w, http.StatusUnauthorized, "密码错误", nil)
 				return
 			}
 
 			// 更新最后活跃时间
-			_ = database.UpdatePlayerLastActive(ctx, playerID, ip)
+			if err := database.UpdatePlayerLastActive(ctx, playerID, ip); err != nil {
+				slog.Error("更新最后活跃时间失败", "playerId", playerID, "error", err)
+			}
 		}
 
 		// 将玩家ID和密码存入上下文

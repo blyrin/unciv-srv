@@ -25,7 +25,7 @@ func main() {
 
 	// 加载 .env 文件
 	if err := config.LoadEnvFile(".env"); err != nil {
-		slog.Debug("未找到 .env 文件，使用环境变量")
+		slog.Info("未找到 .env 文件，使用环境变量")
 	}
 
 	// 加载配置

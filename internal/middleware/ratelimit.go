@@ -187,7 +187,7 @@ func RateLimit(limiter *RateLimiter) func(http.Handler) http.Handler {
 			if limiter.IsLocked(ip) {
 				remaining := limiter.GetLockRemainingTime(ip)
 				utils.ErrorResponse(w, http.StatusTooManyRequests,
-					"请求过于频繁，请稍后再试 ("+remaining.Round(time.Second).String()+")")
+					"请求过于频繁，请稍后再试 ("+remaining.Round(time.Second).String()+")", nil)
 				return
 			}
 

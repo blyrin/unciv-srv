@@ -23,7 +23,7 @@ type UpdateGameRequest struct {
 func GetAllGames(w http.ResponseWriter, r *http.Request) {
 	games, err := database.GetAllGames(r.Context())
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "获取游戏列表失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "获取游戏列表失败", err)
 		return
 	}
 
@@ -35,18 +35,18 @@ func GetAllGames(w http.ResponseWriter, r *http.Request) {
 func UpdateGame(w http.ResponseWriter, r *http.Request) {
 	gameID := r.PathValue("gameId")
 	if gameID == "" {
-		utils.ErrorResponse(w, http.StatusBadRequest, "缺少游戏ID")
+		utils.ErrorResponse(w, http.StatusBadRequest, "缺少游戏ID", nil)
 		return
 	}
 
 	var req UpdateGameRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.ErrorResponse(w, http.StatusBadRequest, "无效的请求格式")
+		utils.ErrorResponse(w, http.StatusBadRequest, "无效的请求格式", err)
 		return
 	}
 
 	if err := database.UpdateGameInfo(r.Context(), gameID, req.Whitelist, req.Remark); err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "更新游戏信息失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "更新游戏信息失败", err)
 		return
 	}
 
@@ -58,7 +58,7 @@ func UpdateGame(w http.ResponseWriter, r *http.Request) {
 func DeleteGame(w http.ResponseWriter, r *http.Request) {
 	gameID := r.PathValue("gameId")
 	if gameID == "" {
-		utils.ErrorResponse(w, http.StatusBadRequest, "缺少游戏ID")
+		utils.ErrorResponse(w, http.StatusBadRequest, "缺少游戏ID", nil)
 		return
 	}
 
@@ -68,12 +68,12 @@ func DeleteGame(w http.ResponseWriter, r *http.Request) {
 	// 检查游戏是否存在
 	game, err := database.GetGameByID(r.Context(), gameID)
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
 		return
 	}
 
 	if game == nil {
-		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在")
+		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在", nil)
 		return
 	}
 
@@ -81,19 +81,19 @@ func DeleteGame(w http.ResponseWriter, r *http.Request) {
 	if !isAdmin {
 		isCreator, err := database.IsGameCreator(r.Context(), userID, gameID)
 		if err != nil {
-			utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误")
+			utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
 			return
 		}
 
 		if !isCreator {
-			utils.ErrorResponse(w, http.StatusForbidden, "只能删除自己创建的游戏")
+			utils.ErrorResponse(w, http.StatusForbidden, "只能删除自己创建的游戏", nil)
 			return
 		}
 	}
 
 	// 删除游戏
 	if err := database.DeleteGame(r.Context(), gameID); err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "删除游戏失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "删除游戏失败", err)
 		return
 	}
 
@@ -105,7 +105,7 @@ func DeleteGame(w http.ResponseWriter, r *http.Request) {
 func DownloadGameHistory(w http.ResponseWriter, r *http.Request) {
 	gameID := r.PathValue("gameId")
 	if gameID == "" {
-		utils.ErrorResponse(w, http.StatusBadRequest, "缺少游戏ID")
+		utils.ErrorResponse(w, http.StatusBadRequest, "缺少游戏ID", nil)
 		return
 	}
 
@@ -115,12 +115,12 @@ func DownloadGameHistory(w http.ResponseWriter, r *http.Request) {
 	// 检查游戏是否存在
 	game, err := database.GetGameByID(r.Context(), gameID)
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
 		return
 	}
 
 	if game == nil {
-		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在")
+		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在", nil)
 		return
 	}
 
@@ -128,7 +128,7 @@ func DownloadGameHistory(w http.ResponseWriter, r *http.Request) {
 	if !isAdmin {
 		isPlayer := slices.Contains(game.Players, userID)
 		if !isPlayer {
-			utils.ErrorResponse(w, http.StatusForbidden, "无权下载此游戏")
+			utils.ErrorResponse(w, http.StatusForbidden, "无权下载此游戏", nil)
 			return
 		}
 	}
@@ -136,12 +136,12 @@ func DownloadGameHistory(w http.ResponseWriter, r *http.Request) {
 	// 获取所有回合数据
 	contents, err := database.GetAllTurnsForGame(r.Context(), gameID)
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "获取存档失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "获取存档失败", err)
 		return
 	}
 
 	if len(contents) == 0 {
-		utils.ErrorResponse(w, http.StatusNotFound, "没有存档数据")
+		utils.ErrorResponse(w, http.StatusNotFound, "没有存档数据", nil)
 		return
 	}
 
@@ -157,7 +157,7 @@ func DownloadGameHistory(w http.ResponseWriter, r *http.Request) {
 
 	zipData, err := utils.CreateZip(entries)
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "创建ZIP文件失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "创建ZIP文件失败", err)
 		return
 	}
 

@@ -22,20 +22,20 @@ func ValidateGameID(next http.Handler) http.Handler {
 		// 验证 User-Agent
 		ua := r.UserAgent()
 		if !strings.HasPrefix(ua, "Unciv") {
-			utils.ErrorResponse(w, http.StatusForbidden, "非法客户端")
+			utils.ErrorResponse(w, http.StatusForbidden, "非法客户端", nil)
 			return
 		}
 
 		// 获取游戏ID（从URL路径中）
 		gameID := r.PathValue("gameId")
 		if gameID == "" {
-			utils.ErrorResponse(w, http.StatusBadRequest, "缺少游戏ID")
+			utils.ErrorResponse(w, http.StatusBadRequest, "缺少游戏ID", nil)
 			return
 		}
 
 		// 验证游戏ID格式
 		if !utils.ValidateGameID(gameID) {
-			utils.ErrorResponse(w, http.StatusBadRequest, "无效的游戏ID格式")
+			utils.ErrorResponse(w, http.StatusBadRequest, "无效的游戏ID格式", nil)
 			return
 		}
 

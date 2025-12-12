@@ -19,13 +19,13 @@ type UserGamesResponse struct {
 func GetUserGames(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetSessionUserID(r)
 	if userID == "" {
-		utils.ErrorResponse(w, http.StatusUnauthorized, "未登录")
+		utils.ErrorResponse(w, http.StatusUnauthorized, "未登录", nil)
 		return
 	}
 
 	games, err := database.GetGamesByPlayer(r.Context(), userID)
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "获取游戏列表失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "获取游戏列表失败", err)
 		return
 	}
 
@@ -45,7 +45,7 @@ func GetUserGames(w http.ResponseWriter, r *http.Request) {
 func GetStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := database.GetAllStats(r.Context())
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "获取统计信息失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "获取统计信息失败", err)
 		return
 	}
 
@@ -57,21 +57,21 @@ func GetStats(w http.ResponseWriter, r *http.Request) {
 func GetUserStats(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetSessionUserID(r)
 	if userID == "" {
-		utils.ErrorResponse(w, http.StatusUnauthorized, "未登录")
+		utils.ErrorResponse(w, http.StatusUnauthorized, "未登录", nil)
 		return
 	}
 
 	// 获取用户参与的游戏
 	games, err := database.GetGamesByPlayer(r.Context(), userID)
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "获取统计信息失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "获取统计信息失败", err)
 		return
 	}
 
 	// 获取用户创建的游戏数量
 	createdCount, err := database.GetGamesCreatedByPlayer(r.Context(), userID)
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "获取统计信息失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "获取统计信息失败", err)
 		return
 	}
 

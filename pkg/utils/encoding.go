@@ -57,6 +57,7 @@ func EncodeFile(data json.RawMessage) (string, error) {
 	// Gzip 压缩
 	var buf bytes.Buffer
 	writer := gzip.NewWriter(&buf)
+	defer func(writer *gzip.Writer) { _ = writer.Close() }(writer)
 
 	if _, err := writer.Write(data); err != nil {
 		return "", fmt.Errorf("gzip压缩失败: %w", err)

@@ -36,7 +36,7 @@ func (s *Scheduler) Start() {
 
 	// 每小时清理一次过期 Session
 	_, err = s.cron.AddFunc("0 * * * *", func() {
-		slog.Debug("清理过期Session")
+		slog.Info("清理过期Session")
 		middleware.CleanupExpiredSessions()
 	})
 	if err != nil {

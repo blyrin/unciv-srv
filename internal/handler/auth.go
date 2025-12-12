@@ -22,21 +22,21 @@ func GetAuth(w http.ResponseWriter, _ *http.Request) {
 func PutAuth(w http.ResponseWriter, r *http.Request) {
 	playerID := middleware.GetPlayerID(r)
 	if playerID == "" {
-		utils.ErrorResponse(w, http.StatusUnauthorized, "未认证")
+		utils.ErrorResponse(w, http.StatusUnauthorized, "未认证", nil)
 		return
 	}
 
 	// 读取新密码
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		utils.ErrorResponse(w, http.StatusBadRequest, "读取请求体失败")
+		utils.ErrorResponse(w, http.StatusBadRequest, "读取请求体失败", err)
 		return
 	}
 	defer func(Body io.ReadCloser) { _ = Body.Close() }(r.Body)
 
 	newPassword := string(body)
 	if newPassword == "" {
-		utils.ErrorResponse(w, http.StatusBadRequest, "密码不能为空")
+		utils.ErrorResponse(w, http.StatusBadRequest, "密码不能为空", nil)
 		return
 	}
 
@@ -44,7 +44,7 @@ func PutAuth(w http.ResponseWriter, r *http.Request) {
 
 	// 更新密码
 	if err := database.UpdatePlayerPassword(r.Context(), playerID, newPassword, ip); err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "更新密码失败")
+		utils.ErrorResponse(w, http.StatusInternalServerError, "更新密码失败", err)
 		return
 	}
 

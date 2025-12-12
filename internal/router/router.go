@@ -4,6 +4,7 @@ package router
 import (
 	"embed"
 	"io/fs"
+	"log/slog"
 	"net/http"
 
 	"unciv-srv/internal/config"
@@ -31,7 +32,9 @@ func Setup(cfg *config.Config, rateLimiter *middleware.RateLimiter) *http.ServeM
 	// 健康检查
 	mux.HandleFunc("GET /isalive", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(healthCheckResponse))
+		if _, err := w.Write([]byte(healthCheckResponse)); err != nil {
+			slog.Error("健康检查响应写入失败", "error", err)
+		}
 	})
 
 	// 游戏客户端接口（需要 Basic Auth）
