@@ -2,10 +2,10 @@ package database
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"io/fs"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -15,6 +15,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
 
 // DB 全局数据库连接池
 var DB *pgxpool.Pool
@@ -45,7 +48,7 @@ func InitDB(ctx context.Context, cfg *config.Config) error {
 }
 
 // RunMigrations 执行数据库迁移
-func RunMigrations(ctx context.Context, migrationsDir string) error {
+func RunMigrations(ctx context.Context) error {
 	// 确保迁移历史表存在
 	if err := ensureMigrationsTable(ctx); err != nil {
 		return err
@@ -58,7 +61,7 @@ func RunMigrations(ctx context.Context, migrationsDir string) error {
 	}
 
 	// 读取迁移文件
-	migrations, err := readMigrationFiles(migrationsDir)
+	migrations, err := readMigrationFiles()
 	if err != nil {
 		return err
 	}
@@ -148,8 +151,8 @@ func getAppliedMigrations(ctx context.Context) (map[int]bool, error) {
 }
 
 // readMigrationFiles 读取迁移文件
-func readMigrationFiles(dir string) ([]Migration, error) {
-	entries, err := os.ReadDir(dir)
+func readMigrationFiles() ([]Migration, error) {
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
 	if err != nil {
 		return nil, fmt.Errorf("读取迁移目录失败: %w", err)
 	}
@@ -183,7 +186,7 @@ func readMigrationFiles(dir string) ([]Migration, error) {
 		migrationName := strings.TrimSuffix(parts[1], ".up.sql")
 
 		// 读取 SQL 内容
-		content, err := os.ReadFile(filepath.Join(dir, name))
+		content, err := fs.ReadFile(migrationsFS, "migrations/"+name)
 		if err != nil {
 			return nil, fmt.Errorf("读取迁移文件 %s 失败: %w", name, err)
 		}

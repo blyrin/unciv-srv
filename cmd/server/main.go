@@ -44,7 +44,7 @@ func main() {
 
 	// 运行数据库迁移
 	slog.Info("执行数据库迁移...")
-	if err := database.RunMigrations(ctx, "migrations"); err != nil {
+	if err := database.RunMigrations(ctx); err != nil {
 		slog.Error("数据库迁移失败", "error", err)
 		os.Exit(1)
 	}
