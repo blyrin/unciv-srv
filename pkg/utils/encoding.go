@@ -117,6 +117,26 @@ func GetPlayerIDsFromGameData(data json.RawMessage) ([]string, error) {
 	return playerIDs, nil
 }
 
+// ParseGameDataAndPlayers 解析游戏数据并返回玩家ID列表
+// 避免重复解析JSON
+func ParseGameDataAndPlayers(data json.RawMessage) (*GameData, []string, error) {
+	var gameData GameData
+	if err := json.Unmarshal(data, &gameData); err != nil {
+		return nil, nil, fmt.Errorf("解析游戏数据失败: %w", err)
+	}
+
+	var playerIDs []string
+	if gameData.GameParameters != nil {
+		for _, player := range gameData.GameParameters.Players {
+			if player.PlayerType == "Human" && player.PlayerID != "" {
+				playerIDs = append(playerIDs, player.PlayerID)
+			}
+		}
+	}
+
+	return &gameData, playerIDs, nil
+}
+
 // ValidateGameID 验证游戏ID格式
 func ValidateGameID(gameID string) bool {
 	return GameIDRegex.MatchString(gameID)

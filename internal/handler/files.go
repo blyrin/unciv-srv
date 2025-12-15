@@ -85,7 +85,7 @@ func PutFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 解析游戏数据
-	gameData, err := utils.ParseGameData(decodedData)
+	gameData, playerIDs, err := utils.ParseGameDataAndPlayers(decodedData)
 	if err != nil {
 		utils.ErrorResponse(w, http.StatusBadRequest, "存档格式无效", err)
 		return
@@ -95,13 +95,6 @@ func PutFile(w http.ResponseWriter, r *http.Request) {
 	if gameData.GameID != gameID {
 		slog.Warn("游戏ID不匹配", "playerId", playerID, "expected", gameID, "actual", gameData.GameID)
 		utils.ErrorResponse(w, http.StatusBadRequest, "游戏ID不匹配", nil)
-		return
-	}
-
-	// 获取玩家列表
-	playerIDs, err := utils.GetPlayerIDsFromGameData(decodedData)
-	if err != nil {
-		utils.ErrorResponse(w, http.StatusBadRequest, "无法获取玩家列表", err)
 		return
 	}
 
