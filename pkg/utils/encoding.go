@@ -56,7 +56,8 @@ func DecodeFile(encoded string) (json.RawMessage, error) {
 func EncodeFile(data json.RawMessage) (string, error) {
 	// Gzip 压缩
 	var buf bytes.Buffer
-	writer := gzip.NewWriter(&buf)
+	// Use gzip.BestSpeed to prioritize speed over compression ratio, reducing CPU load.
+	writer, _ := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
 	defer func(writer *gzip.Writer) { _ = writer.Close() }(writer)
 
 	if _, err := writer.Write(data); err != nil {
