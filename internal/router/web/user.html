@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>用户控制台 - Unciv 服务器</title>
+  <link href="data:," rel="icon">
+  <link href="style.css" rel="stylesheet">
+</head>
+<body>
+<nav class="navbar">
+  <h1>Unciv 游戏管理</h1>
+  <div class="user-info">
+    <span id="player-id"></span>
+    <a class="btn btn-danger btn-sm" href="/api/logout">退出登录</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" data-tab="stats">我的统计</button>
+    <button class="tab" data-tab="games">我的游戏</button>
+  </div>
+
+  <!-- 统计信息 -->
+  <div class="tab-content active" id="tab-stats">
+    <div class="card">
+      <div class="loading" id="stats-loading">加载统计数据</div>
+      <div id="stats-content" style="display: none;">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value" id="stat-game-count">0</div>
+            <div class="stat-label">参与游戏数</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-created-count">0</div>
+            <div class="stat-label">创建游戏数</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 我的游戏 -->
+  <div class="tab-content" id="tab-games">
+    <div class="card">
+      <div class="loading" id="games-loading">加载游戏列表</div>
+      <div id="games-table" style="display: none;">
+        <div class="table-container">
+          <table>
+            <thead>
+            <tr>
+              <th>Game ID</th>
+              <th>回合数</th>
+              <th>创建时间</th>
+              <th>创建者</th>
+              <th>操作</th>
+            </tr>
+            </thead>
+            <tbody id="games-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="empty-state" id="games-empty" style="display: none;">
+        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <path d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.39 48.39 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z" stroke-linecap="round"
+                stroke-linejoin="round" />
+        </svg>
+        <p>暂无游戏数据</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="common.js"></script>
+<script>
+  let currentUserId = null
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initTabs()
+    loadStats()
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabName = tab.dataset.tab
+        if (tabName === 'stats') loadStats()
+        if (tabName === 'games') loadGames()
+      })
+    })
+  })
+
+  function initTabs() {
+    const tabs = document.querySelectorAll('.tab')
+    const contents = document.querySelectorAll('.tab-content')
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'))
+        contents.forEach(c => c.classList.remove('active'))
+
+        tab.classList.add('active')
+        document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active')
+      })
+    })
+  }
+
+  async function loadGames() {
+    const loading = document.getElementById('games-loading')
+    const table = document.getElementById('games-table')
+    const tbody = document.getElementById('games-tbody')
+    const empty = document.getElementById('games-empty')
+
+    loading.style.display = 'block'
+    table.style.display = 'none'
+    empty.style.display = 'none'
+
+    try {
+      const data = await API.getUserGames()
+      const games = data.games || []
+
+      if (!currentUserId) {
+        currentUserId = data.playerId
+        document.getElementById('player-id').textContent = `${currentUserId}`
+      }
+
+      if (games.length === 0) {
+        empty.style.display = 'block'
+      } else {
+        tbody.innerHTML = games.map(game => `
+           <tr>
+               <td><code>${escapeHtml(game.gameId)}</code></td>
+               <td>${game.turns || 0}</td>
+               <td>${formatDate(game.createdAt)}</td>
+               <td>${game.createdPlayer === currentUserId ? '<span class="tag tag-success">我创建的</span>' : escapeHtml(game.createdPlayer || '-')}</td>
+               <td class="actions">
+                   <button class="btn btn-success btn-sm" onclick="downloadGame('${game.gameId}')">下载</button>
+                   ${game.createdPlayer === currentUserId ? `<button class="btn btn-danger btn-sm" onclick="deleteGame('${game.gameId}')">删除</button>` : ''}
+               </td>
+           </tr>`).join('')
+        table.style.display = 'block'
+      }
+    } catch (error) {
+      empty.style.display = 'block'
+    } finally {
+      loading.style.display = 'none'
+    }
+  }
+
+  async function loadStats() {
+    const loading = document.getElementById('stats-loading')
+    const content = document.getElementById('stats-content')
+
+    loading.style.display = 'block'
+    content.style.display = 'none'
+
+    try {
+      const stats = await API.getUserStats()
+
+      document.getElementById('stat-game-count').textContent = stats.gameCount
+      document.getElementById('stat-created-count').textContent = stats.createdCount
+
+      content.style.display = 'block'
+    } catch (error) {
+      UI.showToast('加载统计数据失败', 'error')
+    } finally {
+      loading.style.display = 'none'
+    }
+  }
+
+  function downloadGame(gameId) {
+    UI.confirm('确定要下载此游戏的存档吗？', () => {
+      API.downloadGame(gameId)
+    })
+  }
+
+  function deleteGame(gameId) {
+    UI.confirm('确定要删除此游戏吗？此操作不可恢复！', async () => {
+      try {
+        await API.deleteGame(gameId)
+        UI.showToast('删除成功')
+        loadGames()
+      } catch (error) {
+        UI.showToast('删除失败', 'error')
+      }
+    })
+  }
+
+  function formatDate(dateStr) {
+    const date = new Date(dateStr)
+    return date.toLocaleString('zh-CN')
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div')
+    div.textContent = text
+    return div.innerHTML
+  }
+</script>
+<style>
+  code {
+    background: var(--gray-100);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: var(--gray-700);
+  }
+</style>
+</body>
+</html>

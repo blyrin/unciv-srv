@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>管理员控制台 - Unciv 服务器</title>
+  <link href="data:," rel="icon">
+  <link href="style.css" rel="stylesheet">
+</head>
+<body>
+<nav class="navbar">
+  <h1>Unciv 服务器管理</h1>
+  <div class="user-info">
+    <span>管理员</span>
+    <a class="btn btn-danger btn-sm" href="/api/logout">退出登录</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" data-tab="stats">统计信息</button>
+    <button class="tab" data-tab="players">玩家管理</button>
+    <button class="tab" data-tab="games">游戏管理</button>
+  </div>
+
+  <!-- 统计信息 -->
+  <div class="tab-content active" id="tab-stats">
+    <div class="card">
+      <div class="loading" id="stats-loading">加载统计数据</div>
+      <div id="stats-content" style="display: none;">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value" id="stat-players">0</div>
+            <div class="stat-label">玩家总数</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-whitelist-players">0</div>
+            <div class="stat-label">白名单玩家</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-games">0</div>
+            <div class="stat-label">游戏总数</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-whitelist-games">0</div>
+            <div class="stat-label">白名单游戏</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 玩家管理 -->
+  <div class="tab-content" id="tab-players">
+    <div class="card">
+      <div class="loading" id="players-loading">加载玩家列表</div>
+      <div id="players-table" style="display: none;">
+        <div class="table-container">
+          <table>
+            <thead>
+            <tr>
+              <th>Player ID</th>
+              <th>白名单</th>
+              <th>备注</th>
+              <th>创建时间</th>
+              <th>操作</th>
+            </tr>
+            </thead>
+            <tbody id="players-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="empty-state" id="players-empty" style="display: none;">
+        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <path d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" stroke-linecap="round"
+                stroke-linejoin="round" />
+        </svg>
+        <p>暂无玩家数据</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 游戏管理 -->
+  <div class="tab-content" id="tab-games">
+    <div class="card">
+      <div class="loading" id="games-loading">加载游戏列表</div>
+      <div id="games-table" style="display: none;">
+        <div class="table-container">
+          <table>
+            <thead>
+            <tr>
+              <th>Game ID</th>
+              <th>玩家</th>
+              <th>回合数</th>
+              <th>创建者</th>
+              <th>白名单</th>
+              <th>备注</th>
+              <th>操作</th>
+            </tr>
+            </thead>
+            <tbody id="games-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="empty-state" id="games-empty" style="display: none;">
+        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <path d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.39 48.39 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z" stroke-linecap="round"
+                stroke-linejoin="round" />
+        </svg>
+        <p>暂无游戏数据</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="common.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    initTabs()
+    loadStats()
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabName = tab.dataset.tab
+        if (tabName === 'stats') loadStats()
+        if (tabName === 'players') loadPlayers()
+        if (tabName === 'games') loadGames()
+      })
+    })
+  })
+
+  function initTabs() {
+    const tabs = document.querySelectorAll('.tab')
+    const contents = document.querySelectorAll('.tab-content')
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'))
+        contents.forEach(c => c.classList.remove('active'))
+
+        tab.classList.add('active')
+        document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active')
+      })
+    })
+  }
+
+  async function loadPlayers() {
+    const loading = document.getElementById('players-loading')
+    const table = document.getElementById('players-table')
+    const tbody = document.getElementById('players-tbody')
+    const empty = document.getElementById('players-empty')
+
+    loading.style.display = 'block'
+    table.style.display = 'none'
+    empty.style.display = 'none'
+
+    try {
+      const players = await API.getPlayers()
+
+      if (players.length === 0) {
+        empty.style.display = 'block'
+      } else {
+        tbody.innerHTML = players.map(player => `
+            <tr>
+                <td><code>${escapeHtml(player.playerId)}</code></td>
+                <td>
+                    <span class="tag ${player.whitelist ? 'tag-success' : 'tag-danger'}">
+                        ${player.whitelist ? '是' : '否'}
+                    </span>
+                </td>
+                <td>${escapeHtml(player.remark || '-')}</td>
+                <td>${formatDate(player.createdAt)}</td>
+                <td class="actions">
+                    <button class="btn btn-primary btn-sm" onclick="editPlayer('${player.playerId}', ${player.whitelist}, '${escapeHtml(player.remark || '')}')">编辑</button>
+                    <button class="btn btn-success btn-sm" onclick="viewPassword('${player.playerId}')">查看密码</button>
+                </td>
+            </tr>`).join('')
+        table.style.display = 'block'
+      }
+    } catch (error) {
+      empty.style.display = 'block'
+    } finally {
+      loading.style.display = 'none'
+    }
+  }
+
+  async function loadGames() {
+    const loading = document.getElementById('games-loading')
+    const table = document.getElementById('games-table')
+    const tbody = document.getElementById('games-tbody')
+    const empty = document.getElementById('games-empty')
+
+    loading.style.display = 'block'
+    table.style.display = 'none'
+    empty.style.display = 'none'
+
+    try {
+      const games = await API.getGames()
+
+      if (games.length === 0) {
+        empty.style.display = 'block'
+      } else {
+        tbody.innerHTML = games.map(game => `
+            <tr>
+                <td><code>${escapeHtml(game.gameId)}</code></td>
+                <td class="players-cell" data-players='${JSON.stringify(game.players)}'></td>
+                <td>${game.turns || 0}</td>
+                <td>${escapeHtml(game.createdPlayer || '-')}</td>
+                <td>
+                    <span class="tag ${game.whitelist ? 'tag-success' : 'tag-danger'}">
+                        ${game.whitelist ? '是' : '否'}
+                    </span>
+                </td>
+                <td>${escapeHtml(game.remark || '-')}</td>
+                <td class="actions">
+                    <button class="btn btn-primary btn-sm" onclick="editGame('${game.gameId}', ${game.whitelist}, '${escapeHtml(game.remark || '')}')">编辑</button>
+                </td>
+            </tr>`).join('')
+
+        document.querySelectorAll('.players-cell').forEach(cell => {
+          const players = JSON.parse(cell.dataset.players)
+          const div = document.createElement('div')
+          cell.appendChild(div)
+
+          if (players.length === 0) {
+            div.textContent = '-'
+          } else {
+            div.innerHTML = players.map(p => `<div>${escapeHtml(p)}</div>`).join('')
+          }
+        })
+
+        table.style.display = 'block'
+      }
+    } catch (error) {
+      empty.style.display = 'block'
+    } finally {
+      loading.style.display = 'none'
+    }
+  }
+
+  async function loadStats() {
+    const loading = document.getElementById('stats-loading')
+    const content = document.getElementById('stats-content')
+
+    loading.style.display = 'block'
+    content.style.display = 'none'
+
+    try {
+      const stats = await API.getStats()
+
+      document.getElementById('stat-players').textContent = stats.playerCount
+      document.getElementById('stat-whitelist-players').textContent = stats.whitelistPlayerCount
+      document.getElementById('stat-games').textContent = stats.gameCount
+      document.getElementById('stat-whitelist-games').textContent = stats.whitelistGameCount
+
+      content.style.display = 'block'
+    } catch (error) {
+      UI.showToast('加载统计数据失败', 'error')
+    } finally {
+      loading.style.display = 'none'
+    }
+  }
+
+  function editPlayer(playerId, whitelist, remark) {
+    const content = `
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="edit-whitelist" ${whitelist ? 'checked' : ''}>
+                白名单
+            </label>
+        </div>
+        <div class="form-group">
+            <label for="edit-remark">备注</label>
+            <textarea id="edit-remark" rows="3" placeholder="输入备注信息">${escapeHtml(remark)}</textarea>
+        </div>`
+
+    UI.showModal('编辑玩家', content, async () => {
+      const newWhitelist = document.getElementById('edit-whitelist').checked
+      const newRemark = document.getElementById('edit-remark').value.trim()
+
+      try {
+        await API.updatePlayer(playerId, { whitelist: newWhitelist, remark: newRemark })
+        UI.showToast('更新成功')
+        loadPlayers()
+        return true
+      } catch (error) {
+        return false
+      }
+    })
+  }
+
+  async function viewPassword(playerId) {
+    try {
+      const data = await API.getPlayerPassword(playerId)
+      UI.showModal('玩家密码', `
+          <div class="form-group">
+              <label>密码</label>
+              <input type="text" id="password-display" value="${escapeHtml(data.password)}" readonly onclick="this.select()">
+          </div>
+          <p style="color: var(--gray-500); font-size: 0.85rem; margin-top: -10px;">点击输入框可全选复制</p>`, () => true)
+    } catch (error) {
+      return false
+    }
+  }
+
+  function editGame(gameId, whitelist, remark) {
+    const content = `
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="edit-whitelist" ${whitelist ? 'checked' : ''}>
+                白名单
+            </label>
+        </div>
+        <div class="form-group">
+            <label for="edit-remark">备注</label>
+            <textarea id="edit-remark" rows="3" placeholder="输入备注信息">${escapeHtml(remark)}</textarea>
+        </div>`
+
+    UI.showModal('编辑游戏', content, async () => {
+      const newWhitelist = document.getElementById('edit-whitelist').checked
+      const newRemark = document.getElementById('edit-remark').value.trim()
+
+      try {
+        await API.updateGame(gameId, { whitelist: newWhitelist, remark: newRemark })
+        UI.showToast('更新成功')
+        loadGames()
+        return true
+      } catch (error) {
+        return false
+      }
+    })
+  }
+
+  function formatDate(dateStr) {
+    const date = new Date(dateStr)
+    return date.toLocaleString('zh-CN')
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div')
+    div.textContent = text
+    return div.innerHTML
+  }
+</script>
+<style>
+  code {
+    background: var(--gray-100);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: var(--gray-700);
+  }
+</style>
+</body>
+</html>
