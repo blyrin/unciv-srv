@@ -48,8 +48,7 @@ class API {
   }
 
   static async checkSession() {
-    const result = await this.get('/api/session')
-    return result
+    return await this.get('/api/session')
   }
 
   static async login(username, password) {
@@ -155,6 +154,81 @@ class API {
 }
 
 class UI {
+  // 格式化日期
+  static formatDate(dateStr) {
+    return new Date(dateStr).toLocaleString('zh-CN')
+  }
+
+  // 换行
+  static wrapDiv(text) {
+    const div = document.createElement('div')
+    div.textContent = text
+    return div.innerHTML
+  }
+
+  // 初始化标签页
+  static initTabs(viewId, onTabChange) {
+    const view = document.getElementById(viewId)
+    const tabs = view.querySelectorAll('.tab')
+    const contents = view.querySelectorAll('.tab-content')
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'))
+        contents.forEach(c => c.classList.remove('active'))
+        tab.classList.add('active')
+        document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active')
+        if (onTabChange) onTabChange(tab.dataset.tab)
+      })
+    })
+  }
+
+  // 查看游戏历史
+  static async viewGameHistory(gameId, showIp = false) {
+    try {
+      const turns = await API.getGameTurns(gameId)
+
+      if (turns.length === 0) {
+        UI.showToast('该游戏暂无存档记录', 'error')
+        return
+      }
+
+      const ipHeader = showIp ? '<th>创建IP</th>' : ''
+      const content = `
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>回合</th>
+                <th>创建者</th>
+                ${ipHeader}
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${turns.map(turn => `
+                <tr>
+                  <td>${turn.turns}</td>
+                  <td><code>${turn.createdPlayer || '-'}</code></td>
+                  ${showIp ? `<td><code>${turn.createdIp || '-'}</code></td>` : ''}
+                  <td>${UI.formatDate(turn.createdAt)}</td>
+                  <td>
+                    <button class="btn btn-success btn-sm" onclick="API.downloadTurn('${gameId}', ${turn.id})">下载</button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `
+
+      UI.showModal(`游戏历史 - ${gameId}`, content, () => true)
+    } catch (error) {
+      UI.showToast('获取历史记录失败', 'error')
+    }
+  }
+
   static showToast(message, type = 'success') {
     const existing = document.querySelector('.toast')
     if (existing) existing.remove()
@@ -236,5 +310,36 @@ class UI {
       onConfirm()
       return true
     })
+  }
+}
+
+// 批量选择管理器
+class BatchSelector {
+  constructor(config) {
+    this.checkboxClass = config.checkboxClass
+    this.selectAllId = config.selectAllId
+    this.countId = config.countId
+    this.barId = config.barId
+  }
+
+  getSelected() {
+    return Array.from(document.querySelectorAll(`.${this.checkboxClass}:checked`)).map(cb => cb.value)
+  }
+
+  updateBar() {
+    const selected = this.getSelected()
+    document.getElementById(this.countId).textContent = selected.length
+    document.getElementById(this.barId).classList.toggle('show', selected.length > 0)
+  }
+
+  toggleSelectAll() {
+    const selectAll = document.getElementById(this.selectAllId).checked
+    document.querySelectorAll(`.${this.checkboxClass}`).forEach(cb => cb.checked = selectAll)
+    this.updateBar()
+  }
+
+  reset() {
+    document.getElementById(this.selectAllId).checked = false
+    this.updateBar()
   }
 }

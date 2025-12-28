@@ -3,16 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta content="width=device-width, initial-scale=1.0" name="viewport">
-  <title>登录 - Unciv 多人联机服务器</title>
+  <title>Unciv 多人联机服务器</title>
   <link href="data:," rel="icon">
   <link href="style.css" rel="stylesheet">
 </head>
 <body>
-<div class="login-container" id="app">
+<!-- 登录视图 -->
+<div class="login-container" id="view-login" style="display: none;">
   <div class="loading" id="loading">检测登录状态</div>
-  <div class="login-card" style="display: none;">
+  <div class="login-card" id="login-card" style="display: none;">
     <h2>Unciv 服务器</h2>
-    <form id="form">
+    <form id="login-form">
       <div class="form-group">
         <label for="username">用户名</label>
         <input autocomplete="username" id="username" name="username" placeholder="请输入用户名" required type="text">
@@ -26,30 +27,306 @@
     </form>
   </div>
 </div>
-<script src="common.js"></script>
+
+<!-- 管理员视图 -->
+<div id="view-admin" style="display: none;">
+  <nav class="navbar">
+    <h1>Unciv 服务器管理</h1>
+    <div class="user-info">
+      <span>管理员</span>
+      <a class="btn btn-danger btn-sm" href="/api/logout">退出登录</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="tabs">
+      <button class="tab active" data-tab="admin-stats">统计信息</button>
+      <button class="tab" data-tab="admin-players">玩家管理</button>
+      <button class="tab" data-tab="admin-games">游戏管理</button>
+    </div>
+
+    <!-- 统计信息 -->
+    <div class="tab-content active" id="tab-admin-stats">
+      <div class="card">
+        <div class="loading" id="admin-stats-loading">加载统计数据</div>
+        <div id="admin-stats-content" style="display: none;">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-value" id="stat-players">0</div>
+              <div class="stat-label">玩家总数</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-whitelist-players">0</div>
+              <div class="stat-label">白名单玩家</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-games">0</div>
+              <div class="stat-label">游戏总数</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-whitelist-games">0</div>
+              <div class="stat-label">白名单游戏</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-today-players">0</div>
+              <div class="stat-label">今日新增玩家</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-today-games">0</div>
+              <div class="stat-label">今日新增游戏</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-active-7d">0</div>
+              <div class="stat-label">7天活跃玩家</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-active-30d">0</div>
+              <div class="stat-label">30天活跃玩家</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-avg-turns">0</div>
+              <div class="stat-label">平均游戏回合</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 玩家管理 -->
+    <div class="tab-content" id="tab-admin-players">
+      <div class="card">
+        <div class="search-bar" id="players-search-bar" style="display: none;">
+          <input id="player-search" oninput="filterPlayers()" placeholder="搜索玩家或备注..." type="text">
+          <select id="player-whitelist-filter" onchange="filterPlayers()">
+            <option value="">全部状态</option>
+            <option value="true">白名单</option>
+            <option value="false">非白名单</option>
+          </select>
+          <input id="player-date-from" onchange="filterPlayers()" type="date">
+          <input id="player-date-to" onchange="filterPlayers()" type="date">
+          <button class="btn btn-sm" onclick="resetPlayerFilters()">重置</button>
+          <span class="search-count" id="players-count"></span>
+        </div>
+        <div class="batch-bar" id="players-batch-bar">
+          <span class="batch-count">已选择 <span id="players-selected-count">0</span> 项</span>
+          <button class="btn btn-sm" onclick="batchSetPlayersWhitelist(true)">设为白名单</button>
+          <button class="btn btn-sm" onclick="batchSetPlayersWhitelist(false)">取消白名单</button>
+        </div>
+        <div class="loading" id="players-loading">加载玩家列表</div>
+        <div id="players-table" style="display: none;">
+          <div class="table-container">
+            <table>
+              <thead>
+              <tr>
+                <th class="checkbox-col"><input id="players-select-all" onchange="playersBatch.toggleSelectAll()"
+                                                type="checkbox"></th>
+                <th>玩家</th>
+                <th>白名单</th>
+                <th>备注</th>
+                <th>创建时间</th>
+                <th>最后活跃</th>
+                <th>注册IP</th>
+                <th>最后活跃IP</th>
+                <th>操作</th>
+              </tr>
+              </thead>
+              <tbody id="players-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="empty-state" id="players-empty" style="display: none;">
+          <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path
+              d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"
+              stroke-linecap="round"
+              stroke-linejoin="round" />
+          </svg>
+          <p>暂无玩家数据</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 游戏管理 -->
+    <div class="tab-content" id="tab-admin-games">
+      <div class="card">
+        <div class="search-bar" id="admin-games-search-bar" style="display: none;">
+          <input id="admin-game-search" oninput="filterAdminGames()" placeholder="搜索 Game ID 或玩家名..." type="text">
+          <select id="admin-game-whitelist-filter" onchange="filterAdminGames()">
+            <option value="">全部状态</option>
+            <option value="true">白名单</option>
+            <option value="false">非白名单</option>
+          </select>
+          <input id="admin-game-date-from" onchange="filterAdminGames()" type="date">
+          <input id="admin-game-date-to" onchange="filterAdminGames()" type="date">
+          <button class="btn btn-sm" onclick="resetAdminGameFilters()">重置</button>
+          <span class="search-count" id="admin-games-count"></span>
+        </div>
+        <div class="batch-bar" id="games-batch-bar">
+          <span class="batch-count">已选择 <span id="games-selected-count">0</span> 项</span>
+          <button class="btn btn-sm" onclick="batchSetGamesWhitelist(true)">设为白名单</button>
+          <button class="btn btn-sm" onclick="batchSetGamesWhitelist(false)">取消白名单</button>
+          <button class="btn btn-sm btn-danger" onclick="batchDeleteSelectedGames()">删除</button>
+        </div>
+        <div class="loading" id="admin-games-loading">加载游戏列表</div>
+        <div id="admin-games-table" style="display: none;">
+          <div class="table-container">
+            <table>
+              <thead>
+              <tr>
+                <th class="checkbox-col"><input id="games-select-all" onchange="gamesBatch.toggleSelectAll()"
+                                                type="checkbox">
+                </th>
+                <th>Game ID</th>
+                <th>玩家</th>
+                <th>回合数</th>
+                <th>创建者</th>
+                <th>创建时间</th>
+                <th>最后更新</th>
+                <th>白名单</th>
+                <th>备注</th>
+                <th>操作</th>
+              </tr>
+              </thead>
+              <tbody id="admin-games-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="empty-state" id="admin-games-empty" style="display: none;">
+          <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path
+              d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.39 48.39 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z"
+              stroke-linecap="round"
+              stroke-linejoin="round" />
+          </svg>
+          <p>暂无游戏数据</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 用户视图 -->
+<div id="view-user" style="display: none;">
+  <nav class="navbar">
+    <h1>Unciv 游戏管理</h1>
+    <div class="user-info">
+      <span id="user-player-id"></span>
+      <a class="btn btn-danger btn-sm" href="/api/logout">退出登录</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="tabs">
+      <button class="tab active" data-tab="user-stats">我的统计</button>
+      <button class="tab" data-tab="user-games">我的游戏</button>
+    </div>
+
+    <!-- 我的统计 -->
+    <div class="tab-content active" id="tab-user-stats">
+      <div class="card">
+        <div class="loading" id="user-stats-loading">加载统计数据</div>
+        <div id="user-stats-content" style="display: none;">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-value" id="stat-game-count">0</div>
+              <div class="stat-label">参与游戏数</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-created-count">0</div>
+              <div class="stat-label">创建游戏数</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 我的游戏 -->
+    <div class="tab-content" id="tab-user-games">
+      <div class="card">
+        <div class="loading" id="user-games-loading">加载游戏列表</div>
+        <div id="user-games-table" style="display: none;">
+          <div class="table-container">
+            <table>
+              <thead>
+              <tr>
+                <th>Game ID</th>
+                <th>回合数</th>
+                <th>创建时间</th>
+                <th>创建者</th>
+                <th>操作</th>
+              </tr>
+              </thead>
+              <tbody id="user-games-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="empty-state" id="user-games-empty" style="display: none;">
+          <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path
+              d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.39 48.39 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z"
+              stroke-linecap="round"
+              stroke-linejoin="round" />
+          </svg>
+          <p>暂无游戏数据</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="index.js"></script>
 <script>
+  // 当前用户信息
+  let currentUserId = null
+  let isAdmin = false
+
+  // 存储原始数据
+  let allPlayers = []
+  let allAdminGames = []
+
+  // 批量选择器实例
+  let playersBatch = null
+  let gamesBatch = null
+
   document.addEventListener('DOMContentLoaded', async () => {
+    await checkSession()
+  })
+
+  // 检测登录状态
+  async function checkSession() {
+    const viewLogin = document.getElementById('view-login')
     const loading = document.getElementById('loading')
-    const loginCard = document.querySelector('.login-card')
-    const form = document.getElementById('form')
+    const loginCard = document.getElementById('login-card')
+
+    viewLogin.style.display = 'flex'
 
     try {
       const session = await API.checkSession()
 
       if (session.isLoggedIn) {
-        if (session.isAdmin) {
-          window.location.href = '/admin.html'
+        isAdmin = session.isAdmin
+        viewLogin.style.display = 'none'
+
+        if (isAdmin) {
+          showAdminView()
         } else {
-          window.location.href = '/user.html'
+          showUserView()
         }
       } else {
         loading.style.display = 'none'
         loginCard.style.display = 'block'
+        initLoginForm()
       }
     } catch (error) {
       loading.style.display = 'none'
       loginCard.style.display = 'block'
+      initLoginForm()
     }
+  }
+
+  // 初始化登录表单
+  function initLoginForm() {
+    const form = document.getElementById('login-form')
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault()
@@ -68,11 +345,13 @@
 
       try {
         const response = await API.login(username, password)
+        isAdmin = response.isAdmin
+        document.getElementById('view-login').style.display = 'none'
 
-        if (response.isAdmin) {
-          window.location.href = '/admin.html'
+        if (isAdmin) {
+          showAdminView()
         } else {
-          window.location.href = '/user.html'
+          showUserView()
         }
       } catch (error) {
         UI.showToast(error.message || '登录失败', 'error')
@@ -80,7 +359,457 @@
         submitBtn.textContent = '登录'
       }
     })
-  })
+  }
+
+  // 显示管理员视图
+  function showAdminView() {
+    document.getElementById('view-admin').style.display = 'block'
+    document.title = '管理员控制台 - Unciv 服务器'
+
+    // 初始化批量选择器
+    playersBatch = new BatchSelector({
+      checkboxClass: 'player-checkbox',
+      selectAllId: 'players-select-all',
+      countId: 'players-selected-count',
+      barId: 'players-batch-bar',
+    })
+    gamesBatch = new BatchSelector({
+      checkboxClass: 'game-checkbox',
+      selectAllId: 'games-select-all',
+      countId: 'games-selected-count',
+      barId: 'games-batch-bar',
+    })
+
+    // 初始化标签页
+    UI.initTabs('view-admin', tabName => {
+      if (tabName === 'admin-stats') loadAdminStats()
+      if (tabName === 'admin-players') loadPlayers()
+      if (tabName === 'admin-games') loadAdminGames()
+    })
+    loadAdminStats()
+  }
+
+  // 显示用户视图
+  function showUserView() {
+    document.getElementById('view-user').style.display = 'block'
+    document.title = '用户控制台 - Unciv 服务器'
+
+    UI.initTabs('view-user', tabName => {
+      if (tabName === 'user-stats') loadUserStats()
+      if (tabName === 'user-games') loadUserGames()
+    })
+    loadUserStats()
+  }
+
+  // ========================================
+  // 管理员功能
+  // ========================================
+
+  async function loadAdminStats() {
+    const loading = document.getElementById('admin-stats-loading')
+    const content = document.getElementById('admin-stats-content')
+
+    loading.style.display = 'block'
+    content.style.display = 'none'
+
+    try {
+      const stats = await API.getStats()
+
+      document.getElementById('stat-players').textContent = stats.playerCount
+      document.getElementById('stat-whitelist-players').textContent = stats.whitelistPlayerCount
+      document.getElementById('stat-games').textContent = stats.gameCount
+      document.getElementById('stat-whitelist-games').textContent = stats.whitelistGameCount
+      document.getElementById('stat-today-players').textContent = stats.todayNewPlayers
+      document.getElementById('stat-today-games').textContent = stats.todayNewGames
+      document.getElementById('stat-active-7d').textContent = stats.activePlayers7Days
+      document.getElementById('stat-active-30d').textContent = stats.activePlayers30Days
+      document.getElementById('stat-avg-turns').textContent = stats.avgGameTurns.toFixed(1)
+
+      content.style.display = 'block'
+    } catch (error) {
+      UI.showToast('加载统计数据失败', 'error')
+    } finally {
+      loading.style.display = 'none'
+    }
+  }
+
+  async function loadPlayers() {
+    const loading = document.getElementById('players-loading')
+    const table = document.getElementById('players-table')
+    const empty = document.getElementById('players-empty')
+    const searchBar = document.getElementById('players-search-bar')
+
+    loading.style.display = 'block'
+    table.style.display = 'none'
+    empty.style.display = 'none'
+    searchBar.style.display = 'none'
+
+    try {
+      allPlayers = await API.getPlayers()
+
+      if (allPlayers.length === 0) {
+        empty.style.display = 'block'
+      } else {
+        searchBar.style.display = 'flex'
+        renderPlayersTable(allPlayers)
+        table.style.display = 'block'
+      }
+    } catch (error) {
+      empty.style.display = 'block'
+    } finally {
+      loading.style.display = 'none'
+    }
+  }
+
+  function renderPlayersTable(players) {
+    const tbody = document.getElementById('players-tbody')
+    document.getElementById('players-count').textContent = `共 ${players.length} 条`
+    playersBatch.reset()
+
+    tbody.innerHTML = players.map(player => `
+        <tr>
+            <td class="checkbox-col"><input type="checkbox" class="player-checkbox" value="${player.playerId}" onchange="playersBatch.updateBar()"></td>
+            <td><code>${UI.wrapDiv(player.playerId)}</code></td>
+            <td>
+                <span class="tag ${player.whitelist ? 'tag-success' : 'tag-danger'}">
+                    ${player.whitelist ? '是' : '否'}
+                </span>
+            </td>
+            <td>${UI.wrapDiv(player.remark || '-')}</td>
+            <td>${UI.formatDate(player.createdAt)}</td>
+            <td>${UI.formatDate(player.updatedAt)}</td>
+            <td><code>${UI.wrapDiv(player.createIp || '-')}</code></td>
+            <td><code>${UI.wrapDiv(player.updateIp || '-')}</code></td>
+            <td class="actions">
+                <button class="btn btn-primary btn-sm" onclick="editPlayer('${player.playerId}', ${player.whitelist}, '${UI.wrapDiv(player.remark || '')}')">编辑</button>
+                <button class="btn btn-success btn-sm" onclick="viewPassword('${player.playerId}')">查看密码</button>
+            </td>
+        </tr>`).join('')
+  }
+
+  function filterPlayers() {
+    const search = document.getElementById('player-search').value.toLowerCase()
+    const whitelist = document.getElementById('player-whitelist-filter').value
+    const dateFrom = document.getElementById('player-date-from').value
+    const dateTo = document.getElementById('player-date-to').value
+
+    const filtered = allPlayers.filter(player => {
+      const matchSearch = !search ||
+        player.playerId.toLowerCase().includes(search) ||
+        (player.remark && player.remark.toLowerCase().includes(search))
+
+      const matchWhitelist = whitelist === '' ||
+        player.whitelist.toString() === whitelist
+
+      const playerDate = new Date(player.createdAt)
+      const matchDateFrom = !dateFrom || playerDate >= new Date(dateFrom)
+      const matchDateTo = !dateTo || playerDate <= new Date(dateTo + 'T23:59:59')
+
+      return matchSearch && matchWhitelist && matchDateFrom && matchDateTo
+    })
+
+    renderPlayersTable(filtered)
+  }
+
+  function resetPlayerFilters() {
+    document.getElementById('player-search').value = ''
+    document.getElementById('player-whitelist-filter').value = ''
+    document.getElementById('player-date-from').value = ''
+    document.getElementById('player-date-to').value = ''
+    renderPlayersTable(allPlayers)
+  }
+
+  function editPlayer(playerId, whitelist, remark) {
+    const content = `
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="edit-whitelist" ${whitelist ? 'checked' : ''}>
+                白名单
+            </label>
+        </div>
+        <div class="form-group">
+            <label for="edit-remark">备注</label>
+            <textarea id="edit-remark" rows="3" placeholder="输入备注信息">${UI.wrapDiv(remark)}</textarea>
+        </div>`
+
+    UI.showModal('编辑玩家', content, async () => {
+      const newWhitelist = document.getElementById('edit-whitelist').checked
+      const newRemark = document.getElementById('edit-remark').value.trim()
+
+      try {
+        await API.updatePlayer(playerId, { whitelist: newWhitelist, remark: newRemark })
+        UI.showToast('更新成功')
+        loadPlayers()
+        return true
+      } catch (error) {
+        return false
+      }
+    })
+  }
+
+  async function viewPassword(playerId) {
+    try {
+      const data = await API.getPlayerPassword(playerId)
+      UI.showModal('玩家密码', `
+          <div class="form-group">
+              <label>密码</label>
+              <input type="text" id="password-display" value="${UI.wrapDiv(data.password)}" readonly onclick="this.select()">
+          </div>
+          <p style="color: var(--gray-500); font-size: 0.85rem; margin-top: -10px;">点击输入框可全选复制</p>`, () => true)
+    } catch (error) {
+      return false
+    }
+  }
+
+  async function loadAdminGames() {
+    const loading = document.getElementById('admin-games-loading')
+    const table = document.getElementById('admin-games-table')
+    const empty = document.getElementById('admin-games-empty')
+    const searchBar = document.getElementById('admin-games-search-bar')
+
+    loading.style.display = 'block'
+    table.style.display = 'none'
+    empty.style.display = 'none'
+    searchBar.style.display = 'none'
+
+    try {
+      allAdminGames = await API.getGames()
+
+      if (allAdminGames.length === 0) {
+        empty.style.display = 'block'
+      } else {
+        searchBar.style.display = 'flex'
+        renderAdminGamesTable(allAdminGames)
+        table.style.display = 'block'
+      }
+    } catch (error) {
+      empty.style.display = 'block'
+    } finally {
+      loading.style.display = 'none'
+    }
+  }
+
+  function renderAdminGamesTable(games) {
+    const tbody = document.getElementById('admin-games-tbody')
+    document.getElementById('admin-games-count').textContent = `共 ${games.length} 条`
+    gamesBatch.reset()
+
+    tbody.innerHTML = games.map(game => `
+        <tr>
+            <td class="checkbox-col"><input type="checkbox" class="game-checkbox" value="${game.gameId}" onchange="gamesBatch.updateBar()"></td>
+            <td><code>${game.gameId}</code></td>
+            <td class="players-cell" data-players='${JSON.stringify(game.players)}'></td>
+            <td>${game.turns || 0}</td>
+            <td><code>${game.createdPlayer || '-'}</code></td>
+            <td>${UI.formatDate(game.createdAt)}</td>
+            <td>${UI.formatDate(game.updatedAt)}</td>
+            <td>
+                <span class="tag ${game.whitelist ? 'tag-success' : 'tag-danger'}">
+                    ${game.whitelist ? '是' : '否'}
+                </span>
+            </td>
+            <td>${UI.wrapDiv(game.remark || '-')}</td>
+            <td class="actions">
+                <button class="btn btn-primary btn-sm" onclick="editGame('${game.gameId}', ${game.whitelist}, '${UI.wrapDiv(game.remark || '')}')">编辑</button>
+                <button class="btn btn-success btn-sm" onclick="UI.viewGameHistory('${game.gameId}', true)">历史</button>
+            </td>
+        </tr>`).join('')
+
+    document.querySelectorAll('.players-cell').forEach(cell => {
+      const players = JSON.parse(cell.dataset.players)
+      const div = document.createElement('div')
+      cell.appendChild(div)
+
+      if (players.length === 0) {
+        div.textContent = '-'
+      } else {
+        div.innerHTML = players.map(p => `<div>${UI.wrapDiv(p)}</div>`).join('')
+      }
+    })
+  }
+
+  function filterAdminGames() {
+    const search = document.getElementById('admin-game-search').value.toLowerCase()
+    const whitelist = document.getElementById('admin-game-whitelist-filter').value
+    const dateFrom = document.getElementById('admin-game-date-from').value
+    const dateTo = document.getElementById('admin-game-date-to').value
+
+    const filtered = allAdminGames.filter(game => {
+      const matchSearch = !search ||
+        game.gameId.toLowerCase().includes(search) ||
+        game.players.some(p => p.toLowerCase().includes(search))
+
+      const matchWhitelist = whitelist === '' ||
+        game.whitelist.toString() === whitelist
+
+      const gameDate = new Date(game.updatedAt)
+      const matchDateFrom = !dateFrom || gameDate >= new Date(dateFrom)
+      const matchDateTo = !dateTo || gameDate <= new Date(dateTo + 'T23:59:59')
+
+      return matchSearch && matchWhitelist && matchDateFrom && matchDateTo
+    })
+
+    renderAdminGamesTable(filtered)
+  }
+
+  function resetAdminGameFilters() {
+    document.getElementById('admin-game-search').value = ''
+    document.getElementById('admin-game-whitelist-filter').value = ''
+    document.getElementById('admin-game-date-from').value = ''
+    document.getElementById('admin-game-date-to').value = ''
+    renderAdminGamesTable(allAdminGames)
+  }
+
+  function editGame(gameId, whitelist, remark) {
+    const content = `
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="edit-whitelist" ${whitelist ? 'checked' : ''}>
+                白名单
+            </label>
+        </div>
+        <div class="form-group">
+            <label for="edit-remark">备注</label>
+            <textarea id="edit-remark" rows="3" placeholder="输入备注信息">${UI.wrapDiv(remark)}</textarea>
+        </div>`
+
+    UI.showModal('编辑游戏', content, async () => {
+      const newWhitelist = document.getElementById('edit-whitelist').checked
+      const newRemark = document.getElementById('edit-remark').value.trim()
+
+      try {
+        await API.updateGame(gameId, { whitelist: newWhitelist, remark: newRemark })
+        UI.showToast('更新成功')
+        loadAdminGames()
+        return true
+      } catch (error) {
+        return false
+      }
+    })
+  }
+
+  // 玩家批量操作
+  async function batchSetPlayersWhitelist(whitelist) {
+    const playerIds = playersBatch.getSelected()
+    if (playerIds.length === 0) return
+
+    const action = whitelist ? '设为白名单' : '取消白名单'
+    UI.confirm(`确定要将 ${playerIds.length} 个玩家${action}吗？`, async () => {
+      await API.batchUpdatePlayers(playerIds, whitelist)
+      UI.showToast(`已${action} ${playerIds.length} 个玩家`)
+      loadPlayers()
+    })
+  }
+
+  // 游戏批量操作
+  async function batchSetGamesWhitelist(whitelist) {
+    const gameIds = gamesBatch.getSelected()
+    if (gameIds.length === 0) return
+
+    const action = whitelist ? '设为白名单' : '取消白名单'
+    UI.confirm(`确定要将 ${gameIds.length} 个游戏${action}吗？`, async () => {
+      await API.batchUpdateGames(gameIds, whitelist)
+      UI.showToast(`已${action} ${gameIds.length} 个游戏`)
+      loadAdminGames()
+    })
+  }
+
+  async function batchDeleteSelectedGames() {
+    const gameIds = gamesBatch.getSelected()
+    if (gameIds.length === 0) return
+
+    UI.confirm(`确定要删除 ${gameIds.length} 个游戏吗？此操作不可恢复！`, async () => {
+      await API.batchDeleteGames(gameIds)
+      UI.showToast(`已删除 ${gameIds.length} 个游戏`)
+      loadAdminGames()
+    })
+  }
+
+  // ========================================
+  // 用户功能
+  // ========================================
+
+  async function loadUserStats() {
+    const loading = document.getElementById('user-stats-loading')
+    const content = document.getElementById('user-stats-content')
+
+    loading.style.display = 'block'
+    content.style.display = 'none'
+
+    try {
+      const stats = await API.getUserStats()
+
+      document.getElementById('stat-game-count').textContent = stats.gameCount
+      document.getElementById('stat-created-count').textContent = stats.createdCount
+
+      content.style.display = 'block'
+    } catch (error) {
+      UI.showToast('加载统计数据失败', 'error')
+    } finally {
+      loading.style.display = 'none'
+    }
+  }
+
+  async function loadUserGames() {
+    const loading = document.getElementById('user-games-loading')
+    const table = document.getElementById('user-games-table')
+    const tbody = document.getElementById('user-games-tbody')
+    const empty = document.getElementById('user-games-empty')
+
+    loading.style.display = 'block'
+    table.style.display = 'none'
+    empty.style.display = 'none'
+
+    try {
+      const data = await API.getUserGames()
+      const games = data.games || []
+
+      if (!currentUserId) {
+        currentUserId = data.playerId
+        document.getElementById('user-player-id').textContent = `${currentUserId}`
+      }
+
+      if (games.length === 0) {
+        empty.style.display = 'block'
+      } else {
+        tbody.innerHTML = games.map(game => `
+           <tr>
+               <td><code>${game.gameId}</code></td>
+               <td>${game.turns || 0}</td>
+               <td>${UI.formatDate(game.createdAt)}</td>
+               <td>${game.createdPlayer === currentUserId ? '<span class="tag tag-success">我创建的</span>' : UI.wrapDiv(game.createdPlayer || '-')}</td>
+               <td class="actions">
+                   <button class="btn btn-primary btn-sm" onclick="UI.viewGameHistory('${game.gameId}')">历史</button>
+                   <button class="btn btn-success btn-sm" onclick="downloadUserGame('${game.gameId}')">下载</button>
+                   ${game.createdPlayer === currentUserId ? `<button class="btn btn-danger btn-sm" onclick="deleteUserGame('${game.gameId}')">删除</button>` : ''}
+               </td>
+           </tr>`).join('')
+        table.style.display = 'block'
+      }
+    } catch (error) {
+      empty.style.display = 'block'
+    } finally {
+      loading.style.display = 'none'
+    }
+  }
+
+  function downloadUserGame(gameId) {
+    UI.confirm('确定要下载此游戏的存档吗？', () => {
+      API.downloadGame(gameId)
+    })
+  }
+
+  function deleteUserGame(gameId) {
+    UI.confirm('确定要删除此游戏吗？此操作不可恢复！', async () => {
+      try {
+        await API.deleteGame(gameId)
+        UI.showToast('删除成功')
+        loadUserGames()
+      } catch (error) {
+        UI.showToast('删除失败', 'error')
+      }
+    })
+  }
 </script>
 </body>
 </html>
