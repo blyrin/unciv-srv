@@ -234,3 +234,25 @@ func GetGamesCreatedByPlayer(ctx context.Context, playerID string) (int, error) 
 	`, playerID).Scan(&count)
 	return count, err
 }
+
+// BatchUpdateGamesWhitelist 批量更新游戏白名单状态
+func BatchUpdateGamesWhitelist(ctx context.Context, gameIDs []string, whitelist bool) error {
+	if len(gameIDs) == 0 {
+		return nil
+	}
+	_, err := DB.Exec(ctx, `
+		UPDATE files
+		SET whitelist = $1, updated_at = $2
+		WHERE game_id = ANY($3)
+	`, whitelist, time.Now(), gameIDs)
+	return err
+}
+
+// BatchDeleteGames 批量删除游戏
+func BatchDeleteGames(ctx context.Context, gameIDs []string) error {
+	if len(gameIDs) == 0 {
+		return nil
+	}
+	_, err := DB.Exec(ctx, `DELETE FROM files WHERE game_id = ANY($1)`, gameIDs)
+	return err
+}

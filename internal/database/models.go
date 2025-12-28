@@ -61,3 +61,12 @@ type PlayerWithGames struct {
 	Player
 	GameCount int `json:"gameCount"`
 }
+
+// TurnMetadata 回合元数据（不含存档数据）
+type TurnMetadata struct {
+	ID            int64     `json:"id"`
+	Turns         int       `json:"turns"`
+	CreatedPlayer string    `json:"createdPlayer"`
+	CreatedIP     string    `json:"createdIp,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+}

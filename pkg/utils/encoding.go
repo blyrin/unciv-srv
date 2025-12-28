@@ -7,14 +7,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"regexp"
 )
 
 // GameIDRegex 游戏ID正则表达式
 var GameIDRegex = regexp.MustCompile(`^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}(_Preview)?$`)
 
+// PlayerIDRegex 玩家ID正则表达式（标准 UUID 格式）
+var PlayerIDRegex = regexp.MustCompile(`^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}$`)
+
 // MaxBodySize 最大请求体大小 (10MB)
 const MaxBodySize = 10 * 1024 * 1024
+
+const randomCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// GenerateRandomStr 生成指定长度的随机字符串
+func GenerateRandomStr(length int) string {
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = randomCharset[rand.Uint32N(uint32(len(randomCharset)))]
+	}
+	return string(b)
+}
 
 // DecodeFile 解码游戏存档文件
 // 输入: Base64 编码的 Gzip 压缩数据
@@ -120,6 +135,11 @@ func GetPlayerIDsFromGameData(data json.RawMessage) ([]string, error) {
 // ValidateGameID 验证游戏ID格式
 func ValidateGameID(gameID string) bool {
 	return GameIDRegex.MatchString(gameID)
+}
+
+// ValidatePlayerID 验证玩家ID格式
+func ValidatePlayerID(playerID string) bool {
+	return PlayerIDRegex.MatchString(playerID)
 }
 
 // IsPreviewID 检查是否是预览ID

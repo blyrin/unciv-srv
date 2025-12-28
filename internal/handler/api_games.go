@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
 
 	"unciv-srv/internal/database"
@@ -162,5 +163,159 @@ func DownloadGameHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filename := "game_" + gameID + ".zip"
-	utils.ZipResponse(w, filename, zipData)
+	utils.FileResponse(w, "application/zip", filename, zipData)
+}
+
+// GetGameTurns 处理 GET /api/games/{gameId}/turns
+// 获取游戏的所有回合元数据（用户只能查看自己参与的游戏，管理员可以查看任何游戏）
+func GetGameTurns(w http.ResponseWriter, r *http.Request) {
+	gameID := r.PathValue("gameId")
+	if gameID == "" {
+		utils.ErrorResponse(w, http.StatusBadRequest, "缺少游戏ID", nil)
+		return
+	}
+
+	userID := middleware.GetSessionUserID(r)
+	isAdmin := middleware.IsSessionAdmin(r)
+
+	// 检查游戏是否存在
+	game, err := database.GetGameByID(r.Context(), gameID)
+	if err != nil {
+		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
+		return
+	}
+	if game == nil {
+		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在", nil)
+		return
+	}
+
+	// 非管理员需要检查是否是游戏参与者
+	if !isAdmin {
+		isPlayer := slices.Contains(game.Players, userID)
+		if !isPlayer {
+			utils.ErrorResponse(w, http.StatusForbidden, "无权查看此游戏", nil)
+			return
+		}
+	}
+
+	turns, err := database.GetTurnsMetadata(r.Context(), gameID)
+	if err != nil {
+		utils.ErrorResponse(w, http.StatusInternalServerError, "获取回合列表失败", err)
+		return
+	}
+
+	if turns == nil {
+		turns = []database.TurnMetadata{}
+	}
+
+	utils.JSONResponse(w, http.StatusOK, turns)
+}
+
+// DownloadSingleTurn 处理 GET /api/games/{gameId}/turns/{turnId}/download
+// 下载单个回合存档（用户只能下载自己参与的游戏，管理员可以下载任何游戏）
+func DownloadSingleTurn(w http.ResponseWriter, r *http.Request) {
+	gameID := r.PathValue("gameId")
+	turnIDStr := r.PathValue("turnId")
+
+	if gameID == "" || turnIDStr == "" {
+		utils.ErrorResponse(w, http.StatusBadRequest, "缺少参数", nil)
+		return
+	}
+
+	turnID, err := strconv.ParseInt(turnIDStr, 10, 64)
+	if err != nil {
+		utils.ErrorResponse(w, http.StatusBadRequest, "无效的回合ID", nil)
+		return
+	}
+
+	userID := middleware.GetSessionUserID(r)
+	isAdmin := middleware.IsSessionAdmin(r)
+
+	// 检查游戏是否存在
+	game, err := database.GetGameByID(r.Context(), gameID)
+	if err != nil {
+		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
+		return
+	}
+	if game == nil {
+		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在", nil)
+		return
+	}
+
+	// 非管理员需要检查是否是游戏参与者
+	if !isAdmin {
+		isPlayer := slices.Contains(game.Players, userID)
+		if !isPlayer {
+			utils.ErrorResponse(w, http.StatusForbidden, "无权下载此游戏", nil)
+			return
+		}
+	}
+
+	turn, err := database.GetTurnByID(r.Context(), turnID)
+	if err != nil {
+		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
+		return
+	}
+	if turn == nil || turn.GameID != gameID {
+		utils.ErrorResponse(w, http.StatusNotFound, "回合不存在", nil)
+		return
+	}
+
+	filename := fmt.Sprintf("game_%s_turn_%d.json", gameID, turn.Turns)
+	utils.FileResponse(w, "application/json", filename, turn.Data)
+}
+
+// BatchUpdateGamesRequest 批量更新游戏请求
+type BatchUpdateGamesRequest struct {
+	GameIDs   []string `json:"gameIds"`
+	Whitelist bool     `json:"whitelist"`
+}
+
+// BatchUpdateGames 处理 PATCH /api/games/batch
+// 批量更新游戏白名单状态（管理员）
+func BatchUpdateGames(w http.ResponseWriter, r *http.Request) {
+	var req BatchUpdateGamesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorResponse(w, http.StatusBadRequest, "无效的请求格式", err)
+		return
+	}
+
+	if len(req.GameIDs) == 0 {
+		utils.ErrorResponse(w, http.StatusBadRequest, "未选择游戏", nil)
+		return
+	}
+
+	if err := database.BatchUpdateGamesWhitelist(r.Context(), req.GameIDs, req.Whitelist); err != nil {
+		utils.ErrorResponse(w, http.StatusInternalServerError, "批量更新失败", err)
+		return
+	}
+
+	utils.SuccessResponse(w)
+}
+
+// BatchDeleteGamesRequest 批量删除游戏请求
+type BatchDeleteGamesRequest struct {
+	GameIDs []string `json:"gameIds"`
+}
+
+// BatchDeleteGames 处理 DELETE /api/games/batch
+// 批量删除游戏（管理员）
+func BatchDeleteGames(w http.ResponseWriter, r *http.Request) {
+	var req BatchDeleteGamesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorResponse(w, http.StatusBadRequest, "无效的请求格式", err)
+		return
+	}
+
+	if len(req.GameIDs) == 0 {
+		utils.ErrorResponse(w, http.StatusBadRequest, "未选择游戏", nil)
+		return
+	}
+
+	if err := database.BatchDeleteGames(r.Context(), req.GameIDs); err != nil {
+		utils.ErrorResponse(w, http.StatusInternalServerError, "批量删除失败", err)
+		return
+	}
+
+	utils.SuccessResponse(w)
 }

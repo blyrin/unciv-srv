@@ -48,13 +48,13 @@ func SuccessResponse(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ZipResponse 发送 ZIP 文件响应
-func ZipResponse(w http.ResponseWriter, filename string, data []byte) {
-	w.Header().Set("Content-Type", "application/zip")
+// FileResponse 发送文件响应
+func FileResponse(w http.ResponseWriter, contentType string, filename string, data []byte) {
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(data); err != nil {
-		slog.Error("ZIP响应写入失败", "error", err)
+		slog.Error("文件响应写入失败", "error", err)
 	}
 }
 

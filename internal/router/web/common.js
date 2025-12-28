@@ -48,17 +48,8 @@ class API {
   }
 
   static async checkSession() {
-    try {
-      await this.get('/api/players')
-      return { isLoggedIn: true, isAdmin: true }
-    } catch (error) {
-      try {
-        await this.get('/api/users/games')
-        return { isLoggedIn: true, isAdmin: false }
-      } catch (e) {
-        return { isLoggedIn: false, isAdmin: false }
-      }
-    }
+    const result = await this.get('/api/session')
+    return result
   }
 
   static async login(username, password) {
@@ -109,6 +100,35 @@ class API {
 
   static async deleteGame(gameId) {
     return this.requestWithAuth('/api/games/' + gameId, { method: 'DELETE' })
+  }
+
+  static async getGameTurns(gameId) {
+    return this.requestWithAuth('/api/games/' + gameId + '/turns', { method: 'GET' })
+  }
+
+  static downloadTurn(gameId, turnId) {
+    window.location.href = '/api/games/' + gameId + '/turns/' + turnId + '/download'
+  }
+
+  static async batchUpdatePlayers(playerIds, whitelist) {
+    return this.requestWithAuth('/api/players/batch', {
+      method: 'PATCH',
+      body: JSON.stringify({ playerIds, whitelist }),
+    })
+  }
+
+  static async batchUpdateGames(gameIds, whitelist) {
+    return this.requestWithAuth('/api/games/batch', {
+      method: 'PATCH',
+      body: JSON.stringify({ gameIds, whitelist }),
+    })
+  }
+
+  static async batchDeleteGames(gameIds) {
+    return this.requestWithAuth('/api/games/batch', {
+      method: 'DELETE',
+      body: JSON.stringify({ gameIds }),
+    })
   }
 
   static get(url) {

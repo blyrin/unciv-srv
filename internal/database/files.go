@@ -136,3 +136,70 @@ func GetAllTurnsForGame(ctx context.Context, gameID string) ([]FileContent, erro
 
 	return contents, rows.Err()
 }
+
+// GetTurnsMetadata 获取游戏的所有回合元数据（不含存档数据）
+func GetTurnsMetadata(ctx context.Context, gameID string) ([]TurnMetadata, error) {
+	rows, err := DB.Query(ctx, `
+		SELECT id, turns, created_player, created_ip, created_at
+		FROM files_content
+		WHERE game_id = $1
+		ORDER BY turns, created_at
+	`, gameID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var turns []TurnMetadata
+	for rows.Next() {
+		var t TurnMetadata
+		var createdPlayer, createdIP *string
+
+		if err := rows.Scan(&t.ID, &t.Turns, &createdPlayer, &createdIP, &t.CreatedAt); err != nil {
+			return nil, err
+		}
+
+		if createdPlayer != nil {
+			t.CreatedPlayer = *createdPlayer
+		}
+		if createdIP != nil {
+			t.CreatedIP = *createdIP
+		}
+
+		turns = append(turns, t)
+	}
+
+	return turns, rows.Err()
+}
+
+// GetTurnByID 根据 ID 获取单个回合数据
+func GetTurnByID(ctx context.Context, turnID int64) (*FileContent, error) {
+	var fc FileContent
+	var createdPlayer, createdIP *string
+	var data []byte
+
+	err := DB.QueryRow(ctx, `
+		SELECT id, game_id, turns, created_player, created_ip, created_at, data
+		FROM files_content
+		WHERE id = $1
+	`, turnID).Scan(
+		&fc.ID, &fc.GameID, &fc.Turns, &createdPlayer, &createdIP, &fc.CreatedAt, &data,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if createdPlayer != nil {
+		fc.CreatedPlayer = *createdPlayer
+	}
+	if createdIP != nil {
+		fc.CreatedIP = *createdIP
+	}
+	fc.Data = data
+
+	return &fc, nil
+}

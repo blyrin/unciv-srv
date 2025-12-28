@@ -49,23 +49,35 @@ func Setup(cfg *config.Config, rateLimiter *middleware.RateLimiter) *http.ServeM
 	// 登录处理器
 	loginHandler := &handler.LoginHandler{Config: cfg, RateLimiter: rateLimiter}
 
-	// Web API - 登录/登出
+	// Web API - 公开接口
 	mux.Handle("POST /api/login", middleware.Logger(middleware.RateLimit(rateLimiter)(http.HandlerFunc(loginHandler.Login))))
 	mux.Handle("GET /api/logout", middleware.Logger(http.HandlerFunc(handler.Logout)))
+	mux.Handle("GET /api/session", middleware.Logger(http.HandlerFunc(handler.CheckSession)))
 
-	// Web API - 管理员接口
+	// Web API - 管理员接口（玩家管理）
 	mux.Handle("GET /api/players", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.GetAllPlayers))))
 	mux.Handle("PUT /api/players/{playerId}", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.UpdatePlayer))))
 	mux.Handle("GET /api/players/{playerId}/password", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.GetPlayerPassword))))
+	mux.Handle("PATCH /api/players/batch", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.BatchUpdatePlayers))))
+
+	// Web API - 管理员接口（游戏管理）
 	mux.Handle("GET /api/games", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.GetAllGames))))
 	mux.Handle("PUT /api/games/{gameId}", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.UpdateGame))))
+	mux.Handle("PATCH /api/games/batch", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.BatchUpdateGames))))
+	mux.Handle("DELETE /api/games/batch", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.BatchDeleteGames))))
+
+	// Web API - 管理员接口（统计信息）
 	mux.Handle("GET /api/stats", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.GetStats))))
 
-	// Web API - 用户接口
+	// Web API - 用户接口（个人信息）
 	mux.Handle("GET /api/users/games", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.GetUserGames))))
 	mux.Handle("GET /api/users/stats", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.GetUserStats))))
+
+	// Web API - 用户接口（游戏操作，需验证参与者身份）
 	mux.Handle("DELETE /api/games/{gameId}", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.DeleteGame))))
 	mux.Handle("GET /api/games/{gameId}/download", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.DownloadGameHistory))))
+	mux.Handle("GET /api/games/{gameId}/turns", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.GetGameTurns))))
+	mux.Handle("GET /api/games/{gameId}/turns/{turnId}/download", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.DownloadSingleTurn))))
 
 	return mux
 }

@@ -76,3 +76,31 @@ func GetPlayerPassword(w http.ResponseWriter, r *http.Request) {
 
 	utils.JSONResponse(w, http.StatusOK, map[string]string{"password": password})
 }
+
+// BatchUpdatePlayersRequest 批量更新玩家请求
+type BatchUpdatePlayersRequest struct {
+	PlayerIDs []string `json:"playerIds"`
+	Whitelist bool     `json:"whitelist"`
+}
+
+// BatchUpdatePlayers 处理 PATCH /api/players/batch
+// 批量更新玩家白名单状态（管理员）
+func BatchUpdatePlayers(w http.ResponseWriter, r *http.Request) {
+	var req BatchUpdatePlayersRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorResponse(w, http.StatusBadRequest, "无效的请求格式", err)
+		return
+	}
+
+	if len(req.PlayerIDs) == 0 {
+		utils.ErrorResponse(w, http.StatusBadRequest, "未选择玩家", nil)
+		return
+	}
+
+	if err := database.BatchUpdatePlayersWhitelist(r.Context(), req.PlayerIDs, req.Whitelist); err != nil {
+		utils.ErrorResponse(w, http.StatusInternalServerError, "批量更新失败", err)
+		return
+	}
+
+	utils.SuccessResponse(w)
+}

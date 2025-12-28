@@ -3,14 +3,13 @@ package middleware
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"unciv-srv/internal/database"
 	"unciv-srv/pkg/utils"
-
-	"github.com/google/uuid"
 )
 
 // ContextKey 上下文键类型
@@ -63,8 +62,8 @@ func parseBasicAuth(r *http.Request, w http.ResponseWriter) (*basicAuthResult, b
 	password := strings.TrimSpace(pair[colonIdx+1:])
 
 	// 验证 playerID 格式（必须是 UUID）
-	if _, err := uuid.Parse(playerID); err != nil {
-		utils.ErrorResponse(w, http.StatusUnauthorized, "无效的玩家ID格式", err)
+	if !utils.ValidatePlayerID(playerID) {
+		utils.ErrorResponse(w, http.StatusUnauthorized, "无效的玩家ID格式", nil)
 		return nil, false
 	}
 
@@ -178,8 +177,8 @@ func GetPlayerID(r *http.Request) string {
 // ValidatePlayer 验证玩家凭证（不创建新玩家）
 func ValidatePlayer(ctx context.Context, playerID, password string) (string, error) {
 	// 验证 playerID 格式（必须是 UUID）
-	if _, err := uuid.Parse(playerID); err != nil {
-		return "", err
+	if !utils.ValidatePlayerID(playerID) {
+		return "", errors.New("无效的玩家ID格式")
 	}
 
 	// 查询玩家

@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"unciv-srv/pkg/utils"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -43,7 +41,7 @@ var store = &SessionStore{
 
 // CreateSession 创建新会话
 func CreateSession(userID string, isAdmin bool) string {
-	sessionID := uuid.New().String()
+	sessionID := utils.GenerateRandomStr(20)
 	now := time.Now()
 
 	store.mu.Lock()

@@ -61,26 +61,27 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 验证玩家账户
-	player, err := database.GetPlayerByID(r.Context(), req.Username)
-	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", nil)
-		return
-	}
+	// 验证玩家账户（先验证 UUID 格式，避免数据库类型转换错误）
+	if utils.ValidatePlayerID(req.Username) {
+		player, err := database.GetPlayerByID(r.Context(), req.Username)
+		if err != nil {
+			utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", nil)
+			return
+		}
+		if player != nil && player.Password == req.Password {
+			// 登录成功，重置限流
+			h.RateLimiter.ResetAttempts(ip)
 
-	if player != nil && player.Password == req.Password {
-		// 登录成功，重置限流
-		h.RateLimiter.ResetAttempts(ip)
+			// 创建 Session
+			sessionID := middleware.CreateSession(req.Username, false)
+			middleware.SetSessionCookie(w, sessionID)
 
-		// 创建 Session
-		sessionID := middleware.CreateSession(req.Username, false)
-		middleware.SetSessionCookie(w, sessionID)
-
-		utils.JSONResponse(w, http.StatusOK, LoginSuccessResponse{
-			IsAdmin:  false,
-			PlayerID: player.PlayerID,
-		})
-		return
+			utils.JSONResponse(w, http.StatusOK, LoginSuccessResponse{
+				IsAdmin:  false,
+				PlayerID: player.PlayerID,
+			})
+			return
+		}
 	}
 
 	// 登录失败，记录尝试
@@ -91,6 +92,41 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	remaining := h.RateLimiter.GetRemainingAttempts(ip)
 	utils.ErrorResponse(w, http.StatusUnauthorized, "用户名或密码错误，剩余尝试次数: "+string(rune('0'+remaining)), nil)
+}
+
+// CheckSessionResponse 检查登录状态响应
+type CheckSessionResponse struct {
+	IsLoggedIn bool   `json:"isLoggedIn"`
+	IsAdmin    bool   `json:"isAdmin,omitempty"`
+	PlayerID   string `json:"playerId,omitempty"`
+}
+
+// CheckSession 处理 GET /api/session，检查当前登录状态
+func CheckSession(w http.ResponseWriter, r *http.Request) {
+	// 获取 Session Cookie
+	cookie, err := r.Cookie(middleware.SessionCookieName)
+	if err != nil {
+		utils.JSONResponse(w, http.StatusOK, CheckSessionResponse{IsLoggedIn: false})
+		return
+	}
+
+	// 获取 Session
+	session, exists := middleware.GetSession(cookie.Value)
+	if !exists {
+		middleware.ClearSessionCookie(w)
+		utils.JSONResponse(w, http.StatusOK, CheckSessionResponse{IsLoggedIn: false})
+		return
+	}
+
+	// 返回登录状态
+	resp := CheckSessionResponse{
+		IsLoggedIn: true,
+		IsAdmin:    session.IsAdmin,
+	}
+	if !session.IsAdmin {
+		resp.PlayerID = session.UserID
+	}
+	utils.JSONResponse(w, http.StatusOK, resp)
 }
 
 // Logout 处理 GET /api/logout

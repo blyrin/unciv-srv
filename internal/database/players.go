@@ -133,3 +133,16 @@ func GetPlayerPassword(ctx context.Context, playerID string) (string, error) {
 	}
 	return password, err
 }
+
+// BatchUpdatePlayersWhitelist 批量更新玩家白名单状态
+func BatchUpdatePlayersWhitelist(ctx context.Context, playerIDs []string, whitelist bool) error {
+	if len(playerIDs) == 0 {
+		return nil
+	}
+	_, err := DB.Exec(ctx, `
+		UPDATE players
+		SET whitelist = $1, updated_at = $2
+		WHERE player_id = ANY($3)
+	`, whitelist, time.Now(), playerIDs)
+	return err
+}
