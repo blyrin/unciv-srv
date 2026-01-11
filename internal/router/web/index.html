@@ -149,18 +149,25 @@
 
       <div v-else>
         <div v-if="isAdmin && activeTab === 'stats'"
-             class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+             class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
           <stat-card label="玩家总数" :value="stats.playerCount" icon="👥"></stat-card>
           <stat-card label="白名单玩家" :value="stats.whitelistPlayerCount" color="text-emerald-600"
                      icon="✅"></stat-card>
           <stat-card label="今日新增" :value="stats.todayNewPlayers" sub="玩家" icon="📈"></stat-card>
-          <stat-card label="7天活跃" :value="stats.activePlayers7Days" icon="🔥"></stat-card>
+          <stat-card label="7天活跃" :value="stats.activePlayers7Days" sub="玩家" icon="🔥"></stat-card>
+          <stat-card label="30天活跃" :value="stats.activePlayers30Days" sub="玩家" icon="🔥"></stat-card>
 
           <stat-card label="游戏总数" :value="stats.gameCount" icon="🎮"></stat-card>
           <stat-card label="白名单游戏" :value="stats.whitelistGameCount" color="text-emerald-600"
                      icon="🛡️"></stat-card>
           <stat-card label="今日新增" :value="stats.todayNewGames" sub="游戏" icon="🆕"></stat-card>
+          <stat-card label="7天活跃" :value="stats.activeGames7Days" sub="游戏" icon="🎯"></stat-card>
+          <stat-card label="30天活跃" :value="stats.activeGames30Days" sub="游戏" icon="🎯"></stat-card>
+
+          <stat-card label="总存档数" :value="stats.totalSaves" icon="💾"></stat-card>
+          <stat-card label="今日存档" :value="stats.todayNewSaves" icon="📝"></stat-card>
           <stat-card label="平均回合" :value="stats.avgGameTurns?.toFixed(1)" icon="⏳"></stat-card>
+          <stat-card label="最高回合" :value="stats.maxGameTurns" icon="🏆"></stat-card>
         </div>
 
         <div v-if="isAdmin && activeTab === 'players'">
