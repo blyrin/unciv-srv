@@ -36,11 +36,11 @@
       <div class="overflow-y-auto p-4 sm:p-0">
         <div v-if="modal.type === 'html'" v-html="modal.content"></div>
 
-        <div v-if="modal.type === 'editPlayer'" class="space-y-4 sm:p-4">
+        <div v-if="modal.type === 'edit'" class="space-y-4 sm:p-4">
           <label class="flex items-center space-x-2">
             <input type="checkbox" v-model="modal.data.whitelist"
                    class="rounded text-emerald-600 focus:ring-emerald-500 w-5 h-5">
-            <span class="font-medium">白名单用户</span>
+            <span class="font-medium">{{ modal.data.whitelistLabel }}</span>
           </label>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
@@ -48,17 +48,31 @@
                       class="w-full rounded-lg border-gray-300 border p-2 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"></textarea>
           </div>
         </div>
-        <div v-if="modal.type === 'editGame'" class="space-y-4 sm:p-4">
-          <label class="flex items-center space-x-2">
-            <input type="checkbox" v-model="modal.data.whitelist"
-                   class="rounded text-emerald-600 focus:ring-emerald-500 w-5 h-5">
-            <span class="font-medium">白名单游戏</span>
-          </label>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
-            <textarea v-model="modal.data.remark" rows="3"
-                      class="w-full rounded-lg border-gray-300 border p-2 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"></textarea>
+        <div v-if="modal.type === 'changePassword'" class="space-y-4 sm:p-4">
+          <div v-if="modal.data.isAdmin">
+            <label class="block text-sm font-medium text-gray-700 mb-1">新密码</label>
+            <input type="password" v-model="modal.data.newPassword"
+                   class="w-full rounded-lg border-gray-300 border p-2 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+                   placeholder="至少6位">
           </div>
+          <template v-else>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">旧密码</label>
+              <input type="password" v-model="modal.data.oldPassword"
+                     class="w-full rounded-lg border-gray-300 border p-2 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">新密码</label>
+              <input type="password" v-model="modal.data.newPassword"
+                     class="w-full rounded-lg border-gray-300 border p-2 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+                     placeholder="至少6位">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">确认新密码</label>
+              <input type="password" v-model="modal.data.confirmPassword"
+                     class="w-full rounded-lg border-gray-300 border p-2 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none">
+            </div>
+          </template>
         </div>
       </div>
       <div class="p-3 border-t bg-gray-50 flex justify-end gap-2 sm:gap-3">
@@ -117,6 +131,10 @@
             <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
             {{ userInfo.name }}
           </div>
+          <button v-if="!isAdmin" @click="openChangeMyPassword"
+                  class="text-xs sm:text-sm text-blue-600 hover:text-blue-700 font-medium hover:bg-blue-50 px-2 sm:px-3 py-1 rounded">
+            改密
+          </button>
           <a href="/api/logout"
              class="text-xs sm:text-sm text-red-600 hover:text-red-700 font-medium hover:bg-red-50 px-2 sm:px-3 py-1 rounded">退出</a>
         </div>
@@ -126,7 +144,6 @@
     <main class="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6">
 
       <div v-if="contentLoading" class="flex flex-col items-center justify-center py-20 text-gray-400 animate-pulse">
-        <div class="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full mb-4"></div>
         加载数据中...
       </div>
 
@@ -194,10 +211,10 @@
                                                 class="rounded text-emerald-600"></td>
                   <td class="p-3 sm:p-4 font-mono text-gray-700 text-xs sm:text-sm break-all">{{ p.playerId }}</td>
                   <td class="p-3 sm:p-4">
-                                            <span
-                                              :class="['px-2 py-1 rounded-full text-xs font-medium', p.whitelist ? 'bg-emerald-100 text-emerald-700' : 'bg-red-50 text-red-600']">
-                                                {{ p.whitelist ? '白名单' : '普通' }}
-                                            </span>
+                    <span
+                      :class="['px-2 py-1 rounded-full text-xs font-medium text-nowrap', p.whitelist ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500']">
+                        {{ p.whitelist ? '白名单' : '普通' }}
+                    </span>
                   </td>
                   <td class="p-3 sm:p-4 text-gray-500 truncate max-w-[150px] hidden sm:table-cell">{{ p.remark || '-'
                     }}
@@ -212,6 +229,9 @@
                     </button>
                     <button @click="viewPassword(p.playerId)"
                             class="text-gray-500 hover:text-gray-800 text-xs sm:text-sm">密码
+                    </button>
+                    <button @click="openChangePlayerPassword(p.playerId)"
+                            class="text-blue-600 hover:underline text-xs sm:text-sm">改密
                     </button>
                   </td>
                 </tr>
@@ -286,15 +306,15 @@
                     <div>更: {{ formatDate(g.updatedAt) }}</div>
                   </td>
                   <td class="p-3 sm:p-4">
-                                             <span
-                                               :class="['px-2 py-1 rounded-full text-xs font-medium', g.whitelist ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500']">
-                                                {{ g.whitelist ? '白名单' : '普通' }}
-                                            </span>
+                    <span
+                      :class="['px-2 py-1 rounded-full text-xs font-medium text-nowrap', g.whitelist ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500']">
+                       {{ g.whitelist ? '白名单' : '普通' }}
+                    </span>
                   </td>
                   <td class="p-3 sm:p-4 text-right space-x-1 sm:space-x-2 whitespace-nowrap">
                     <button @click="openEditGame(g)" class="text-emerald-600 hover:underline text-xs sm:text-sm">编辑
                     </button>
-                    <button @click="viewHistory(g.gameId, true)"
+                    <button @click="viewHistory(g.gameId)"
                             class="text-blue-600 hover:underline text-xs sm:text-sm">历史
                     </button>
                   </td>
@@ -325,8 +345,8 @@
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                 <tr v-for="g in userGames" :key="g.gameId" class="hover:bg-gray-50/50">
-                  <td class="p-3 sm:p-4 font-mono font-medium text-emerald-700 text-xs sm:text-sm break-all">{{ g.gameId
-                    }}
+                  <td class="p-3 sm:p-4 font-mono font-medium text-emerald-700 text-xs sm:text-sm break-all">
+                    {{ g.gameId}}
                   </td>
                   <td class="p-3 sm:p-4">{{ g.turns }}</td>
                   <td class="p-3 sm:p-4 text-gray-500 text-xs sm:text-sm hidden sm:table-cell">
@@ -367,7 +387,6 @@
 
   <div v-if="view === 'loading'" class="fixed inset-0 bg-gray-50 flex items-center justify-center z-50">
     <div class="text-emerald-600 font-medium animate-pulse flex flex-col items-center">
-      <div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full mb-4"></div>
       正在连接服务器...
     </div>
   </div>
@@ -391,82 +410,47 @@
     async request(url, options = {}) {
       options.credentials = 'include'
       options.headers = { 'Content-Type': 'application/json', ...options.headers }
-      try {
-        const res = await fetch(url, options)
-        if (res.status === 401) throw new Error('Unauthorized')
-        if (res.status === 204) return null
-        if (!res.ok) {
-          const err = await res.json()
-          throw new Error(err.message || '请求失败')
-        }
-        return await res.json()
-      } catch (e) {
-        throw e
+      const res = await fetch(url, options)
+      if (res.status === 401) throw new Error('Unauthorized')
+      if (res.status === 204) return null
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.message || '请求失败')
       }
+      return await res.json()
     },
-    checkSession() {
-      return API.request('/api/session', { method: 'GET' })
-    },
-    login(u, p) {
-      return API.request('/api/login', {
-        method: 'POST',
-        body: JSON.stringify({ username: u, password: p }),
-      })
-    },
-    getStats() {
-      return API.request('/api/stats', { method: 'GET' })
-    },
-    getPlayers() {
-      return API.request('/api/players', { method: 'GET' })
-    },
-    getGames() {
-      return API.request('/api/games', { method: 'GET' })
-    },
-    getUserStats() {
-      return API.request('/api/users/stats', { method: 'GET' })
-    },
-    getUserGames() {
-      return API.request('/api/users/games', { method: 'GET' })
-    },
-    updatePlayer(id, data) {
-      return API.request(`/api/players/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      })
-    },
-    getPlayerPwd(id) {
-      return API.request(`/api/players/${id}/password`, { method: 'GET' })
-    },
-    updateGame(id, data) {
-      return API.request(`/api/games/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      })
-    },
-    batchPlayers(ids, wl) {
-      return API.request('/api/players/batch', {
-        method: 'PATCH',
-        body: JSON.stringify({ playerIds: ids, whitelist: wl }),
-      })
-    },
-    batchGames(ids, wl) {
-      return API.request('/api/games/batch', {
-        method: 'PATCH',
-        body: JSON.stringify({ gameIds: ids, whitelist: wl }),
-      })
-    },
-    batchDelGames(ids) {
-      return API.request('/api/games/batch', {
-        method: 'DELETE',
-        body: JSON.stringify({ gameIds: ids }),
-      })
-    },
-    deleteGame(id) {
-      return API.request(`/api/games/${id}`, { method: 'DELETE' })
-    },
-    getTurns(id) {
-      return API.request(`/api/games/${id}/turns`, { method: 'GET' })
-    },
+    checkSession: () => API.request('/api/session'),
+    login: (u, p) => API.request('/api/login', { method: 'POST', body: JSON.stringify({ username: u, password: p }) }),
+    getStats: () => API.request('/api/stats'),
+    getPlayers: () => API.request('/api/players'),
+    getGames: () => API.request('/api/games'),
+    getUserStats: () => API.request('/api/users/stats'),
+    getUserGames: () => API.request('/api/users/games'),
+    updatePlayer: (id, data) => API.request(`/api/players/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    getPlayerPwd: (id) => API.request(`/api/players/${id}/password`),
+    updatePlayerPwd: (id, password) => API.request(`/api/players/${id}/password`, {
+      method: 'PUT',
+      body: JSON.stringify({ password }),
+    }),
+    updateUserPwd: (oldPassword, newPassword) => API.request('/api/users/password', {
+      method: 'PUT',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    }),
+    updateGame: (id, data) => API.request(`/api/games/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    batchPlayers: (ids, wl) => API.request('/api/players/batch', {
+      method: 'PATCH',
+      body: JSON.stringify({ playerIds: ids, whitelist: wl }),
+    }),
+    batchGames: (ids, wl) => API.request('/api/games/batch', {
+      method: 'PATCH',
+      body: JSON.stringify({ gameIds: ids, whitelist: wl }),
+    }),
+    batchDelGames: (ids) => API.request('/api/games/batch', {
+      method: 'DELETE',
+      body: JSON.stringify({ gameIds: ids }),
+    }),
+    deleteGame: (id) => API.request(`/api/games/${id}`, { method: 'DELETE' }),
+    getTurns: (id) => API.request(`/api/games/${id}/turns`),
   }
   const StatCard = {
     props: ['label', 'value', 'icon', 'color', 'sub'],
@@ -539,8 +523,14 @@
         modal.onConfirm = null
       }
       const confirmModal = async () => {
-        if (modal.onConfirm) await modal.onConfirm()
-        closeModal()
+        if (modal.onConfirm) {
+          try {
+            await modal.onConfirm()
+            closeModal()
+          } catch (e) {
+            showToast(e.message || e, 'error')
+          }
+        }
       }
       // 初始化
       onMounted(async () => {
@@ -601,18 +591,19 @@
       // --- 业务操作 ---
       const formatDate = (str) => new Date(str).toLocaleString('zh-CN', { hour12: false })
       const resetFilters = () => { Object.keys(filters).forEach(k => filters[k] = '') }
-      // 玩家操作
-      const openEditPlayer = (p) => {
-        modal.title = `编辑玩家: ${p.playerId}`
-        modal.type = 'editPlayer'
-        modal.data = { whitelist: p.whitelist, remark: p.remark || '' }
+      // 通用编辑操作
+      const openEdit = (type, id, data, updateFn) => {
+        modal.title = `编辑${type}: ${id}`
+        modal.type = 'edit'
+        modal.data = { whitelist: data.whitelist, remark: data.remark || '', whitelistLabel: `白名单${type}` }
         modal.onConfirm = async () => {
-          await API.updatePlayer(p.playerId, modal.data)
+          await updateFn(id, { whitelist: modal.data.whitelist, remark: modal.data.remark })
           showToast('更新成功')
           loadTabData()
         }
         modal.show = true
       }
+      const openEditPlayer = (p) => openEdit('玩家', p.playerId, p, API.updatePlayer)
       const viewPassword = async (id) => {
         try {
           const res = await API.getPlayerPwd(id)
@@ -620,7 +611,38 @@
           modal.type = 'html'
           modal.content = `<div class="bg-gray-100 p-4 rounded text-center font-mono select-all text-xl tracking-wider">${res.password}</div>`
           modal.show = true
-        } catch (e) { showToast('获取失败', 'error') }
+        } catch (e) { throw new Error(e.message) }
+      }
+      const openChangePlayerPassword = (playerId) => {
+        modal.title = `修改密码: ${playerId}`
+        modal.type = 'changePassword'
+        modal.data = { playerId, isAdmin: true, newPassword: '' }
+        modal.onConfirm = async () => {
+          if (!modal.data.newPassword || modal.data.newPassword.length < 6) {
+            throw new Error('密码至少6位')
+          }
+          await API.updatePlayerPwd(playerId, modal.data.newPassword)
+        }
+        modal.show = true
+      }
+      const openChangeMyPassword = () => {
+        modal.title = '修改我的密码'
+        modal.type = 'changePassword'
+        modal.data = { isAdmin: false, oldPassword: '', newPassword: '', confirmPassword: '' }
+        modal.onConfirm = async () => {
+          if (!modal.data.oldPassword) {
+            throw new Error('请输入旧密码')
+          }
+          if (!modal.data.newPassword || modal.data.newPassword.length < 6) {
+            throw new Error('新密码至少6位')
+          }
+          if (modal.data.newPassword !== modal.data.confirmPassword) {
+            throw new Error('两次密码不一致')
+          }
+          await API.updateUserPwd(modal.data.oldPassword, modal.data.newPassword)
+          showToast('密码修改成功')
+        }
+        modal.show = true
       }
       const batchUpdatePlayers = async (wl) => {
         if (!selectedPlayers.value.length) return
@@ -632,18 +654,7 @@
           loadTabData()
         } catch (e) { showToast(e.message, 'error') }
       }
-      // 游戏操作
-      const openEditGame = (g) => {
-        modal.title = `编辑游戏: ${g.gameId}`
-        modal.type = 'editGame'
-        modal.data = { whitelist: g.whitelist, remark: g.remark || '' }
-        modal.onConfirm = async () => {
-          await API.updateGame(g.gameId, modal.data)
-          showToast('更新成功')
-          loadTabData()
-        }
-        modal.show = true
-      }
+      const openEditGame = (g) => openEdit('游戏', g.gameId, g, API.updateGame)
       const batchUpdateGames = async (wl) => {
         if (!selectedGames.value.length) return
         try {
@@ -664,7 +675,7 @@
         } catch (e) { showToast(e.message, 'error') }
       }
       // 历史与下载
-      const viewHistory = async (gid, showIp = false) => {
+      const viewHistory = async (gid) => {
         try {
           const turns = await API.getTurns(gid)
           let html = `<div class="overflow-x-auto"><table class="w-full text-sm text-left">
@@ -696,7 +707,7 @@
         filters, filteredPlayers, filteredGames, selectedPlayers, selectedGames, selectAllPlayers, selectAllGames,
         toasts, modal,
         handleLogin, formatDate, resetFilters,
-        openEditPlayer, viewPassword, batchUpdatePlayers,
+        openEditPlayer, viewPassword, openChangePlayerPassword, openChangeMyPassword, batchUpdatePlayers,
         openEditGame, batchUpdateGames, batchDeleteGames,
         viewHistory, downloadGame, deleteUserGame,
         closeModal, confirmModal,

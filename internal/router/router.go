@@ -58,6 +58,7 @@ func Setup(cfg *config.Config, rateLimiter *middleware.RateLimiter) *http.ServeM
 	mux.Handle("GET /api/players", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.GetAllPlayers))))
 	mux.Handle("PUT /api/players/{playerId}", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.UpdatePlayer))))
 	mux.Handle("GET /api/players/{playerId}/password", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.GetPlayerPassword))))
+	mux.Handle("PUT /api/players/{playerId}/password", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.UpdatePlayerPassword))))
 	mux.Handle("PATCH /api/players/batch", middleware.Logger(middleware.AdminOnly(http.HandlerFunc(handler.BatchUpdatePlayers))))
 
 	// Web API - 管理员接口（游戏管理）
@@ -72,6 +73,7 @@ func Setup(cfg *config.Config, rateLimiter *middleware.RateLimiter) *http.ServeM
 	// Web API - 用户接口（个人信息）
 	mux.Handle("GET /api/users/games", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.GetUserGames))))
 	mux.Handle("GET /api/users/stats", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.GetUserStats))))
+	mux.Handle("PUT /api/users/password", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.UpdateUserPassword))))
 
 	// Web API - 用户接口（游戏操作，需验证参与者身份）
 	mux.Handle("DELETE /api/games/{gameId}", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.DeleteGame))))

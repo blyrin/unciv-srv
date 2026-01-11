@@ -77,6 +77,40 @@ func GetPlayerPassword(w http.ResponseWriter, r *http.Request) {
 	utils.JSONResponse(w, http.StatusOK, map[string]string{"password": password})
 }
 
+// UpdatePlayerPasswordRequest 更新玩家密码请求
+type UpdatePlayerPasswordRequest struct {
+	Password string `json:"password"`
+}
+
+// UpdatePlayerPassword 处理 PUT /api/players/{playerId}/password
+// 更新玩家密码（管理员）
+func UpdatePlayerPassword(w http.ResponseWriter, r *http.Request) {
+	playerID := r.PathValue("playerId")
+	if playerID == "" {
+		utils.ErrorResponse(w, http.StatusBadRequest, "缺少玩家ID", nil)
+		return
+	}
+
+	var req UpdatePlayerPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorResponse(w, http.StatusBadRequest, "无效的请求格式", err)
+		return
+	}
+
+	if req.Password == "" || len(req.Password) < 6 {
+		utils.ErrorResponse(w, http.StatusBadRequest, "密码至少6位", nil)
+		return
+	}
+
+	ip := utils.GetClientIP(r)
+	if err := database.UpdatePlayerPassword(r.Context(), playerID, req.Password, ip); err != nil {
+		utils.ErrorResponse(w, http.StatusInternalServerError, "更新密码失败", err)
+		return
+	}
+
+	utils.SuccessResponse(w)
+}
+
 // BatchUpdatePlayersRequest 批量更新玩家请求
 type BatchUpdatePlayersRequest struct {
 	PlayerIDs []string `json:"playerIds"`

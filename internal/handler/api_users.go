@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"unciv-srv/internal/database"
@@ -79,4 +80,52 @@ func GetUserStats(w http.ResponseWriter, r *http.Request) {
 		"gameCount":    len(games),
 		"createdCount": createdCount,
 	})
+}
+
+// UpdateUserPasswordRequest 用户修改密码请求
+type UpdateUserPasswordRequest struct {
+	OldPassword string `json:"oldPassword"`
+	NewPassword string `json:"newPassword"`
+}
+
+// UpdateUserPassword 处理 PUT /api/users/password
+// 用户修改自己的密码
+func UpdateUserPassword(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetSessionUserID(r)
+	if userID == "" {
+		utils.ErrorResponse(w, http.StatusUnauthorized, "未登录", nil)
+		return
+	}
+
+	var req UpdateUserPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.ErrorResponse(w, http.StatusBadRequest, "无效的请求格式", err)
+		return
+	}
+
+	if req.NewPassword == "" || len(req.NewPassword) < 6 {
+		utils.ErrorResponse(w, http.StatusBadRequest, "新密码至少6位", nil)
+		return
+	}
+
+	// 验证旧密码
+	currentPassword, err := database.GetPlayerPassword(r.Context(), userID)
+	if err != nil {
+		utils.ErrorResponse(w, http.StatusInternalServerError, "验证密码失败", err)
+		return
+	}
+
+	if currentPassword != req.OldPassword {
+		utils.ErrorResponse(w, http.StatusBadRequest, "旧密码错误", nil)
+		return
+	}
+
+	// 更新密码
+	ip := utils.GetClientIP(r)
+	if err := database.UpdatePlayerPassword(r.Context(), userID, req.NewPassword, ip); err != nil {
+		utils.ErrorResponse(w, http.StatusInternalServerError, "更新密码失败", err)
+		return
+	}
+
+	utils.SuccessResponse(w)
 }
