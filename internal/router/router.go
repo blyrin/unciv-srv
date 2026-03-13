@@ -2,8 +2,6 @@
 package router
 
 import (
-	"embed"
-	"io/fs"
 	"log/slog"
 	"net/http"
 
@@ -14,15 +12,12 @@ import (
 
 const healthCheckResponse = `{"authVersion":1,"chatVersion":1}`
 
-//go:embed web
-var webFS embed.FS
-
 // Setup 配置所有路由
 func Setup(cfg *config.Config, rateLimiter *middleware.RateLimiter) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// 静态文件服务
-	sub, err := fs.Sub(webFS, "web")
+	sub, err := getWebFS()
 	if err != nil {
 		return nil
 	}

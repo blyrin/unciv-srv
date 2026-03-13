@@ -8,15 +8,35 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     [v-cloak] { display: none; }
+    /* 全局按钮过渡 */
+    button:not([disabled]), a[class] { transition: color .15s ease-out, background-color .15s ease-out, border-color .15s ease-out, box-shadow .15s ease-out, opacity .15s ease-out; }
+    /* 键盘焦点样式 */
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #10b981; outline-offset: 2px; }
+    /* Toast 滑入 */
+    .toast-item { animation: toast-in .3s ease-out; }
+    @keyframes toast-in { from { opacity: 0; transform: translateX(1rem); } to { opacity: 1; transform: translateX(0); } }
+    /* Modal 动画 */
+    .modal-overlay { animation: fade-in .2s ease-out; }
+    .modal-panel { animation: scale-in .25s cubic-bezier(.16,1,.3,1); }
+    @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes scale-in { from { opacity: 0; transform: scale(.96) translateY(.25rem); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    /* Spinner */
+    .spinner { width: 1.25rem; height: 1.25rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* 减弱动画 */
+    @media (prefers-reduced-motion: reduce) {
+      .toast-item, .modal-overlay, .modal-panel { animation: none; }
+      .spinner { animation-duration: 1.5s; }
+    }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-800 antialiased min-h-screen">
 
 <div id="app" v-cloak class="flex flex-col min-h-screen">
 
-  <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
-    <div v-for="toast in toasts" :key="toast.id"
-         :class="['pointer-events-auto px-4 py-3 rounded-lg border border-white/20 text-white text-sm font-medium flex items-center gap-2 min-w-[300px]',
+  <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" aria-live="polite">
+    <div v-for="toast in toasts" :key="toast.id" role="alert"
+         :class="['toast-item pointer-events-auto px-4 py-3 rounded-lg border border-white/20 text-white text-sm font-medium flex items-center gap-2 min-w-[300px] shadow-lg',
                  toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500']">
       <span v-if="toast.type === 'success'">✓</span>
       <span v-else>✕</span>
@@ -25,13 +45,14 @@
   </div>
 
   <div v-if="modal.show"
-       class="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
+       class="modal-overlay fixed inset-0 z-40 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
+       role="dialog" aria-modal="true" :aria-label="modal.title"
        @click.self="closeModal">
     <div
-      class="bg-white rounded-xl border border-gray-300 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden transform">
+      class="modal-panel bg-white rounded-xl border border-gray-200 shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
       <div class="p-3 border-b flex justify-between items-center bg-gray-50">
         <h3 class="font-bold text-base text-gray-700 truncate pr-2">{{ modal.title }}</h3>
-        <button @click="closeModal" class="text-gray-400 hover:text-gray-600 flex-shrink-0">✕</button>
+        <button @click="closeModal" class="text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-md p-1 flex-shrink-0" aria-label="关闭">✕</button>
       </div>
       <div class="overflow-y-auto p-4 sm:p-0">
         <div v-if="modal.type === 'html'" v-html="modal.content"></div>
@@ -77,11 +98,11 @@
       </div>
       <div class="p-3 border-t bg-gray-50 flex justify-end gap-2 sm:gap-3">
         <button @click="closeModal"
-                class="px-3 sm:px-4 py-2 rounded-lg border bg-white hover:bg-gray-100 text-gray-700 text-sm font-medium">
+                class="px-3 sm:px-4 py-2 rounded-lg border bg-white hover:bg-gray-100 active:bg-gray-200 text-gray-700 text-sm font-medium">
           取消
         </button>
         <button v-if="modal.onConfirm" @click="confirmModal"
-                class="px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium border border-emerald-700">
+                class="px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-medium border border-emerald-700">
           确认
         </button>
       </div>
@@ -107,8 +128,9 @@
                  class="w-full px-4 py-2.5 sm:py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-base">
         </div>
         <button type="submit" :disabled="loading"
-                class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
-          {{ loading ? '登录中...' : '登 录' }}
+                class="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+          <span v-if="loading" class="inline-flex items-center gap-2"><span class="spinner" style="width:1rem;height:1rem;border-color:#fff;border-right-color:transparent"></span>登录中...</span>
+          <span v-else>登 录</span>
         </button>
       </form>
     </div>
@@ -120,8 +142,8 @@
         <div class="flex space-x-0.5 sm:space-x-1 bg-gray-100 p-0.5 sm:p-1 rounded-lg flex-shrink-0">
           <button v-for="tab in currentTabs" :key="tab.id"
                   @click="activeTab = tab.id"
-                  :class="['px-2.5 sm:px-4 py-1.5 rounded-md text-xs sm:text-sm font-medium whitespace-nowrap',
-                        activeTab === tab.id ? 'bg-white text-emerald-600' : 'text-gray-500 hover:text-gray-700']">
+                  :class="['px-2.5 sm:px-4 py-1.5 rounded-md text-xs sm:text-sm font-medium whitespace-nowrap transition-all duration-150',
+                        activeTab === tab.id ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-500 hover:text-gray-700']">
             {{ tab.name }}
           </button>
         </div>
@@ -143,8 +165,9 @@
 
     <main class="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6">
 
-      <div v-if="contentLoading" class="flex flex-col items-center justify-center py-20 text-gray-400 animate-pulse">
-        加载数据中...
+      <div v-if="contentLoading" class="flex flex-col items-center justify-center py-20 text-gray-400 gap-3">
+        <span class="spinner"></span>
+        <span class="text-sm">加载数据中...</span>
       </div>
 
       <div v-else>
@@ -213,7 +236,7 @@
                 </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
-                <tr v-for="p in filteredPlayers" :key="p.playerId" class="hover:bg-gray-50/50">
+                <tr v-for="p in filteredPlayers" :key="p.playerId" class="hover:bg-gray-50">
                   <td class="p-3 sm:p-4"><input type="checkbox" :value="p.playerId" v-model="selectedPlayers"
                                                 class="rounded text-emerald-600"></td>
                   <td class="p-3 sm:p-4 font-mono text-gray-700 text-xs sm:text-sm break-all">{{ p.playerId }}</td>
@@ -297,7 +320,7 @@
                 </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
-                <tr v-for="g in filteredGames" :key="g.gameId" class="hover:bg-gray-50/50">
+                <tr v-for="g in filteredGames" :key="g.gameId" class="hover:bg-gray-50">
                   <td class="p-3 sm:p-4"><input type="checkbox" :value="g.gameId" v-model="selectedGames"
                                                 class="rounded text-emerald-600"></td>
                   <td class="p-3 sm:p-4">
@@ -351,7 +374,7 @@
                 </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
-                <tr v-for="g in userGames" :key="g.gameId" class="hover:bg-gray-50/50">
+                <tr v-for="g in userGames" :key="g.gameId" class="hover:bg-gray-50">
                   <td class="p-3 sm:p-4 font-mono font-medium text-emerald-700 text-xs sm:text-sm break-all">
                     {{ g.gameId}}
                   </td>
@@ -393,14 +416,15 @@
   </div>
 
   <div v-if="view === 'loading'" class="fixed inset-0 bg-gray-50 flex items-center justify-center z-50">
-    <div class="text-emerald-600 font-medium animate-pulse flex flex-col items-center">
-      正在连接服务器...
+    <div class="text-emerald-600 font-medium flex flex-col items-center gap-3">
+      <span class="spinner" style="width:2rem;height:2rem;border-width:2.5px"></span>
+      <span>正在连接服务器...</span>
     </div>
   </div>
 </div>
 
 <template id="stat-card-tpl">
-  <div class="bg-white p-4 sm:p-6 rounded-xl border border-gray-200">
+  <div class="bg-white p-4 sm:p-6 rounded-xl border border-gray-200 hover:shadow-sm transition-shadow duration-200">
     <div class="flex items-center justify-between mb-1 sm:mb-2">
       <span class="text-gray-500 text-xs sm:text-sm font-medium">{{ label }}</span>
       <span class="text-xl sm:text-2xl">{{ icon }}</span>
@@ -614,11 +638,12 @@
       const viewPassword = async (id) => {
         try {
           const res = await API.getPlayerPwd(id)
+          const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
           modal.title = '查看密码'
           modal.type = 'html'
-          modal.content = `<div class="bg-gray-100 p-4 rounded text-center font-mono select-all text-xl tracking-wider">${res.password}</div>`
+          modal.content = `<div class="bg-gray-100 p-4 rounded text-center font-mono select-all text-xl tracking-wider">${esc(res.password)}</div>`
           modal.show = true
-        } catch (e) { throw new Error(e.message) }
+        } catch (e) { showToast(e.message, 'error') }
       }
       const openChangePlayerPassword = (playerId) => {
         modal.title = `修改密码: ${playerId}`
