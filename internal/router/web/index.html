@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unciv 服务器管理</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    [v-cloak] { display: none; }
+
+    /* 全局按钮过渡 */
+    button:not([disabled]), a[class] { transition: color .15s ease-out, background-color .15s ease-out, border-color .15s ease-out, box-shadow .15s ease-out, opacity .15s ease-out; }
+
+    /* 键盘焦点样式 */
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #10b981; outline-offset: 2px; }
+
+    /* Toast 滑入 */
+    .toast-item { animation: toast-in .3s ease-out; }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateX(1rem); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* Modal 动画 */
+    .modal-overlay { animation: fade-in .2s ease-out; }
+
+    .modal-panel { animation: scale-in .25s cubic-bezier(.16, 1, .3, 1); }
+
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes scale-in {
+      from { opacity: 0; transform: scale(.96) translateY(.25rem); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    /* Spinner */
+    .spinner { width: 1.25rem; height: 1.25rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; display: inline-block; }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* 减弱动画 */
+    @media (prefers-reduced-motion: reduce) {
+      .toast-item, .modal-overlay, .modal-panel { animation: none; }
+
+      .spinner { animation-duration: 1.5s; }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 antialiased min-h-screen">
+
+<div id="app" v-cloak class="flex flex-col min-h-screen">
+
+  <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" aria-live="polite">
+    <div v-for="toast in toasts" :key="toast.id" role="alert"
+         :class="['toast-item pointer-events-auto px-4 py-3 rounded-lg border border-white/20 text-white text-sm font-medium flex items-center gap-2 min-w-[300px] shadow-lg',
+                 toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500']">
+      <span v-if="toast.type === 'success'">✓</span>
+      <span v-else>✕</span>
+      {{ toast.message }}
+    </div>
+  </div>
+
+  <div v-if="modal.show"
+       class="modal-overlay fixed inset-0 z-40 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
+       role="dialog" aria-modal="true" :aria-label="modal.title"
+       @click.self="closeModal">
+    <div
+      class="modal-panel bg-white rounded-xl border border-gray-200 shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div class="p-3 border-b flex justify-between items-center bg-gray-50">
+        <h3 class="font-bold text-base text-gray-700 truncate pr-2">{{ modal.title }}</h3>
+        <button @click="closeModal" class="text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-md p-1 flex-shrink-0"
+                aria-label="关闭">✕
+        </button>
+      </div>
+      <div class="overflow-y-auto p-4 sm:p-0">
+        <div v-if="modal.type === 'html'" v-html="modal.content"></div>
+
+        <div v-if="modal.type === 'edit'" class="space-y-4 sm:p-4">
+          <label class="flex items-center space-x-2">
+            <input type="checkbox" v-model="modal.data.whitelist"
+                   class="rounded text-emerald-600 focus:ring-emerald-500 w-5 h-5">
+            <span class="font-medium">{{ modal.data.whitelistLabel }}</span>
+          </label>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
+            <textarea v-model="modal.data.remark" rows="3"
+                      class="w-full rounded-lg border-gray-300 border p-2 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"></textarea>
+          </div>
+        </div>
+        <div v-if="modal.type === 'changePassword'" class="space-y-4 sm:p-4">
+          <div v-if="modal.data.isAdmin">
+            <label class="block text-sm font-medium text-gray-700 mb-1">新密码</label>
+            <input type="password" v-model="modal.data.newPassword"
+                   class="w-full rounded-lg border-gray-300 border p-2 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+                   placeholder="至少6位">
+          </div>
+          <template v-else>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">旧密码</label>
+              <input type="password" v-model="modal.data.oldPassword"
+                     class="w-full rounded-lg border-gray-300 border p-2 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">新密码</label>
+              <input type="password" v-model="modal.data.newPassword"
+                     class="w-full rounded-lg border-gray-300 border p-2 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+                     placeholder="至少6位">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">确认新密码</label>
+              <input type="password" v-model="modal.data.confirmPassword"
+                     class="w-full rounded-lg border-gray-300 border p-2 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none">
+            </div>
+          </template>
+        </div>
+      </div>
+      <div class="p-3 border-t bg-gray-50 flex justify-end gap-2 sm:gap-3">
+        <button @click="closeModal"
+                class="px-3 sm:px-4 py-2 rounded-lg border bg-white hover:bg-gray-100 active:bg-gray-200 text-gray-700 text-sm font-medium">
+          取消
+        </button>
+        <button v-if="modal.onConfirm" @click="confirmModal"
+                class="px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-medium border border-emerald-700">
+          确认
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="view === 'login'"
+       class="flex-1 flex items-center justify-center bg-gradient-to-br from-emerald-500 to-teal-700 p-3 sm:p-4">
+    <div class="bg-white rounded-2xl border border-gray-300 p-6 sm:p-8 w-full max-w-md space-y-5 sm:space-y-6">
+      <div class="text-center space-y-2">
+        <h1 class="text-2xl sm:text-3xl font-bold text-gray-800">Unciv Server</h1>
+        <p class="text-gray-500 text-sm">请登录以管理服务器资源</p>
+      </div>
+      <form @submit.prevent="handleLogin" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+          <input v-model="loginForm.username" type="text" required
+                 class="w-full px-4 py-2.5 sm:py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-base">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+          <input v-model="loginForm.password" type="password" required
+                 class="w-full px-4 py-2.5 sm:py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-base">
+        </div>
+        <button type="submit" :disabled="loading"
+                class="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+          <span v-if="loading" class="inline-flex items-center gap-2"><span class="spinner"
+                                                                            style="width:1rem;height:1rem;border-color:#fff;border-right-color:transparent"></span>登录中...</span>
+          <span v-else>登 录</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div v-else-if="view !== 'loading'" class="flex-1 flex flex-col">
+    <nav class="bg-white border-b sticky top-0 z-30">
+      <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2">
+        <div class="flex space-x-0.5 sm:space-x-1 bg-gray-100 p-0.5 sm:p-1 rounded-lg flex-shrink-0">
+          <button v-for="tab in currentTabs" :key="tab.id"
+                  @click="activeTab = tab.id"
+                  :class="['px-2.5 sm:px-4 py-1.5 rounded-md text-xs sm:text-sm font-medium whitespace-nowrap transition-all duration-150',
+                        activeTab === tab.id ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-500 hover:text-gray-700']">
+            {{ tab.name }}
+          </button>
+        </div>
+        <div class="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+          <div
+            class="hidden sm:flex bg-gray-100 px-3 py-1 rounded-full text-sm font-medium text-gray-600 items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+            {{ userInfo.name }}
+          </div>
+          <button v-if="!isAdmin" @click="openChangeMyPassword"
+                  class="text-xs sm:text-sm text-blue-600 hover:text-blue-700 font-medium hover:bg-blue-50 px-2 sm:px-3 py-1 rounded">
+            改密
+          </button>
+          <a href="/api/logout"
+             class="text-xs sm:text-sm text-red-600 hover:text-red-700 font-medium hover:bg-red-50 px-2 sm:px-3 py-1 rounded">退出</a>
+        </div>
+      </div>
+    </nav>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6">
+
+      <div v-if="contentLoading" class="flex flex-col items-center justify-center py-20 text-gray-400 gap-3">
+        <span class="spinner"></span>
+        <span class="text-sm">加载数据中...</span>
+      </div>
+
+      <div v-else>
+        <div v-if="isAdmin && activeTab === 'stats'"
+             class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+          <stat-card label="玩家总数" :value="stats.playerCount" icon="👥"></stat-card>
+          <stat-card label="白名单玩家" :value="stats.whitelistPlayerCount" color="text-emerald-600"
+                     icon="✅"></stat-card>
+          <stat-card label="今日新增" :value="stats.todayNewPlayers" sub="玩家" icon="📈"></stat-card>
+          <stat-card label="7天活跃" :value="stats.activePlayers7Days" sub="玩家" icon="🔥"></stat-card>
+          <stat-card label="30天活跃" :value="stats.activePlayers30Days" sub="玩家" icon="🔥"></stat-card>
+
+          <stat-card label="游戏总数" :value="stats.gameCount" icon="🎮"></stat-card>
+          <stat-card label="白名单游戏" :value="stats.whitelistGameCount" color="text-emerald-600"
+                     icon="🛡️"></stat-card>
+          <stat-card label="今日新增" :value="stats.todayNewGames" sub="游戏" icon="🆕"></stat-card>
+          <stat-card label="7天活跃" :value="stats.activeGames7Days" sub="游戏" icon="🎯"></stat-card>
+          <stat-card label="30天活跃" :value="stats.activeGames30Days" sub="游戏" icon="🎯"></stat-card>
+
+          <stat-card label="总存档数" :value="stats.totalSaves" icon="💾"></stat-card>
+          <stat-card label="今日存档" :value="stats.todayNewSaves" icon="📝"></stat-card>
+          <stat-card label="平均回合" :value="stats.avgGameTurns?.toFixed(1)" icon="⏳"></stat-card>
+          <stat-card label="最高回合" :value="stats.maxGameTurns" icon="🏆"></stat-card>
+        </div>
+
+        <div v-if="isAdmin && activeTab === 'players'">
+          <div
+            class="bg-white p-3 sm:p-4 rounded-xl border border-gray-200 mb-4 flex flex-col gap-3">
+            <div class="flex flex-wrap gap-2 sm:gap-3 w-full">
+              <input v-model="filters.playerSearch" placeholder="搜索 ID 或备注..."
+                     class="flex-1 min-w-[140px] px-3 sm:px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none bg-white text-sm">
+              <select v-model="filters.playerWhitelist"
+                      class="px-3 sm:px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none bg-white text-sm">
+                <option value="">全部状态</option>
+                <option value="true">白名单</option>
+                <option value="false">非白名单</option>
+              </select>
+              <button @click="resetFilters" class="text-sm text-gray-500 hover:text-emerald-600 px-2">重置</button>
+            </div>
+            <div v-if="selectedPlayers.length > 0"
+                 class="flex flex-wrap items-center gap-2 sm:gap-3 bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100">
+              <span class="text-sm text-emerald-800 font-medium">选中 {{ selectedPlayers.length }} 项</span>
+              <button @click="batchUpdatePlayers(true)"
+                      class="px-3 py-1.5 rounded text-xs font-medium border border-emerald-700 bg-emerald-600 text-white">
+                设为白名单
+              </button>
+              <button @click="batchUpdatePlayers(false)"
+                      class="px-3 py-1.5 rounded text-xs font-medium bg-white text-red-600 border border-red-200">
+                取消白名单
+              </button>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left min-w-[600px]">
+                <thead class="bg-gray-50 text-gray-500 font-medium">
+                <tr>
+                  <th class="p-3 sm:p-4 w-10"><input type="checkbox" v-model="selectAllPlayers"
+                                                     class="rounded text-emerald-600"></th>
+                  <th class="p-3 sm:p-4">玩家 ID</th>
+                  <th class="p-3 sm:p-4">状态</th>
+                  <th class="p-3 sm:p-4 hidden sm:table-cell">备注</th>
+                  <th class="p-3 sm:p-4 hidden md:table-cell">注册/活跃</th>
+                  <th class="p-3 sm:p-4 text-right">操作</th>
+                </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                <tr v-for="p in filteredPlayers" :key="p.playerId" class="hover:bg-gray-50">
+                  <td class="p-3 sm:p-4"><input type="checkbox" :value="p.playerId" v-model="selectedPlayers"
+                                                class="rounded text-emerald-600"></td>
+                  <td class="p-3 sm:p-4 font-mono text-gray-700 text-xs sm:text-sm break-all">{{ p.playerId }}</td>
+                  <td class="p-3 sm:p-4">
+                    <span
+                      :class="['px-2 py-1 rounded-full text-xs font-medium text-nowrap', p.whitelist ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500']">
+                        {{ p.whitelist ? '白名单' : '普通' }}
+                    </span>
+                  </td>
+                  <td class="p-3 sm:p-4 text-gray-500 truncate max-w-[150px] hidden sm:table-cell">{{ p.remark || '-'
+                    }}
+                  </td>
+                  <td class="p-3 sm:p-4 text-xs text-gray-400 hidden md:table-cell">
+                    <div>注: {{ formatDate(p.createdAt) }}</div>
+                    <div>活: {{ formatDate(p.updatedAt) }}</div>
+                  </td>
+                  <td class="p-3 sm:p-4 text-right space-x-1 sm:space-x-2 whitespace-nowrap">
+                    <button @click="openEditPlayer(p)" class="text-emerald-600 hover:underline text-xs sm:text-sm">
+                      编辑
+                    </button>
+                    <button @click="viewPassword(p.playerId)"
+                            class="text-gray-500 hover:text-gray-800 text-xs sm:text-sm">密码
+                    </button>
+                    <button @click="openChangePlayerPassword(p.playerId)"
+                            class="text-blue-600 hover:underline text-xs sm:text-sm">改密
+                    </button>
+                  </td>
+                </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="filteredPlayers.length === 0" class="p-8 text-center text-gray-400">暂无数据</div>
+          </div>
+        </div>
+
+        <div v-if="isAdmin && activeTab === 'games'">
+          <div
+            class="bg-white p-3 sm:p-4 rounded-xl border border-gray-200 mb-4 flex flex-col gap-3">
+            <div class="flex flex-wrap gap-2 sm:gap-3 w-full">
+              <input v-model="filters.gameSearch" placeholder="搜索 ID 或玩家..."
+                     class="flex-1 min-w-[140px] px-3 sm:px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none bg-white text-sm">
+              <select v-model="filters.gameWhitelist"
+                      class="px-3 sm:px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none bg-white text-sm">
+                <option value="">全部状态</option>
+                <option value="true">白名单</option>
+                <option value="false">非白名单</option>
+              </select>
+              <button @click="resetFilters" class="text-sm text-gray-500 hover:text-emerald-600 px-2">重置</button>
+            </div>
+            <div v-if="selectedGames.length > 0"
+                 class="flex flex-wrap items-center gap-2 sm:gap-3 bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100">
+              <span class="text-sm text-emerald-800 font-medium">选中 {{ selectedGames.length }} 项</span>
+              <button @click="batchUpdateGames(true)"
+                      class="px-3 py-1.5 rounded text-xs font-medium border border-emerald-700 bg-emerald-600 text-white">
+                设为白名单
+              </button>
+              <button @click="batchUpdateGames(false)"
+                      class="px-3 py-1.5 rounded text-xs font-medium bg-white text-red-600 border border-red-200">
+                取消白名单
+              </button>
+              <button @click="batchDeleteGames"
+                      class="px-3 py-1.5 rounded text-xs font-medium border border-red-700 bg-red-600 text-white">
+                删除
+              </button>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left min-w-[600px]">
+                <thead class="bg-gray-50 text-gray-500 font-medium">
+                <tr>
+                  <th class="p-3 sm:p-4 w-10"><input type="checkbox" v-model="selectAllGames"
+                                                     class="rounded text-emerald-600">
+                  </th>
+                  <th class="p-3 sm:p-4">Game ID / 玩家</th>
+                  <th class="p-3 sm:p-4">回合</th>
+                  <th class="p-3 sm:p-4 hidden md:table-cell">时间</th>
+                  <th class="p-3 sm:p-4">状态</th>
+                  <th class="p-3 sm:p-4 text-right">操作</th>
+                </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                <tr v-for="g in filteredGames" :key="g.gameId" class="hover:bg-gray-50">
+                  <td class="p-3 sm:p-4"><input type="checkbox" :value="g.gameId" v-model="selectedGames"
+                                                class="rounded text-emerald-600"></td>
+                  <td class="p-3 sm:p-4">
+                    <div class="font-mono text-emerald-700 font-medium text-xs sm:text-sm break-all">{{ g.gameId }}
+                    </div>
+                    <div class="text-xs text-gray-400 mt-1 flex flex-wrap gap-1">
+                      <span v-for="p in g.players" class="bg-gray-100 px-1.5 rounded">{{ p }}</span>
+                    </div>
+                  </td>
+                  <td class="p-3 sm:p-4">{{ g.turns || 0 }}</td>
+                  <td class="p-3 sm:p-4 text-xs text-gray-400 hidden md:table-cell">
+                    <div>创: {{ formatDate(g.createdAt) }}</div>
+                    <div>更: {{ formatDate(g.updatedAt) }}</div>
+                  </td>
+                  <td class="p-3 sm:p-4">
+                    <span
+                      :class="['px-2 py-1 rounded-full text-xs font-medium text-nowrap', g.whitelist ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500']">
+                       {{ g.whitelist ? '白名单' : '普通' }}
+                    </span>
+                  </td>
+                  <td class="p-3 sm:p-4 text-right space-x-1 sm:space-x-2 whitespace-nowrap">
+                    <button @click="openEditGame(g)" class="text-emerald-600 hover:underline text-xs sm:text-sm">编辑
+                    </button>
+                    <button @click="viewHistory(g.gameId)"
+                            class="text-blue-600 hover:underline text-xs sm:text-sm">历史
+                    </button>
+                  </td>
+                </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="!isAdmin && activeTab === 'stats'" class="grid grid-cols-2 md:grid-cols-2 gap-3 sm:gap-6">
+          <stat-card label="参与游戏数" :value="userStats.gameCount" icon="🎮"></stat-card>
+          <stat-card label="创建游戏数" :value="userStats.createdCount" icon="✨" color="text-emerald-600"></stat-card>
+        </div>
+
+        <div v-if="!isAdmin && activeTab === 'games'">
+          <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left min-w-[500px]">
+                <thead class="bg-gray-50 text-gray-500 font-medium">
+                <tr>
+                  <th class="p-3 sm:p-4">Game ID</th>
+                  <th class="p-3 sm:p-4">回合</th>
+                  <th class="p-3 sm:p-4 hidden sm:table-cell">创建时间</th>
+                  <th class="p-3 sm:p-4 hidden md:table-cell">创建者</th>
+                  <th class="p-3 sm:p-4 text-right">操作</th>
+                </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                <tr v-for="g in userGames" :key="g.gameId" class="hover:bg-gray-50">
+                  <td class="p-3 sm:p-4 font-mono font-medium text-emerald-700 text-xs sm:text-sm break-all">
+                    {{ g.gameId}}
+                  </td>
+                  <td class="p-3 sm:p-4">{{ g.turns }}</td>
+                  <td class="p-3 sm:p-4 text-gray-500 text-xs sm:text-sm hidden sm:table-cell">
+                    {{ formatDate(g.createdAt) }}
+                  </td>
+                  <td class="p-3 sm:p-4 hidden md:table-cell">
+                    <span v-if="g.createdPlayer === userInfo.id"
+                          class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs">我</span>
+                    <span v-else class="text-gray-500 text-xs">{{ g.createdPlayer }}</span>
+                  </td>
+                  <td class="p-3 sm:p-4 text-right">
+                    <div class="flex flex-wrap justify-end gap-1 sm:gap-2">
+                      <button @click="viewHistory(g.gameId)"
+                              class="px-2 sm:px-3 py-1 sm:py-1.5 rounded text-xs font-medium bg-white border border-gray-200 hover:bg-gray-50 text-gray-700">
+                        历史
+                      </button>
+                      <button @click="downloadGame(g.gameId)"
+                              class="px-2 sm:px-3 py-1 sm:py-1.5 rounded text-xs font-medium border border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-700">
+                        下载
+                      </button>
+                      <button v-if="g.createdPlayer === userInfo.id" @click="deleteUserGame(g.gameId)"
+                              class="px-2 sm:px-3 py-1 sm:py-1.5 rounded text-xs font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100">
+                        删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="userGames.length === 0" class="p-8 text-center text-gray-400">暂无游戏</div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <div v-if="view === 'loading'" class="fixed inset-0 bg-gray-50 flex items-center justify-center z-50">
+    <div class="text-emerald-600 font-medium flex flex-col items-center gap-3">
+      <span class="spinner" style="width:2rem;height:2rem;border-width:2.5px"></span>
+      <span>正在连接服务器...</span>
+    </div>
+  </div>
+</div>
+
+<template id="stat-card-tpl">
+  <div class="bg-white p-4 sm:p-6 rounded-xl border border-gray-200 hover:shadow-sm transition-shadow duration-200">
+    <div class="flex items-center justify-between mb-1 sm:mb-2">
+      <span class="text-gray-500 text-xs sm:text-sm font-medium">{{ label }}</span>
+      <span class="text-xl sm:text-2xl">{{ icon }}</span>
+    </div>
+    <div class="flex items-baseline gap-1 sm:gap-2">
+      <span :class="['text-2xl sm:text-3xl font-bold', color || 'text-gray-800']">{{ value || 0 }}</span>
+      <span v-if="sub" class="text-xs text-gray-400">{{ sub }}</span>
+    </div>
+  </div>
+</template>
+
+<script>
+  const API = {
+    async request(url, options = {}) {
+      options.credentials = 'include'
+      options.headers = { 'Content-Type': 'application/json', ...options.headers }
+      const res = await fetch(url, options)
+      if (res.status === 401) throw new Error('Unauthorized')
+      if (res.status === 204) return null
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.message || '请求失败')
+      }
+      return await res.json()
+    },
+    checkSession: () => API.request('/api/session'),
+    login: (u, p) => API.request('/api/login', { method: 'POST', body: JSON.stringify({ username: u, password: p }) }),
+    getStats: () => API.request('/api/stats'),
+    getPlayers: () => API.request('/api/players'),
+    getGames: () => API.request('/api/games'),
+    getUserStats: () => API.request('/api/users/stats'),
+    getUserGames: () => API.request('/api/users/games'),
+    updatePlayer: (id, data) => API.request(`/api/players/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    getPlayerPwd: (id) => API.request(`/api/players/${id}/password`),
+    updatePlayerPwd: (id, password) => API.request(`/api/players/${id}/password`, {
+      method: 'PUT',
+      body: JSON.stringify({ password }),
+    }),
+    updateUserPwd: (oldPassword, newPassword) => API.request('/api/users/password', {
+      method: 'PUT',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    }),
+    updateGame: (id, data) => API.request(`/api/games/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    batchPlayers: (ids, wl) => API.request('/api/players/batch', {
+      method: 'PATCH',
+      body: JSON.stringify({ playerIds: ids, whitelist: wl }),
+    }),
+    batchGames: (ids, wl) => API.request('/api/games/batch', {
+      method: 'PATCH',
+      body: JSON.stringify({ gameIds: ids, whitelist: wl }),
+    }),
+    batchDelGames: (ids) => API.request('/api/games/batch', {
+      method: 'DELETE',
+      body: JSON.stringify({ gameIds: ids }),
+    }),
+    deleteGame: (id) => API.request(`/api/games/${id}`, { method: 'DELETE' }),
+    getTurns: (id) => API.request(`/api/games/${id}/turns`),
+  }
+  const StatCard = {
+    props: ['label', 'value', 'icon', 'color', 'sub'],
+    template: '#stat-card-tpl',
+  }
+  const { createApp, ref, reactive, computed, onMounted, watch } = Vue
+  createApp({
+    components: { StatCard },
+    setup() {
+      // --- 状态 ---
+      const view = ref('loading') // loading, login, app
+      const isAdmin = ref(false)
+      const userInfo = reactive({ name: '', id: '' })
+      const loginForm = reactive({ username: '', password: '' })
+      const loading = ref(false)
+      const contentLoading = ref(false)
+      const activeTab = ref('stats')
+      // 数据
+      const stats = ref({})
+      const players = ref([])
+      const games = ref([])
+      const userStats = ref({})
+      const userGames = ref([])
+      // UI
+      const toasts = ref([])
+      const modal = reactive({ show: false, title: '', content: '', type: '', data: {}, onConfirm: null })
+      // 筛选 & 批量
+      const filters = reactive({ playerSearch: '', playerWhitelist: '', gameSearch: '', gameWhitelist: '' })
+      const selectedPlayers = ref([])
+      const selectedGames = ref([])
+      // --- 计算属性 ---
+      const currentTabs = computed(() => {
+        if (isAdmin.value) {
+          return [
+            { id: 'stats', name: '数据概览' }, { id: 'players', name: '玩家管理' }, { id: 'games', name: '游戏管理' },
+          ]
+        }
+        return [{ id: 'stats', name: '我的统计' }, { id: 'games', name: '我的游戏' }]
+      })
+      const filteredPlayers = computed(() => {
+        return players.value.filter(p => {
+          const matchS = !filters.playerSearch || p.playerId.includes(filters.playerSearch) || (p.remark || '').includes(filters.playerSearch)
+          const matchW = filters.playerWhitelist === '' || String(p.whitelist) === filters.playerWhitelist
+          return matchS && matchW
+        })
+      })
+      const filteredGames = computed(() => {
+        return games.value.filter(g => {
+          const matchS = !filters.gameSearch || g.gameId.includes(filters.gameSearch) || g.players.some(x => x.includes(filters.gameSearch))
+          const matchW = filters.gameWhitelist === '' || String(g.whitelist) === filters.gameWhitelist
+          return matchS && matchW
+        })
+      })
+      const selectAllPlayers = computed({
+        get: () => filteredPlayers.value.length > 0 && selectedPlayers.value.length === filteredPlayers.value.length,
+        set: (val) => selectedPlayers.value = val ? filteredPlayers.value.map(p => p.playerId) : [],
+      })
+      const selectAllGames = computed({
+        get: () => filteredGames.value.length > 0 && selectedGames.value.length === filteredGames.value.length,
+        set: (val) => selectedGames.value = val ? filteredGames.value.map(g => g.gameId) : [],
+      })
+      // --- 方法 ---
+      const showToast = (msg, type = 'success') => {
+        const id = Date.now()
+        toasts.value.push({ id, message: msg, type })
+        setTimeout(() => toasts.value = toasts.value.filter(t => t.id !== id), 3000)
+      }
+      const closeModal = () => {
+        modal.show = false
+        modal.onConfirm = null
+      }
+      const confirmModal = async () => {
+        if (modal.onConfirm) {
+          try {
+            await modal.onConfirm()
+            closeModal()
+          } catch (e) {
+            showToast(e.message || e, 'error')
+          }
+        }
+      }
+      // 初始化
+      onMounted(async () => {
+        try {
+          const session = await API.checkSession()
+          if (session.isLoggedIn) {
+            isAdmin.value = session.isAdmin
+            userInfo.name = session.isAdmin ? '管理员' : '玩家' // 可以在这里获取真实ID
+            view.value = 'app'
+            loadTabData()
+          } else {
+            view.value = 'login'
+          }
+        } catch (e) {
+          view.value = 'login'
+        }
+      })
+      // 监听 Tab 切换
+      watch(activeTab, () => loadTabData())
+      const loadTabData = async () => {
+        contentLoading.value = true
+        try {
+          if (isAdmin.value) {
+            if (activeTab.value === 'stats') stats.value = await API.getStats()
+            if (activeTab.value === 'players') players.value = await API.getPlayers()
+            if (activeTab.value === 'games') games.value = await API.getGames()
+          } else {
+            if (activeTab.value === 'stats') userStats.value = await API.getUserStats()
+            if (activeTab.value === 'games') {
+              const data = await API.getUserGames()
+              userGames.value = data.games
+              userInfo.id = data.playerId
+              userInfo.name = data.playerId
+            }
+          }
+        } catch (e) {
+          if (e.message === 'Unauthorized') location.reload()
+          showToast(e.message, 'error')
+        } finally {
+          contentLoading.value = false
+        }
+      }
+      const handleLogin = async () => {
+        loading.value = true
+        try {
+          const res = await API.login(loginForm.username, loginForm.password)
+          isAdmin.value = res.isAdmin
+          userInfo.name = res.isAdmin ? '管理员' : loginForm.username
+          view.value = 'app'
+          activeTab.value = 'stats'
+          loadTabData()
+        } catch (e) {
+          showToast(e.message || '登录失败', 'error')
+        } finally {
+          loading.value = false
+        }
+      }
+      // --- 业务操作 ---
+      const formatDate = (str) => new Date(str).toLocaleString('zh-CN', { hour12: false })
+      const resetFilters = () => { Object.keys(filters).forEach(k => filters[k] = '') }
+      // 通用编辑操作
+      const openEdit = (type, id, data, updateFn) => {
+        modal.title = `编辑${type}: ${id}`
+        modal.type = 'edit'
+        modal.data = { whitelist: data.whitelist, remark: data.remark || '', whitelistLabel: `白名单${type}` }
+        modal.onConfirm = async () => {
+          await updateFn(id, { whitelist: modal.data.whitelist, remark: modal.data.remark })
+          showToast('更新成功')
+          loadTabData()
+        }
+        modal.show = true
+      }
+      const openEditPlayer = (p) => openEdit('玩家', p.playerId, p, API.updatePlayer)
+      const viewPassword = async (id) => {
+        try {
+          const res = await API.getPlayerPwd(id)
+          const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+          modal.title = '查看密码'
+          modal.type = 'html'
+          modal.content = `<div class="bg-gray-100 p-4 rounded text-center font-mono select-all text-xl tracking-wider">${esc(res.password)}</div>`
+          modal.show = true
+        } catch (e) { showToast(e.message, 'error') }
+      }
+      const openChangePlayerPassword = (playerId) => {
+        modal.title = `修改密码: ${playerId}`
+        modal.type = 'changePassword'
+        modal.data = { playerId, isAdmin: true, newPassword: '' }
+        modal.onConfirm = async () => {
+          if (!modal.data.newPassword || modal.data.newPassword.length < 6) {
+            throw new Error('密码至少6位')
+          }
+          await API.updatePlayerPwd(playerId, modal.data.newPassword)
+        }
+        modal.show = true
+      }
+      const openChangeMyPassword = () => {
+        modal.title = '修改我的密码'
+        modal.type = 'changePassword'
+        modal.data = { isAdmin: false, oldPassword: '', newPassword: '', confirmPassword: '' }
+        modal.onConfirm = async () => {
+          if (!modal.data.oldPassword) {
+            throw new Error('请输入旧密码')
+          }
+          if (!modal.data.newPassword || modal.data.newPassword.length < 6) {
+            throw new Error('新密码至少6位')
+          }
+          if (modal.data.newPassword !== modal.data.confirmPassword) {
+            throw new Error('两次密码不一致')
+          }
+          await API.updateUserPwd(modal.data.oldPassword, modal.data.newPassword)
+          showToast('密码修改成功')
+        }
+        modal.show = true
+      }
+      const batchUpdatePlayers = async (wl) => {
+        if (!selectedPlayers.value.length) return
+        if (!confirm(`确定更新 ${selectedPlayers.value.length} 个玩家吗？`)) return
+        try {
+          await API.batchPlayers(selectedPlayers.value, wl)
+          showToast('批量操作成功')
+          selectedPlayers.value = []
+          loadTabData()
+        } catch (e) { showToast(e.message, 'error') }
+      }
+      const openEditGame = (g) => openEdit('游戏', g.gameId, g, API.updateGame)
+      const batchUpdateGames = async (wl) => {
+        if (!selectedGames.value.length) return
+        try {
+          await API.batchGames(selectedGames.value, wl)
+          showToast('操作成功')
+          selectedGames.value = []
+          loadTabData()
+        } catch (e) { showToast(e.message, 'error') }
+      }
+      const batchDeleteGames = async () => {
+        if (!selectedGames.value.length) return
+        if (!confirm('此操作不可恢复，确定删除？')) return
+        try {
+          await API.batchDelGames(selectedGames.value)
+          showToast('删除成功')
+          selectedGames.value = []
+          loadTabData()
+        } catch (e) { showToast(e.message, 'error') }
+      }
+      // 历史与下载
+      const viewHistory = async (gid) => {
+        try {
+          const turns = await API.getTurns(gid)
+          let html = `<div class="overflow-x-auto"><table class="w-full text-sm text-left">
+                    <thead class="bg-gray-50"><tr><th class="p-2">回合</th><th class="p-2">玩家</th><th class="p-2">时间</th><th class="p-2">操作</th></tr></thead><tbody>`
+          turns.forEach(t => {
+            html += `<tr class="border-b"><td class="p-2">${t.turns}</td><td class="p-2">${t.createdPlayer || '-'}</td>
+                    <td class="p-2">${formatDate(t.createdAt)}</td>
+                    <td class="p-2"><a href="/api/games/${gid}/turns/${t.id}/download" class="text-emerald-600 hover:underline">下载</a></td></tr>`
+          })
+          html += '</tbody></table></div>'
+          modal.title = `游戏历史: ${gid}`
+          modal.type = 'html'
+          modal.content = turns.length ? html : '<p class="text-center text-gray-500 py-4">暂无记录</p>'
+          modal.show = true
+        } catch (e) { showToast('无法获取历史', 'error') }
+      }
+      const downloadGame = (gid) => window.location.href = `/api/games/${gid}/download`
+      const deleteUserGame = async (gid) => {
+        if (!confirm('确定删除此游戏？')) return
+        try {
+          await API.deleteGame(gid)
+          showToast('删除成功')
+          loadTabData()
+        } catch (e) { showToast(e.message, 'error') }
+      }
+      return {
+        view, isAdmin, userInfo, loginForm, loading, contentLoading, activeTab, currentTabs,
+        stats, userStats, userGames,
+        filters, filteredPlayers, filteredGames, selectedPlayers, selectedGames, selectAllPlayers, selectAllGames,
+        toasts, modal,
+        handleLogin, formatDate, resetFilters,
+        openEditPlayer, viewPassword, openChangePlayerPassword, openChangeMyPassword, batchUpdatePlayers,
+        openEditGame, batchUpdateGames, batchDeleteGames,
+        viewHistory, downloadGame, deleteUserGame,
+        closeModal, confirmModal,
+      }
+    },
+  }).mount('#app')
+</script>
+</body>
+</html>
