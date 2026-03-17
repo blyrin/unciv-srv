@@ -225,12 +225,6 @@
             <div class="flex flex-wrap gap-2 sm:gap-3 w-full">
               <input v-model="filters.playerSearch" placeholder="搜索 ID 或备注..."
                      class="flex-1 min-w-[140px] px-3 sm:px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none bg-white text-sm">
-              <select v-model="filters.playerWhitelist"
-                      class="px-3 sm:px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none bg-white text-sm">
-                <option value="">全部状态</option>
-                <option value="true">白名单</option>
-                <option value="false">非白名单</option>
-              </select>
               <button @click="resetFilters" class="text-sm text-gray-500 hover:text-emerald-600 px-2">重置</button>
             </div>
             <div v-if="selectedPlayers.length > 0"
@@ -262,7 +256,7 @@
                 </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
-                <tr v-for="p in filteredPlayers" :key="p.playerId" class="hover:bg-gray-50">
+                <tr v-for="p in players" :key="p.playerId" class="hover:bg-gray-50">
                   <td class="p-3 sm:p-4"><input type="checkbox" :value="p.playerId" v-model="selectedPlayers"
                                                 class="rounded text-emerald-600"></td>
                   <td class="p-3 sm:p-4 font-mono text-gray-700 text-xs sm:text-sm break-all">{{ p.playerId }}</td>
@@ -294,7 +288,17 @@
                 </tbody>
               </table>
             </div>
-            <div v-if="filteredPlayers.length === 0" class="p-8 text-center text-gray-400">暂无数据</div>
+            <div v-if="players.length === 0" class="p-8 text-center text-gray-400">暂无数据</div>
+            <div v-if="playersTotal > 0" class="flex items-center justify-between px-4 py-3 border-t bg-gray-50 text-sm">
+              <span class="text-gray-500">共 {{ playersTotal }} 条</span>
+              <div class="flex items-center gap-2">
+                <button @click="setPlayerPage(playerPage - 1)" :disabled="playerPage <= 1"
+                        class="px-3 py-1 rounded border bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">上一页</button>
+                <span class="text-gray-600">{{ playerPage }} / {{ playerTotalPages }}</span>
+                <button @click="setPlayerPage(playerPage + 1)" :disabled="playerPage >= playerTotalPages"
+                        class="px-3 py-1 rounded border bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">下一页</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -304,12 +308,6 @@
             <div class="flex flex-wrap gap-2 sm:gap-3 w-full">
               <input v-model="filters.gameSearch" placeholder="搜索 ID 或玩家..."
                      class="flex-1 min-w-[140px] px-3 sm:px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none bg-white text-sm">
-              <select v-model="filters.gameWhitelist"
-                      class="px-3 sm:px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none bg-white text-sm">
-                <option value="">全部状态</option>
-                <option value="true">白名单</option>
-                <option value="false">非白名单</option>
-              </select>
               <button @click="resetFilters" class="text-sm text-gray-500 hover:text-emerald-600 px-2">重置</button>
             </div>
             <div v-if="selectedGames.length > 0"
@@ -346,7 +344,7 @@
                 </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
-                <tr v-for="g in filteredGames" :key="g.gameId" class="hover:bg-gray-50">
+                <tr v-for="g in games" :key="g.gameId" class="hover:bg-gray-50">
                   <td class="p-3 sm:p-4"><input type="checkbox" :value="g.gameId" v-model="selectedGames"
                                                 class="rounded text-emerald-600"></td>
                   <td class="p-3 sm:p-4">
@@ -377,6 +375,16 @@
                 </tr>
                 </tbody>
               </table>
+            </div>
+            <div v-if="gamesTotal > 0" class="flex items-center justify-between px-4 py-3 border-t bg-gray-50 text-sm">
+              <span class="text-gray-500">共 {{ gamesTotal }} 条</span>
+              <div class="flex items-center gap-2">
+                <button @click="setGamePage(gamePage - 1)" :disabled="gamePage <= 1"
+                        class="px-3 py-1 rounded border bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">上一页</button>
+                <span class="text-gray-600">{{ gamePage }} / {{ gameTotalPages }}</span>
+                <button @click="setGamePage(gamePage + 1)" :disabled="gamePage >= gameTotalPages"
+                        class="px-3 py-1 rounded border bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">下一页</button>
+              </div>
             </div>
           </div>
         </div>
@@ -479,8 +487,8 @@
     checkSession: () => API.request('/api/session'),
     login: (u, p) => API.request('/api/login', { method: 'POST', body: JSON.stringify({ username: u, password: p }) }),
     getStats: () => API.request('/api/stats'),
-    getPlayers: () => API.request('/api/players'),
-    getGames: () => API.request('/api/games'),
+    getPlayers: (page, pageSize, keyword) => API.request(`/api/players?page=${page}&pageSize=${pageSize}&keyword=${encodeURIComponent(keyword || '')}`),
+    getGames: (page, pageSize, keyword) => API.request(`/api/games?page=${page}&pageSize=${pageSize}&keyword=${encodeURIComponent(keyword || '')}`),
     getUserStats: () => API.request('/api/users/stats'),
     getUserGames: () => API.request('/api/users/games'),
     updatePlayer: (id, data) => API.request(`/api/players/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -528,7 +536,9 @@
       // 数据
       const stats = ref({})
       const players = ref([])
+      const playersTotal = ref(0)
       const games = ref([])
+      const gamesTotal = ref(0)
       const userStats = ref({})
       const userGames = ref([])
       // UI
@@ -536,6 +546,10 @@
       const modal = reactive({ show: false, title: '', content: '', type: '', data: {}, onConfirm: null })
       // 筛选 & 批量
       const filters = reactive({ playerSearch: '', playerWhitelist: '', gameSearch: '', gameWhitelist: '' })
+      const playerPage = ref(1)
+      const playerPageSize = ref(20)
+      const gamePage = ref(1)
+      const gamePageSize = ref(20)
       const selectedPlayers = ref([])
       const selectedGames = ref([])
       // --- 计算属性 ---
@@ -547,27 +561,15 @@
         }
         return [{ id: 'stats', name: '我的统计' }, { id: 'games', name: '我的游戏' }]
       })
-      const filteredPlayers = computed(() => {
-        return players.value.filter(p => {
-          const matchS = !filters.playerSearch || p.playerId.includes(filters.playerSearch) || (p.remark || '').includes(filters.playerSearch)
-          const matchW = filters.playerWhitelist === '' || String(p.whitelist) === filters.playerWhitelist
-          return matchS && matchW
-        })
-      })
-      const filteredGames = computed(() => {
-        return games.value.filter(g => {
-          const matchS = !filters.gameSearch || g.gameId.includes(filters.gameSearch) || g.players.some(x => x.includes(filters.gameSearch))
-          const matchW = filters.gameWhitelist === '' || String(g.whitelist) === filters.gameWhitelist
-          return matchS && matchW
-        })
-      })
+      const playerTotalPages = computed(() => Math.max(1, Math.ceil(playersTotal.value / playerPageSize.value)))
+      const gameTotalPages = computed(() => Math.max(1, Math.ceil(gamesTotal.value / gamePageSize.value)))
       const selectAllPlayers = computed({
-        get: () => filteredPlayers.value.length > 0 && selectedPlayers.value.length === filteredPlayers.value.length,
-        set: (val) => selectedPlayers.value = val ? filteredPlayers.value.map(p => p.playerId) : [],
+        get: () => players.value.length > 0 && selectedPlayers.value.length === players.value.length,
+        set: (val) => selectedPlayers.value = val ? players.value.map(p => p.playerId) : [],
       })
       const selectAllGames = computed({
-        get: () => filteredGames.value.length > 0 && selectedGames.value.length === filteredGames.value.length,
-        set: (val) => selectedGames.value = val ? filteredGames.value.map(g => g.gameId) : [],
+        get: () => games.value.length > 0 && selectedGames.value.length === games.value.length,
+        set: (val) => selectedGames.value = val ? games.value.map(g => g.gameId) : [],
       })
       // --- 方法 ---
       const showToast = (msg, type = 'success') => {
@@ -612,8 +614,16 @@
         try {
           if (isAdmin.value) {
             if (activeTab.value === 'stats') stats.value = await API.getStats()
-            if (activeTab.value === 'players') players.value = await API.getPlayers()
-            if (activeTab.value === 'games') games.value = await API.getGames()
+            if (activeTab.value === 'players') {
+              const res = await API.getPlayers(playerPage.value, playerPageSize.value, filters.playerSearch)
+              players.value = res.items
+              playersTotal.value = res.total
+            }
+            if (activeTab.value === 'games') {
+              const res = await API.getGames(gamePage.value, gamePageSize.value, filters.gameSearch)
+              games.value = res.items
+              gamesTotal.value = res.total
+            }
           } else {
             if (activeTab.value === 'stats') userStats.value = await API.getUserStats()
             if (activeTab.value === 'games') {
@@ -647,7 +657,26 @@
       }
       // --- 业务操作 ---
       const formatDate = (str) => new Date(str).toLocaleString('zh-CN', { hour12: false })
-      const resetFilters = () => { Object.keys(filters).forEach(k => filters[k] = '') }
+      const resetFilters = () => {
+        Object.keys(filters).forEach(k => filters[k] = '')
+        playerPage.value = 1
+        gamePage.value = 1
+        loadTabData()
+      }
+      // debounce 搜索
+      let playerSearchTimer = null
+      let gameSearchTimer = null
+      watch(() => filters.playerSearch, () => {
+        clearTimeout(playerSearchTimer)
+        playerSearchTimer = setTimeout(() => { playerPage.value = 1; loadTabData() }, 300)
+      })
+      watch(() => filters.gameSearch, () => {
+        clearTimeout(gameSearchTimer)
+        gameSearchTimer = setTimeout(() => { gamePage.value = 1; loadTabData() }, 300)
+      })
+      // 分页操作
+      const setPlayerPage = (p) => { playerPage.value = p; selectedPlayers.value = []; loadTabData() }
+      const setGamePage = (p) => { gamePage.value = p; selectedGames.value = []; loadTabData() }
       // 通用编辑操作
       const openEdit = (type, id, data, updateFn) => {
         modal.title = `编辑${type}: ${id}`
@@ -762,9 +791,11 @@
       return {
         view, isAdmin, userInfo, loginForm, loading, contentLoading, activeTab, currentTabs,
         stats, userStats, userGames,
-        filters, filteredPlayers, filteredGames, selectedPlayers, selectedGames, selectAllPlayers, selectAllGames,
+        players, playersTotal, playerPage, playerPageSize, playerTotalPages,
+        games, gamesTotal, gamePage, gamePageSize, gameTotalPages,
+        filters, selectedPlayers, selectedGames, selectAllPlayers, selectAllGames,
         toasts, modal,
-        handleLogin, formatDate, resetFilters,
+        handleLogin, formatDate, resetFilters, setPlayerPage, setGamePage,
         openEditPlayer, viewPassword, openChangePlayerPassword, openChangeMyPassword, batchUpdatePlayers,
         openEditGame, batchUpdateGames, batchDeleteGames,
         viewHistory, downloadGame, deleteUserGame,

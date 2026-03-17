@@ -288,3 +288,75 @@ func TestBatchDeleteGames(t *testing.T) {
 		t.Errorf("空列表不应报错: %v", err)
 	}
 }
+
+func TestGetGamesPage(t *testing.T) {
+	setupTest(t)
+	ctx := context.Background()
+
+	seedPlayer(t, testPlayerID1, testPassword)
+	seedPlayer(t, testPlayerID2, testPassword)
+	seedGame(t, testGameID1, []string{testPlayerID1})
+	seedGame(t, testGameID2, []string{testPlayerID1, testPlayerID2})
+	seedGame(t, testGameID3, []string{testPlayerID2})
+
+	// 设置备注
+	_ = UpdateGameInfo(ctx, testGameID1, false, "测试游戏A")
+	_ = UpdateGameInfo(ctx, testGameID2, true, "VIP游戏")
+
+	// 测试无关键字分页
+	result, err := GetGamesPage(ctx, "", 1, 2)
+	if err != nil {
+		t.Fatalf("GetGamesPage 失败: %v", err)
+	}
+	if result.Total != 3 {
+		t.Errorf("Total = %d, want 3", result.Total)
+	}
+	if len(result.Items) != 2 {
+		t.Errorf("Items 数量 = %d, want 2", len(result.Items))
+	}
+
+	// 测试第二页
+	result, err = GetGamesPage(ctx, "", 2, 2)
+	if err != nil {
+		t.Fatalf("GetGamesPage 第2页失败: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Errorf("第2页 Items 数量 = %d, want 1", len(result.Items))
+	}
+
+	// 测试关键字搜索（按 game_id）
+	result, err = GetGamesPage(ctx, testGameID1, 1, 20)
+	if err != nil {
+		t.Fatalf("GetGamesPage 搜索ID失败: %v", err)
+	}
+	if result.Total != 1 {
+		t.Errorf("搜索ID Total = %d, want 1", result.Total)
+	}
+
+	// 测试关键字搜索（按 remark）
+	result, err = GetGamesPage(ctx, "VIP", 1, 20)
+	if err != nil {
+		t.Fatalf("GetGamesPage 搜索备注失败: %v", err)
+	}
+	if result.Total != 1 {
+		t.Errorf("搜索备注 Total = %d, want 1", result.Total)
+	}
+
+	// 测试关键字搜索（按玩家名）
+	result, err = GetGamesPage(ctx, testPlayerID2, 1, 20)
+	if err != nil {
+		t.Fatalf("GetGamesPage 搜索玩家失败: %v", err)
+	}
+	if result.Total != 2 {
+		t.Errorf("搜索玩家 Total = %d, want 2", result.Total)
+	}
+
+	// 测试无匹配结果
+	result, err = GetGamesPage(ctx, "不存在", 1, 20)
+	if err != nil {
+		t.Fatalf("GetGamesPage 无匹配失败: %v", err)
+	}
+	if result.Total != 0 {
+		t.Errorf("无匹配 Total = %d, want 0", result.Total)
+	}
+}

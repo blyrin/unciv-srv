@@ -45,6 +45,7 @@ func (c *Config) DatabaseDSN() string {
 	v.Add("_pragma", "busy_timeout(5000)")
 	v.Add("_pragma", "foreign_keys(ON)")
 	v.Add("_pragma", "cache_size(-32000)")
+	v.Add("_pragma", "temp_store(MEMORY)")
 	v.Add("_pragma", "page_size(4096)")
 	v.Add("_pragma", "mmap_size(2147483648)")
 	return fmt.Sprintf("file:%s?%s", c.DBPath, v.Encode())

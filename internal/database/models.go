@@ -62,6 +62,12 @@ type PlayerWithGames struct {
 	GameCount int `json:"gameCount"`
 }
 
+// PageResult 分页结果
+type PageResult[T any] struct {
+	Items []T   `json:"items"`
+	Total int64 `json:"total"`
+}
+
 // TurnMetadata 回合元数据（不含存档数据）
 type TurnMetadata struct {
 	ID            int64     `json:"id"`

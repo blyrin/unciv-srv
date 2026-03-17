@@ -24,23 +24,44 @@ type Stats struct {
 func GetAllStats(ctx context.Context) (*Stats, error) {
 	var s Stats
 	err := DB.QueryRowContext(ctx, `
+		WITH player_stats AS (
+			SELECT
+				COUNT(*) AS player_count,
+				COALESCE(SUM(CASE WHEN whitelist = 1 THEN 1 ELSE 0 END), 0) AS whitelist_player_count,
+				COALESCE(SUM(CASE WHEN created_at >= date('now') THEN 1 ELSE 0 END), 0) AS today_new_players
+			FROM players
+		),
+		game_stats AS (
+			SELECT
+				COUNT(*) AS game_count,
+				COALESCE(SUM(CASE WHEN whitelist = 1 THEN 1 ELSE 0 END), 0) AS whitelist_game_count,
+				COALESCE(SUM(CASE WHEN created_at >= date('now') THEN 1 ELSE 0 END), 0) AS today_new_games
+			FROM files
+		),
+		content_stats AS (
+			SELECT
+				COUNT(*) AS total_saves,
+				COALESCE(SUM(CASE WHEN created_at >= date('now') THEN 1 ELSE 0 END), 0) AS today_new_saves,
+				COUNT(DISTINCT CASE WHEN created_player IS NOT NULL AND created_at >= datetime('now', '-7 days') THEN created_player END) AS active_players_7days,
+				COUNT(DISTINCT CASE WHEN created_player IS NOT NULL AND created_at >= datetime('now', '-30 days') THEN created_player END) AS active_players_30days,
+				COUNT(DISTINCT CASE WHEN created_at >= datetime('now', '-7 days') THEN game_id END) AS active_games_7days,
+				COUNT(DISTINCT CASE WHEN created_at >= datetime('now', '-30 days') THEN game_id END) AS active_games_30days,
+				COALESCE(MAX(turns), 0) AS max_game_turns
+			FROM files_content
+		),
+		turn_stats AS (
+			SELECT COALESCE(AVG(max_turns), 0) AS avg_game_turns
+			FROM (SELECT MAX(turns) AS max_turns FROM files_content GROUP BY game_id)
+		)
 		SELECT
-			(SELECT COUNT(*) FROM players) AS player_count,
-			(SELECT COUNT(*) FROM players WHERE whitelist = 1) AS whitelist_player_count,
-			(SELECT COUNT(*) FROM files) AS game_count,
-			(SELECT COUNT(*) FROM files WHERE whitelist = 1) AS whitelist_game_count,
-			(SELECT COUNT(*) FROM players WHERE created_at >= date('now')) AS today_new_players,
-			(SELECT COUNT(*) FROM files WHERE created_at >= date('now')) AS today_new_games,
-			(SELECT COUNT(DISTINCT created_player) FROM files_content WHERE created_player IS NOT NULL AND created_at >= datetime('now', '-7 days')) AS active_players_7days,
-			(SELECT COUNT(DISTINCT created_player) FROM files_content WHERE created_player IS NOT NULL AND created_at >= datetime('now', '-30 days')) AS active_players_30days,
-			(SELECT COUNT(DISTINCT game_id) FROM files_content WHERE created_at >= datetime('now', '-7 days')) AS active_games_7days,
-			(SELECT COUNT(DISTINCT game_id) FROM files_content WHERE created_at >= datetime('now', '-30 days')) AS active_games_30days,
-			(SELECT COUNT(*) FROM files_content) AS total_saves,
-			(SELECT COUNT(*) FROM files_content WHERE created_at >= date('now')) AS today_new_saves,
-			(SELECT COALESCE(AVG(max_turns), 0) FROM (
-				SELECT MAX(turns) AS max_turns FROM files_content GROUP BY game_id
-			)) AS avg_game_turns,
-			(SELECT COALESCE(MAX(turns), 0) FROM files_content) AS max_game_turns
+			p.player_count, p.whitelist_player_count,
+			g.game_count, g.whitelist_game_count,
+			p.today_new_players, g.today_new_games,
+			c.active_players_7days, c.active_players_30days,
+			c.active_games_7days, c.active_games_30days,
+			c.total_saves, c.today_new_saves,
+			t.avg_game_turns, c.max_game_turns
+		FROM player_stats p, game_stats g, content_stats c, turn_stats t
 	`).Scan(
 		&s.PlayerCount, &s.WhitelistPlayerCount,
 		&s.GameCount, &s.WhitelistGameCount,

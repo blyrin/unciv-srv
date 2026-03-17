@@ -31,10 +31,13 @@ func TestGetAllGames(t *testing.T) {
 		t.Errorf("状态码 = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	var games []database.GameWithTurns
-	json.NewDecoder(w.Body).Decode(&games)
-	if len(games) != 2 {
-		t.Errorf("游戏数量 = %d, want 2", len(games))
+	var result database.PageResult[database.GameWithTurns]
+	json.NewDecoder(w.Body).Decode(&result)
+	if len(result.Items) != 2 {
+		t.Errorf("游戏数量 = %d, want 2", len(result.Items))
+	}
+	if result.Total != 2 {
+		t.Errorf("Total = %d, want 2", result.Total)
 	}
 }
 

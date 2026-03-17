@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"unciv-srv/internal/database"
 	"unciv-srv/pkg/utils"
@@ -15,20 +16,33 @@ type UpdatePlayerRequest struct {
 }
 
 // GetAllPlayers 处理 GET /api/players
-// 获取所有玩家列表（管理员）
+// 获取玩家列表（管理员），支持分页和关键字搜索
 func GetAllPlayers(w http.ResponseWriter, r *http.Request) {
-	players, err := database.GetAllPlayers(r.Context())
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	keyword := r.URL.Query().Get("keyword")
+
+	result, err := database.GetPlayersPage(r.Context(), keyword, page, pageSize)
 	if err != nil {
 		utils.ErrorResponse(w, http.StatusInternalServerError, "获取玩家列表失败", err)
 		return
 	}
 
 	// 清除密码字段
-	for i := range players {
-		players[i].Password = ""
+	for i := range result.Items {
+		result.Items[i].Password = ""
 	}
 
-	utils.JSONResponse(w, http.StatusOK, players)
+	utils.JSONResponse(w, http.StatusOK, result)
 }
 
 // UpdatePlayer 处理 PUT /api/players/{playerId}

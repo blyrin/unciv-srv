@@ -37,12 +37,10 @@ func CleanupExpiredGames(ctx context.Context) (int64, error) {
 func CleanupOldPreviews(ctx context.Context) (int64, error) {
 	result, err := DB.ExecContext(ctx, `
 		DELETE FROM files_preview
-		WHERE id NOT IN (
-			SELECT id FROM (
-				SELECT id, ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY turns DESC, created_at DESC) AS rn
-				FROM files_preview
-			) ranked
-			WHERE rn = 1
+		WHERE EXISTS (
+			SELECT 1 FROM files_preview fp2
+			WHERE fp2.game_id = files_preview.game_id
+			AND (fp2.turns > files_preview.turns OR (fp2.turns = files_preview.turns AND fp2.created_at > files_preview.created_at))
 		)
 	`)
 	if err != nil {
@@ -64,12 +62,10 @@ func CleanupOldPreviews(ctx context.Context) (int64, error) {
 func CleanupOldContents(ctx context.Context) (int64, error) {
 	result, err := DB.ExecContext(ctx, `
 		DELETE FROM files_content
-		WHERE id NOT IN (
-			SELECT id FROM (
-				SELECT id, ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY turns DESC, created_at DESC) AS rn
-				FROM files_content
-			) ranked
-			WHERE rn = 1
+		WHERE EXISTS (
+			SELECT 1 FROM files_content fc2
+			WHERE fc2.game_id = files_content.game_id
+			AND (fc2.turns > files_content.turns OR (fc2.turns = files_content.turns AND fc2.created_at > files_content.created_at))
 		)
 	`)
 	if err != nil {
@@ -111,6 +107,16 @@ func RunCleanup(ctx context.Context) error {
 	if err != nil {
 		slog.Error("清理旧内容记录失败", "error", err)
 		return err
+	}
+
+	// 更新查询优化器统计信息
+	if _, err := DB.ExecContext(ctx, "ANALYZE"); err != nil {
+		slog.Error("更新查询优化器失败", "error", err)
+	}
+
+	// 整理数据库碎片，回收已删除数据的空间
+	if _, err := DB.ExecContext(ctx, "VACUUM"); err != nil {
+		slog.Error("数据库碎片整理失败", "error", err)
 	}
 
 	duration := time.Since(startTime)

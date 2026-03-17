@@ -26,14 +26,17 @@ func TestGetAllPlayers(t *testing.T) {
 		t.Errorf("状态码 = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	var players []database.Player
-	json.NewDecoder(w.Body).Decode(&players)
-	if len(players) != 2 {
-		t.Errorf("玩家数量 = %d, want 2", len(players))
+	var result database.PageResult[database.Player]
+	json.NewDecoder(w.Body).Decode(&result)
+	if len(result.Items) != 2 {
+		t.Errorf("玩家数量 = %d, want 2", len(result.Items))
+	}
+	if result.Total != 2 {
+		t.Errorf("Total = %d, want 2", result.Total)
 	}
 
 	// 密码应被清除
-	for _, p := range players {
+	for _, p := range result.Items {
 		if p.Password != "" {
 			t.Error("密码字段应被清除")
 		}

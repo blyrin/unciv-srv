@@ -113,6 +113,70 @@ func GetAllPlayers(ctx context.Context) ([]Player, error) {
 	return players, rows.Err()
 }
 
+// GetPlayersPage 分页获取玩家列表，支持关键字搜索
+func GetPlayersPage(ctx context.Context, keyword string, page, pageSize int) (*PageResult[Player], error) {
+	var where string
+	var args []any
+
+	if keyword != "" {
+		where = " WHERE player_id LIKE ? OR remark LIKE ?"
+		like := "%" + keyword + "%"
+		args = append(args, like, like)
+	}
+
+	// 查询总数
+	var total int64
+	err := DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM players"+where, args...).Scan(&total)
+	if err != nil {
+		return nil, err
+	}
+
+	// 查询当前页
+	offset := (page - 1) * pageSize
+	queryArgs := append(args, pageSize, offset)
+	rows, err := DB.QueryContext(ctx, `
+		SELECT player_id, password, created_at, updated_at, whitelist, remark, create_ip, update_ip
+		FROM players`+where+`
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?
+	`, queryArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer func(rows *sql.Rows) { _ = rows.Close() }(rows)
+
+	items := make([]Player, 0)
+	for rows.Next() {
+		var p Player
+		var remark, createIP, updateIP *string
+
+		if err := rows.Scan(
+			&p.PlayerID, &p.Password, &p.CreatedAt, &p.UpdatedAt,
+			&p.Whitelist, &remark, &createIP, &updateIP,
+		); err != nil {
+			return nil, err
+		}
+
+		if remark != nil {
+			p.Remark = *remark
+		}
+		if createIP != nil {
+			p.CreateIP = *createIP
+		}
+		if updateIP != nil {
+			p.UpdateIP = *updateIP
+		}
+
+		items = append(items, p)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &PageResult[Player]{Items: items, Total: total}, nil
+}
+
 // UpdatePlayerInfo 更新玩家信息（白名单和备注）
 func UpdatePlayerInfo(ctx context.Context, playerID string, whitelist bool, remark string) error {
 	_, err := DB.ExecContext(ctx, `

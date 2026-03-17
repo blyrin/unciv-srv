@@ -41,8 +41,6 @@ CREATE TABLE IF NOT EXISTS files_content (
   FOREIGN KEY (created_player) REFERENCES players (player_id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_files_content_game_id ON files_content (game_id);
-CREATE INDEX IF NOT EXISTS idx_files_content_turns ON files_content (turns DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_files_content_game_turns ON files_content (game_id, turns DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_files_content_game_created_at ON files_content (game_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_files_content_created_at ON files_content (created_at DESC);

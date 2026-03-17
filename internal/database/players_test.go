@@ -180,3 +180,70 @@ func TestUpdatePlayerLastActive(t *testing.T) {
 		t.Errorf("UpdateIP = %q, want %q", player.UpdateIP, "10.0.0.1")
 	}
 }
+
+func TestGetPlayersPage(t *testing.T) {
+	setupTest(t)
+	ctx := context.Background()
+
+	seedPlayer(t, testPlayerID1, testPassword)
+	seedPlayer(t, testPlayerID2, testPassword)
+	seedPlayer(t, testPlayerID3, testPassword)
+
+	// 设置备注方便搜索测试
+	_ = UpdatePlayerInfo(ctx, testPlayerID1, false, "管理员测试")
+	_ = UpdatePlayerInfo(ctx, testPlayerID2, true, "普通玩家")
+
+	// 测试无关键字分页
+	result, err := GetPlayersPage(ctx, "", 1, 2)
+	if err != nil {
+		t.Fatalf("GetPlayersPage 失败: %v", err)
+	}
+	if result.Total != 3 {
+		t.Errorf("Total = %d, want 3", result.Total)
+	}
+	if len(result.Items) != 2 {
+		t.Errorf("Items 数量 = %d, want 2", len(result.Items))
+	}
+
+	// 测试第二页
+	result, err = GetPlayersPage(ctx, "", 2, 2)
+	if err != nil {
+		t.Fatalf("GetPlayersPage 第2页失败: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Errorf("第2页 Items 数量 = %d, want 1", len(result.Items))
+	}
+
+	// 测试关键字搜索（按 player_id）
+	result, err = GetPlayersPage(ctx, testPlayerID1, 1, 20)
+	if err != nil {
+		t.Fatalf("GetPlayersPage 搜索ID失败: %v", err)
+	}
+	if result.Total != 1 {
+		t.Errorf("搜索ID Total = %d, want 1", result.Total)
+	}
+
+	// 测试关键字搜索（按 remark）
+	result, err = GetPlayersPage(ctx, "管理员", 1, 20)
+	if err != nil {
+		t.Fatalf("GetPlayersPage 搜索备注失败: %v", err)
+	}
+	if result.Total != 1 {
+		t.Errorf("搜索备注 Total = %d, want 1", result.Total)
+	}
+	if len(result.Items) != 1 || result.Items[0].PlayerID != testPlayerID1 {
+		t.Errorf("搜索备注结果不正确")
+	}
+
+	// 测试无匹配结果
+	result, err = GetPlayersPage(ctx, "不存在的关键字", 1, 20)
+	if err != nil {
+		t.Fatalf("GetPlayersPage 无匹配失败: %v", err)
+	}
+	if result.Total != 0 {
+		t.Errorf("无匹配 Total = %d, want 0", result.Total)
+	}
+	if len(result.Items) != 0 {
+		t.Errorf("无匹配 Items 数量 = %d, want 0", len(result.Items))
+	}
+}

@@ -113,19 +113,9 @@ func GetAllGames(ctx context.Context) ([]GameWithTurns, error) {
 	rows, err := DB.QueryContext(ctx, `
 		SELECT
 			f.game_id, f.players, f.created_at, f.updated_at, f.whitelist, f.remark,
-			COALESCE(lfc.turns, 0) AS turns,
-			COALESCE(lfc.created_player, '') AS created_player
+			COALESCE((SELECT turns FROM files_content WHERE game_id = f.game_id ORDER BY turns DESC, created_at DESC LIMIT 1), 0) AS turns,
+			COALESCE((SELECT created_player FROM files_content WHERE game_id = f.game_id ORDER BY turns DESC, created_at DESC LIMIT 1), '') AS created_player
 		FROM files f
-		LEFT JOIN (
-			SELECT game_id, turns, created_player
-			FROM files_content
-			WHERE id IN (
-				SELECT id FROM (
-					SELECT id, ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY turns DESC, created_at DESC) AS rn
-					FROM files_content
-				) ranked WHERE rn = 1
-			)
-		) lfc ON lfc.game_id = f.game_id
 		ORDER BY f.updated_at DESC
 	`)
 	if err != nil {
@@ -145,24 +135,65 @@ func GetAllGames(ctx context.Context) ([]GameWithTurns, error) {
 	return games, rows.Err()
 }
 
+// GetGamesPage 分页获取游戏列表，支持关键字搜索
+func GetGamesPage(ctx context.Context, keyword string, page, pageSize int) (*PageResult[GameWithTurns], error) {
+	var where string
+	var args []any
+
+	if keyword != "" {
+		where = ` WHERE f.game_id LIKE ? OR f.remark LIKE ? OR EXISTS (SELECT 1 FROM json_each(f.players) WHERE json_each.value LIKE ?)`
+		like := "%" + keyword + "%"
+		args = append(args, like, like, like)
+	}
+
+	// 查询总数
+	var total int64
+	err := DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM files f"+where, args...).Scan(&total)
+	if err != nil {
+		return nil, err
+	}
+
+	// 查询当前页
+	offset := (page - 1) * pageSize
+	queryArgs := append(args, pageSize, offset)
+	rows, err := DB.QueryContext(ctx, `
+		SELECT
+			f.game_id, f.players, f.created_at, f.updated_at, f.whitelist, f.remark,
+			COALESCE((SELECT turns FROM files_content WHERE game_id = f.game_id ORDER BY turns DESC, created_at DESC LIMIT 1), 0) AS turns,
+			COALESCE((SELECT created_player FROM files_content WHERE game_id = f.game_id ORDER BY turns DESC, created_at DESC LIMIT 1), '') AS created_player
+		FROM files f`+where+`
+		ORDER BY f.updated_at DESC
+		LIMIT ? OFFSET ?
+	`, queryArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer func(rows *sql.Rows) { _ = rows.Close() }(rows)
+
+	items := make([]GameWithTurns, 0)
+	for rows.Next() {
+		g, err := scanGameWithTurns(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, g)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &PageResult[GameWithTurns]{Items: items, Total: total}, nil
+}
+
 // GetGamesByPlayer 获取玩家参与的游戏
 func GetGamesByPlayer(ctx context.Context, playerID string) ([]GameWithTurns, error) {
 	rows, err := DB.QueryContext(ctx, `
 		SELECT
 			f.game_id, f.players, f.created_at, f.updated_at, f.whitelist, f.remark,
-			COALESCE(lfc.turns, 0) AS turns,
-			COALESCE(lfc.created_player, '') AS created_player
+			COALESCE((SELECT turns FROM files_content WHERE game_id = f.game_id ORDER BY turns DESC, created_at DESC LIMIT 1), 0) AS turns,
+			COALESCE((SELECT created_player FROM files_content WHERE game_id = f.game_id ORDER BY turns DESC, created_at DESC LIMIT 1), '') AS created_player
 		FROM files f
-		LEFT JOIN (
-			SELECT game_id, turns, created_player
-			FROM files_content
-			WHERE id IN (
-				SELECT id FROM (
-					SELECT id, ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY turns DESC, created_at DESC) AS rn
-					FROM files_content
-				) ranked WHERE rn = 1
-			)
-		) lfc ON lfc.game_id = f.game_id
 		WHERE EXISTS (SELECT 1 FROM json_each(f.players) WHERE json_each.value = ?)
 		ORDER BY f.updated_at DESC
 	`, playerID)
@@ -228,10 +259,12 @@ func GetGamesCreatedByPlayer(ctx context.Context, playerID string) (int, error) 
 	var count int
 	err := DB.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM (
-			SELECT game_id
-			FROM files_content
-			GROUP BY game_id
-			HAVING MIN(created_at) = MIN(CASE WHEN created_player = ? THEN created_at END)
+			SELECT DISTINCT fc.game_id
+			FROM files_content fc
+			WHERE fc.created_player = ?
+			AND fc.created_at = (
+				SELECT MIN(created_at) FROM files_content WHERE game_id = fc.game_id
+			)
 		)
 	`, playerID).Scan(&count)
 	return count, err

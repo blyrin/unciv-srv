@@ -54,6 +54,7 @@ func InitDB(ctx context.Context, cfg *config.Config) error {
 		PRAGMA synchronous = NORMAL;
 		PRAGMA foreign_keys = ON;
 		PRAGMA cache_size = -32000;
+		PRAGMA temp_store = MEMORY;
 		PRAGMA page_size = 4096;
 		PRAGMA mmap_size = 2147483648;
 	`); err != nil {
@@ -217,9 +218,10 @@ func readMigrationFiles() ([]Migration, error) {
 	return migrations, nil
 }
 
-// Close 关闭数据库连接
+// Close 关闭数据库连接，关闭前执行 PRAGMA optimize 更新查询优化器统计信息
 func Close() {
 	if DB != nil {
+		_, _ = DB.Exec("PRAGMA optimize")
 		_ = DB.Close()
 	}
 }

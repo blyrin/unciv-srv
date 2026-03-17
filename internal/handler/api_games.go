@@ -20,15 +20,28 @@ type UpdateGameRequest struct {
 }
 
 // GetAllGames 处理 GET /api/games
-// 获取所有游戏列表（管理员）
+// 获取游戏列表（管理员），支持分页和关键字搜索
 func GetAllGames(w http.ResponseWriter, r *http.Request) {
-	games, err := database.GetAllGames(r.Context())
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	keyword := r.URL.Query().Get("keyword")
+
+	result, err := database.GetGamesPage(r.Context(), keyword, page, pageSize)
 	if err != nil {
 		utils.ErrorResponse(w, http.StatusInternalServerError, "获取游戏列表失败", err)
 		return
 	}
 
-	utils.JSONResponse(w, http.StatusOK, games)
+	utils.JSONResponse(w, http.StatusOK, result)
 }
 
 // UpdateGame 处理 PUT /api/games/{gameId}
