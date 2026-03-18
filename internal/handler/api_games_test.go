@@ -330,3 +330,107 @@ func TestBatchDeleteGames_EmptyList(t *testing.T) {
 		t.Errorf("状态码 = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }
+
+func TestGetAllGames_PageParams(t *testing.T) {
+	setupHandlerTest(t)
+	ctx := context.Background()
+
+	_ = database.CreatePlayer(ctx, testPlayerID1, testPassword, "127.0.0.1")
+	_ = database.CreateGame(ctx, testGameID1, []string{testPlayerID1})
+
+	r := httptest.NewRequest("GET", "/api/games?page=0&pageSize=200", nil)
+	w := httptest.NewRecorder()
+	GetAllGames(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestUpdateGame_InvalidJSON(t *testing.T) {
+	setupHandlerTest(t)
+
+	r := httptest.NewRequest("PUT", "/api/games/"+testGameID1, strings.NewReader("{"))
+	r.SetPathValue("gameId", testGameID1)
+	w := httptest.NewRecorder()
+	UpdateGame(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestDownloadGameHistory_ForbiddenAndNoData(t *testing.T) {
+	setupHandlerTest(t)
+	ctx := context.Background()
+
+	_ = database.CreatePlayer(ctx, testPlayerID1, testPassword, "127.0.0.1")
+	_ = database.CreatePlayer(ctx, testPlayerID2, testPassword, "127.0.0.1")
+	_ = database.CreateGame(ctx, testGameID1, []string{testPlayerID1})
+
+	r := httptest.NewRequest("GET", "/api/games/"+testGameID1+"/download", nil)
+	r.SetPathValue("gameId", testGameID1)
+	r = withSession(r, testPlayerID2, false)
+	w := httptest.NewRecorder()
+	DownloadGameHistory(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusForbidden)
+	}
+
+	r = httptest.NewRequest("GET", "/api/games/"+testGameID1+"/download", nil)
+	r.SetPathValue("gameId", testGameID1)
+	r = withSession(r, testPlayerID1, false)
+	w = httptest.NewRecorder()
+	DownloadGameHistory(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestDownloadSingleTurn_NotFoundAndForbidden(t *testing.T) {
+	setupHandlerTest(t)
+	ctx := context.Background()
+
+	_ = database.CreatePlayer(ctx, testPlayerID1, testPassword, "127.0.0.1")
+	_ = database.CreatePlayer(ctx, testPlayerID2, testPassword, "127.0.0.1")
+	_ = database.CreateGame(ctx, testGameID1, []string{testPlayerID1})
+	_ = database.SaveFileContent(ctx, testGameID1, 1, testPlayerID1, "127.0.0.1", []byte(`{"turns":1}`))
+
+	r := httptest.NewRequest("GET", "/api/games/"+testGameID1+"/turns/999/download", nil)
+	r.SetPathValue("gameId", testGameID1)
+	r.SetPathValue("turnId", "999")
+	r = withSession(r, testPlayerID2, false)
+	w := httptest.NewRecorder()
+	DownloadSingleTurn(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusForbidden)
+	}
+
+	r = httptest.NewRequest("GET", "/api/games/"+testGameID1+"/turns/999/download", nil)
+	r.SetPathValue("gameId", testGameID1)
+	r.SetPathValue("turnId", "999")
+	r = withSession(r, testPlayerID1, false)
+	w = httptest.NewRecorder()
+	DownloadSingleTurn(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestBatchGames_InvalidJSON(t *testing.T) {
+	setupHandlerTest(t)
+
+	r := httptest.NewRequest("PATCH", "/api/games/batch", strings.NewReader("{"))
+	w := httptest.NewRecorder()
+	BatchUpdateGames(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("BatchUpdateGames 状态码 = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+
+	r = httptest.NewRequest("DELETE", "/api/games/batch", strings.NewReader("{"))
+	w = httptest.NewRecorder()
+	BatchDeleteGames(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("BatchDeleteGames 状态码 = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}

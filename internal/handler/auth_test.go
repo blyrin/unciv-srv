@@ -73,6 +73,37 @@ func TestPutAuth_NoPlayerID(t *testing.T) {
 	}
 }
 
+func TestPutAuth_ReadBodyError(t *testing.T) {
+	setupHandlerTest(t)
+
+	r := httptest.NewRequest("PUT", "/auth", nil)
+	r.Body = errReadCloser{}
+	r = withPlayerID(r, testPlayerID1)
+	w := httptest.NewRecorder()
+	PutAuth(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestPutAuth_UpdateError(t *testing.T) {
+	setupHandlerTest(t)
+
+	if err := database.DB.Close(); err != nil {
+		t.Fatalf("关闭数据库失败: %v", err)
+	}
+
+	r := httptest.NewRequest("PUT", "/auth", strings.NewReader("newpassword"))
+	r = withPlayerID(r, testPlayerID1)
+	w := httptest.NewRecorder()
+	PutAuth(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
 func r_ctx() context.Context {
 	return context.Background()
 }

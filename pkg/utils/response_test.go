@@ -2,10 +2,31 @@ package utils
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+type failingWriter struct {
+	header http.Header
+	status int
+}
+
+func (w *failingWriter) Header() http.Header {
+	if w.header == nil {
+		w.header = make(http.Header)
+	}
+	return w.header
+}
+
+func (w *failingWriter) WriteHeader(statusCode int) {
+	w.status = statusCode
+}
+
+func (w *failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
 
 func TestJSONResponse(t *testing.T) {
 	w := httptest.NewRecorder()
@@ -137,5 +158,27 @@ func TestGetClientIP(t *testing.T) {
 				t.Errorf("GetClientIP() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestJSONResponse_EncodeError(t *testing.T) {
+	w := &failingWriter{}
+	JSONResponse(w, http.StatusCreated, map[string]any{"fn": func() {}})
+	if w.status != http.StatusCreated {
+		t.Fatalf("状态码 = %d, want %d", w.status, http.StatusCreated)
+	}
+}
+
+func TestTextAndFileResponse_WriteError(t *testing.T) {
+	w := &failingWriter{}
+	TextResponse(w, http.StatusAccepted, "hello")
+	if w.status != http.StatusAccepted {
+		t.Fatalf("TextResponse 状态码 = %d, want %d", w.status, http.StatusAccepted)
+	}
+
+	w = &failingWriter{}
+	FileResponse(w, "application/json", "a.json", json.RawMessage(`{}`))
+	if w.status != http.StatusOK {
+		t.Fatalf("FileResponse 状态码 = %d, want %d", w.status, http.StatusOK)
 	}
 }

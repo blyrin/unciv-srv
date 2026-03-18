@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -208,11 +209,11 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 func parseWebSocketAuth(ctx context.Context, r *http.Request) (string, error) {
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
-		return "", nil
+		return "", errors.New("缺少认证信息")
 	}
 
 	if !strings.HasPrefix(auth, "Basic ") {
-		return "", nil
+		return "", errors.New("无效的认证格式")
 	}
 
 	payload, err := base64.StdEncoding.DecodeString(auth[6:])
@@ -223,13 +224,21 @@ func parseWebSocketAuth(ctx context.Context, r *http.Request) (string, error) {
 	pair := string(payload)
 	colonIdx := strings.Index(pair, ":")
 	if colonIdx < 0 {
-		return "", nil
+		return "", errors.New("无效的认证格式")
 	}
 
 	playerID := pair[:colonIdx]
 	password := pair[colonIdx+1:]
 
-	return middleware.ValidatePlayer(ctx, playerID, password)
+	validatedPlayerID, err := middleware.ValidatePlayer(ctx, playerID, password)
+	if err != nil {
+		return "", err
+	}
+	if validatedPlayerID == "" {
+		return "", errors.New("认证失败")
+	}
+
+	return validatedPlayerID, nil
 }
 
 // registerPeer 注册连接

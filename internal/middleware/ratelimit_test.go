@@ -135,3 +135,27 @@ func TestRateLimit_Middleware_Allowed(t *testing.T) {
 		t.Error("未锁定应允许通过")
 	}
 }
+
+func TestRateLimiter_PruneAttempts(t *testing.T) {
+	rl := NewRateLimiter(3, 5*time.Minute)
+	defer rl.Close()
+
+	now := time.Now()
+	rl.attempts["old"] = &attemptInfo{count: 1, firstAt: now.Add(-25 * time.Hour)}
+	rl.attempts["locked"] = &attemptInfo{count: 3, firstAt: now.Add(-time.Hour), lockedAt: now.Add(-10 * time.Minute)}
+	rl.attempts["keep"] = &attemptInfo{count: 1, firstAt: now}
+
+	rl.mu.Lock()
+	rl.pruneAttempts(now)
+	rl.mu.Unlock()
+
+	if _, ok := rl.attempts["old"]; ok {
+		t.Fatal("old 应被清理")
+	}
+	if _, ok := rl.attempts["locked"]; ok {
+		t.Fatal("locked 应被清理")
+	}
+	if _, ok := rl.attempts["keep"]; !ok {
+		t.Fatal("keep 不应被清理")
+	}
+}

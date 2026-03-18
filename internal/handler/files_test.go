@@ -198,3 +198,37 @@ func TestPutFile_ExistingGame_PlayerNotInDB(t *testing.T) {
 		t.Errorf("状态码 = %d, want %d", w.Code, http.StatusForbidden)
 	}
 }
+
+func TestPutFile_PreviewSuccess(t *testing.T) {
+	setupHandlerTest(t)
+	ctx := context.Background()
+
+	_ = database.CreatePlayer(ctx, testPlayerID1, testPassword, "127.0.0.1")
+	encoded := buildGameData(testGameID1, 3, []string{testPlayerID1})
+
+	r := httptest.NewRequest("PUT", "/files/"+testGameID1+"_Preview", strings.NewReader(encoded))
+	r = withPlayerID(r, testPlayerID1)
+	r = withGameID(r, testGameID1, true)
+	r.Header.Set("User-Agent", "Unciv")
+	w := httptest.NewRecorder()
+	PutFile(w, r)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
+
+func TestPutFile_ReadBodyError(t *testing.T) {
+	setupHandlerTest(t)
+
+	r := httptest.NewRequest("PUT", "/files/"+testGameID1, nil)
+	r.Body = errReadCloser{}
+	r = withPlayerID(r, testPlayerID1)
+	r = withGameID(r, testGameID1, false)
+	w := httptest.NewRecorder()
+	PutFile(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}

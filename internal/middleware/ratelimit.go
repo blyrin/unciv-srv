@@ -54,18 +54,23 @@ func (rl *RateLimiter) cleanup() {
 			return
 		case <-ticker.C:
 			rl.mu.Lock()
-			now := time.Now()
-			for ip, info := range rl.attempts {
-				// 清理已解锁且超过24小时的记录
-				if info.lockedAt.IsZero() && now.Sub(info.firstAt) > 24*time.Hour {
-					delete(rl.attempts, ip)
-				}
-				// 清理已解锁的记录（锁定时间过后）
-				if !info.lockedAt.IsZero() && now.Sub(info.lockedAt) > rl.lockTime {
-					delete(rl.attempts, ip)
-				}
-			}
+			rl.pruneAttempts(time.Now())
 			rl.mu.Unlock()
+		}
+	}
+}
+
+func (rl *RateLimiter) pruneAttempts(now time.Time) {
+	for ip, info := range rl.attempts {
+		// 清理已解锁且超过24小时的记录
+		if info.lockedAt.IsZero() && now.Sub(info.firstAt) > 24*time.Hour {
+			delete(rl.attempts, ip)
+			continue
+		}
+
+		// 清理已解锁的记录（锁定时间过后）
+		if !info.lockedAt.IsZero() && now.Sub(info.lockedAt) > rl.lockTime {
+			delete(rl.attempts, ip)
 		}
 	}
 }

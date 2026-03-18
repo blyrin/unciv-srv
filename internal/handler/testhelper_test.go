@@ -3,6 +3,8 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	"unciv-srv/internal/middleware"
@@ -61,3 +63,15 @@ func buildGameData(gameID string, turns int, playerIDs []string) string {
 	encoded, _ := utils.EncodeFile(json.RawMessage(jsonData))
 	return encoded
 }
+
+type errReadCloser struct{}
+
+func (errReadCloser) Read([]byte) (int, error) {
+	return 0, errors.New("read failed")
+}
+
+func (errReadCloser) Close() error {
+	return nil
+}
+
+var _ io.ReadCloser = errReadCloser{}

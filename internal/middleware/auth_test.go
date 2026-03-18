@@ -199,6 +199,54 @@ func TestBasicAuth_ExistingPlayer(t *testing.T) {
 	}
 }
 
+func TestBasicAuth_InvalidBase64(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Basic !!!")
+	w := httptest.NewRecorder()
+
+	BasicAuth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("不应进入内部 handler")
+	})).ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestBasicAuth_InvalidPair(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("invalidpair")))
+	w := httptest.NewRecorder()
+
+	BasicAuth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("不应进入内部 handler")
+	})).ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestBasicAuth_DatabaseError(t *testing.T) {
+	setupAuthTest(t)
+
+	if err := database.DB.Close(); err != nil {
+		t.Fatalf("关闭数据库失败: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(authTestPlayerID+":"+authTestPassword)))
+	w := httptest.NewRecorder()
+
+	BasicAuth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("不应进入内部 handler")
+	})).ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
 func TestValidatePlayer_Valid(t *testing.T) {
 	setupAuthTest(t)
 

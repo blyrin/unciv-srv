@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -92,5 +94,67 @@ func TestDatabaseDSN(t *testing.T) {
 	}
 	if !strings.Contains(dsn, "busy_timeout") {
 		t.Error("DSN 应包含 busy_timeout pragma")
+	}
+}
+
+func TestLoadEnvFile(t *testing.T) {
+	dir, err := os.MkdirTemp(".", "config-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp 失败: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	envPath := filepath.Join(dir, ".env")
+	content := "# comment\r\nPORT = 18080\r\nEMPTY=\r\nADMIN_PASSWORD='quoted'\r\nDB_PATH = \"data/test.db\"\r\nINVALID\r\n"
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile 失败: %v", err)
+	}
+
+	t.Setenv("PORT", "19090")
+	t.Setenv("ADMIN_PASSWORD", "")
+
+	if err := LoadEnvFile(envPath); err != nil {
+		t.Fatalf("LoadEnvFile 失败: %v", err)
+	}
+
+	if got := os.Getenv("PORT"); got != "19090" {
+		t.Fatalf("PORT = %q, want 19090", got)
+	}
+	if got := os.Getenv("ADMIN_PASSWORD"); got != "quoted" {
+		t.Fatalf("ADMIN_PASSWORD = %q, want quoted", got)
+	}
+	if got := os.Getenv("DB_PATH"); got != "data/test.db" {
+		t.Fatalf("DB_PATH = %q, want data/test.db", got)
+	}
+}
+
+func TestSplitLines(t *testing.T) {
+	lines := splitLines("a\r\nb\nc")
+	if len(lines) != 3 || lines[0] != "a" || lines[2] != "c" {
+		t.Fatalf("splitLines = %#v", lines)
+	}
+}
+
+func TestParseEnvLine(t *testing.T) {
+	key, value := parseEnvLine(" DB_PATH = \"data/test.db\" ")
+	if key != "DB_PATH" || value != "data/test.db" {
+		t.Fatalf("parseEnvLine = (%q, %q)", key, value)
+	}
+
+	key, value = parseEnvLine("INVALID")
+	if key != "" || value != "" {
+		t.Fatalf("非法行应返回空值, got (%q, %q)", key, value)
+	}
+}
+
+func TestTrimHelpers(t *testing.T) {
+	if got := trimSpace("\t hello \t"); got != "hello" {
+		t.Fatalf("trimSpace = %q, want hello", got)
+	}
+	if got := trimQuotes(`"hello"`); got != "hello" {
+		t.Fatalf("trimQuotes = %q, want hello", got)
+	}
+	if got := trimQuotes("'hello'"); got != "hello" {
+		t.Fatalf("trimQuotes = %q, want hello", got)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestCreateAndGetGame(t *testing.T) {
@@ -42,6 +43,23 @@ func TestGetGameByID_NotFound(t *testing.T) {
 	}
 	if game != nil {
 		t.Error("不存在的游戏应返回 nil")
+	}
+}
+
+func TestGetGameByID_InvalidPlayersJSON(t *testing.T) {
+	setupTest(t)
+
+	_, err := DB.ExecContext(context.Background(), `
+		INSERT INTO files (game_id, players, created_at, updated_at)
+		VALUES (?, ?, ?, ?)
+	`, testGameID1, `{}`, time.Now(), time.Now())
+	if err != nil {
+		t.Fatalf("插入数据失败: %v", err)
+	}
+
+	_, err = GetGameByID(context.Background(), testGameID1)
+	if err == nil {
+		t.Fatal("无效 JSON 应返回错误")
 	}
 }
 
@@ -222,6 +240,29 @@ func TestIsGameCreator(t *testing.T) {
 	}
 	if isCreator {
 		t.Error("不存在的游戏不应有创建者")
+	}
+}
+
+func TestGetGamesCreatedByPlayer(t *testing.T) {
+	setupTest(t)
+	ctx := context.Background()
+
+	seedPlayer(t, testPlayerID1, testPassword)
+	seedPlayer(t, testPlayerID2, testPassword)
+	seedGame(t, testGameID1, []string{testPlayerID1})
+	seedGame(t, testGameID2, []string{testPlayerID1, testPlayerID2})
+	seedGame(t, testGameID3, []string{testPlayerID2})
+	seedFileContent(t, testGameID1, 1, testPlayerID1, []byte(`{"turns":1}`))
+	seedFileContent(t, testGameID1, 2, testPlayerID2, []byte(`{"turns":2}`))
+	seedFileContent(t, testGameID2, 1, testPlayerID1, []byte(`{"turns":1}`))
+	seedFileContent(t, testGameID3, 1, testPlayerID2, []byte(`{"turns":1}`))
+
+	count, err := GetGamesCreatedByPlayer(ctx, testPlayerID1)
+	if err != nil {
+		t.Fatalf("GetGamesCreatedByPlayer 失败: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
 	}
 }
 

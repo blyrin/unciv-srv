@@ -160,3 +160,56 @@ func TestBatchUpdatePlayers_EmptyList(t *testing.T) {
 		t.Errorf("状态码 = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }
+
+func TestGetAllPlayers_PageParams(t *testing.T) {
+	setupHandlerTest(t)
+	ctx := context.Background()
+
+	_ = database.CreatePlayer(ctx, testPlayerID1, testPassword, "127.0.0.1")
+
+	r := httptest.NewRequest("GET", "/api/players?page=0&pageSize=300", nil)
+	w := httptest.NewRecorder()
+	GetAllPlayers(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestUpdatePlayer_InvalidJSON(t *testing.T) {
+	setupHandlerTest(t)
+
+	r := httptest.NewRequest("PUT", "/api/players/"+testPlayerID1, strings.NewReader("{"))
+	r.SetPathValue("playerId", testPlayerID1)
+	w := httptest.NewRecorder()
+	UpdatePlayer(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestUpdatePlayerPassword_InvalidJSON(t *testing.T) {
+	setupHandlerTest(t)
+
+	r := httptest.NewRequest("PUT", "/api/players/"+testPlayerID1+"/password", strings.NewReader("{"))
+	r.SetPathValue("playerId", testPlayerID1)
+	w := httptest.NewRecorder()
+	UpdatePlayerPassword(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestBatchUpdatePlayers_InvalidJSON(t *testing.T) {
+	setupHandlerTest(t)
+
+	r := httptest.NewRequest("PATCH", "/api/players/batch", strings.NewReader("{"))
+	w := httptest.NewRecorder()
+	BatchUpdatePlayers(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}

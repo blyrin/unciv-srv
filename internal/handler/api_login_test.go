@@ -216,3 +216,22 @@ func TestLogout(t *testing.T) {
 	}
 	t.Error("应清除 session cookie")
 }
+
+func TestLogin_InvalidJSON(t *testing.T) {
+	setupHandlerTest(t)
+	rl := middleware.NewRateLimiter(3, time.Minute)
+	defer rl.Close()
+
+	h := &LoginHandler{
+		Config:      &config.Config{AdminUsername: "admin", AdminPassword: "admin123"},
+		RateLimiter: rl,
+	}
+
+	r := httptest.NewRequest("POST", "/api/login", strings.NewReader("{"))
+	w := httptest.NewRecorder()
+	h.Login(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}

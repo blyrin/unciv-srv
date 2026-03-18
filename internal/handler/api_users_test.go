@@ -154,3 +154,29 @@ func TestUpdateUserPassword_NotLoggedIn(t *testing.T) {
 		t.Errorf("状态码 = %d, want %d", w.Code, http.StatusUnauthorized)
 	}
 }
+
+func TestGetUserGames_Empty(t *testing.T) {
+	setupHandlerTest(t)
+
+	r := httptest.NewRequest("GET", "/api/users/games", nil)
+	r = withSession(r, testPlayerID1, false)
+	w := httptest.NewRecorder()
+	GetUserGames(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestUpdateUserPassword_InvalidJSON(t *testing.T) {
+	setupHandlerTest(t)
+
+	r := httptest.NewRequest("PUT", "/api/users/password", strings.NewReader("{"))
+	r = withSession(r, testPlayerID1, false)
+	w := httptest.NewRecorder()
+	UpdateUserPassword(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
