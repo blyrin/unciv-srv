@@ -120,6 +120,44 @@
             </div>
           </template>
         </div>
+        <div v-if="modal.type === 'turns'" class="sm:p-4 space-y-4">
+          <div v-if="modal.data.canRollback" class="mx-4 sm:mx-0 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            回档会删除该游戏中比目标存档更新的所有记录，操作后无法恢复。
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left min-w-[640px]">
+              <thead class="bg-gray-50 text-gray-500 font-medium">
+              <tr>
+                <th class="p-3">回合</th>
+                <th class="p-3">玩家</th>
+                <th class="p-3">时间</th>
+                <th class="p-3 text-right">操作</th>
+              </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+              <tr v-for="turn in modal.data.turns" :key="turn.id">
+                <td class="p-3">{{ turn.turns }}</td>
+                <td class="p-3">{{ turn.createdPlayer || '-' }}</td>
+                <td class="p-3">{{ formatDate(turn.createdAt) }}</td>
+                <td class="p-3">
+                  <div class="flex justify-end gap-2">
+                    <a :href="`/api/games/${modal.data.gameId}/turns/${turn.id}/download`"
+                       class="px-3 py-1.5 rounded text-xs font-medium bg-white border border-gray-200 hover:bg-gray-50 text-gray-700">
+                      下载
+                    </a>
+                    <button v-if="modal.data.canRollback"
+                            @click="rollbackGame(modal.data.gameId, turn)"
+                            class="px-3 py-1.5 rounded text-xs font-medium border border-amber-700 bg-amber-600 text-white hover:bg-amber-700">
+                      回档到此
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!modal.data.turns.length" class="py-8 text-center text-gray-400">暂无记录</div>
+        </div>
       </div>
       <div class="p-3 border-t bg-gray-50 flex justify-end gap-2 sm:gap-3">
         <button @click="closeModal"
@@ -368,7 +406,7 @@
                   <td class="p-3 sm:p-4 text-right space-x-1 sm:space-x-2 whitespace-nowrap">
                     <button @click="openEditGame(g)" class="text-emerald-600 hover:underline text-xs sm:text-sm">编辑
                     </button>
-                    <button @click="viewHistory(g.gameId)"
+                    <button @click="viewHistory(g)"
                             class="text-blue-600 hover:underline text-xs sm:text-sm">历史
                     </button>
                   </td>
@@ -423,7 +461,7 @@
                   </td>
                   <td class="p-3 sm:p-4 text-right">
                     <div class="flex flex-wrap justify-end gap-1 sm:gap-2">
-                      <button @click="viewHistory(g.gameId)"
+                      <button @click="viewHistory(g)"
                               class="px-2 sm:px-3 py-1 sm:py-1.5 rounded text-xs font-medium bg-white border border-gray-200 hover:bg-gray-50 text-gray-700">
                         历史
                       </button>
@@ -516,6 +554,7 @@
     }),
     deleteGame: (id) => API.request(`/api/games/${id}`, { method: 'DELETE' }),
     getTurns: (id) => API.request(`/api/games/${id}/turns`),
+    rollbackGame: (gameId, turnId) => API.request(`/api/games/${gameId}/turns/${turnId}/rollback`, { method: 'POST' }),
   }
   const StatCard = {
     props: ['label', 'value', 'icon', 'color', 'sub'],
@@ -690,6 +729,7 @@
         modal.show = true
       }
       const openEditPlayer = (p) => openEdit('玩家', p.playerId, p, API.updatePlayer)
+      const canRollbackGame = (game) => isAdmin.value || game.createdPlayer === userInfo.id
       const viewPassword = async (id) => {
         try {
           const res = await API.getPlayerPwd(id)
@@ -762,24 +802,33 @@
         } catch (e) { showToast(e.message, 'error') }
       }
       // 历史与下载
-      const viewHistory = async (gid) => {
+      const viewHistory = async (game) => {
         try {
-          const turns = await API.getTurns(gid)
-          let html = `<div class="overflow-x-auto"><table class="w-full text-sm text-left">
-                    <thead class="bg-gray-50"><tr><th class="p-2">回合</th><th class="p-2">玩家</th><th class="p-2">时间</th><th class="p-2">操作</th></tr></thead><tbody>`
-          turns.forEach(t => {
-            html += `<tr class="border-b"><td class="p-2">${t.turns}</td><td class="p-2">${t.createdPlayer || '-'}</td>
-                    <td class="p-2">${formatDate(t.createdAt)}</td>
-                    <td class="p-2"><a href="/api/games/${gid}/turns/${t.id}/download" class="text-emerald-600 hover:underline">下载</a></td></tr>`
-          })
-          html += '</tbody></table></div>'
-          modal.title = `游戏历史: ${gid}`
-          modal.type = 'html'
-          modal.content = turns.length ? html : '<p class="text-center text-gray-500 py-4">暂无记录</p>'
+          const turns = await API.getTurns(game.gameId)
+          modal.title = `游戏历史: ${game.gameId}`
+          modal.type = 'turns'
+          modal.data = { gameId: game.gameId, turns, canRollback: canRollbackGame(game) }
           modal.show = true
         } catch (e) { showToast('无法获取历史', 'error') }
       }
       const downloadGame = (gid) => window.location.href = `/api/games/${gid}/download`
+      const rollbackGame = async (gid, turn) => {
+        const firstConfirm = `确定将游戏回档到第 ${turn.turns} 回合吗？当前比该存档更新的记录都会被删除。`
+        if (!confirm(firstConfirm)) return
+        const secondConfirm = `最后确认：回档后数据不可恢复，是否继续回档到第 ${turn.turns} 回合？`
+        if (!confirm(secondConfirm)) return
+        try {
+          const result = await API.rollbackGame(gid, turn.id)
+          showToast(`回档成功，当前回合 ${result.currentTurns}，删除 ${result.deletedTurns} 条历史记录`)
+          await loadTabData()
+          const currentGame = isAdmin.value
+            ? games.value.find(g => g.gameId === gid) || { gameId: gid, createdPlayer: '', turns: result.currentTurns }
+            : userGames.value.find(g => g.gameId === gid) || { gameId: gid, createdPlayer: userInfo.id, turns: result.currentTurns }
+          await viewHistory(currentGame)
+        } catch (e) {
+          showToast(e.message, 'error')
+        }
+      }
       const deleteUserGame = async (gid) => {
         if (!confirm('确定删除此游戏？')) return
         try {
@@ -798,7 +847,7 @@
         handleLogin, formatDate, resetFilters, setPlayerPage, setGamePage,
         openEditPlayer, viewPassword, openChangePlayerPassword, openChangeMyPassword, batchUpdatePlayers,
         openEditGame, batchUpdateGames, batchDeleteGames,
-        viewHistory, downloadGame, deleteUserGame,
+        viewHistory, downloadGame, rollbackGame, deleteUserGame,
         closeModal, confirmModal,
       }
     },

@@ -434,3 +434,161 @@ func TestBatchGames_InvalidJSON(t *testing.T) {
 		t.Fatalf("BatchDeleteGames 状态码 = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }
+
+func TestRollbackGameToTurn_Admin(t *testing.T) {
+	setupHandlerTest(t)
+	ctx := context.Background()
+
+	_ = database.CreatePlayer(ctx, testPlayerID1, testPassword, "127.0.0.1")
+	_ = database.CreateGame(ctx, testGameID1, []string{testPlayerID1})
+	_ = database.SaveFileContent(ctx, testGameID1, 1, testPlayerID1, "127.0.0.1", []byte(`{"turns":1}`))
+	_ = database.SaveFileContent(ctx, testGameID1, 2, testPlayerID1, "127.0.0.1", []byte(`{"turns":2}`))
+	_ = database.SaveFileContent(ctx, testGameID1, 3, testPlayerID1, "127.0.0.1", []byte(`{"turns":3}`))
+	_ = database.SaveFilePreview(ctx, testGameID1, 1, testPlayerID1, "127.0.0.1", []byte(`{"turns":1}`))
+	_ = database.SaveFilePreview(ctx, testGameID1, 2, testPlayerID1, "127.0.0.1", []byte(`{"turns":2}`))
+	_ = database.SaveFilePreview(ctx, testGameID1, 3, testPlayerID1, "127.0.0.1", []byte(`{"turns":3}`))
+
+	metadata, err := database.GetTurnsMetadata(ctx, testGameID1)
+	if err != nil {
+		t.Fatalf("GetTurnsMetadata 失败: %v", err)
+	}
+
+	turnID := fmt.Sprintf("%d", metadata[1].ID)
+	r := httptest.NewRequest("POST", "/api/games/"+testGameID1+"/turns/"+turnID+"/rollback", nil)
+	r.SetPathValue("gameId", testGameID1)
+	r.SetPathValue("turnId", turnID)
+	r = withSession(r, "admin", true)
+	w := httptest.NewRecorder()
+	RollbackGameToTurn(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp RollbackGameResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("解析响应失败: %v", err)
+	}
+	if resp.CurrentTurns != 2 {
+		t.Errorf("CurrentTurns = %d, want 2", resp.CurrentTurns)
+	}
+
+	turns, err := database.GetTurnsMetadata(ctx, testGameID1)
+	if err != nil {
+		t.Fatalf("GetTurnsMetadata 失败: %v", err)
+	}
+	if len(turns) != 2 {
+		t.Fatalf("回档后回合数量 = %d, want 2", len(turns))
+	}
+}
+
+func TestRollbackGameToTurn_Creator(t *testing.T) {
+	setupHandlerTest(t)
+	ctx := context.Background()
+
+	_ = database.CreatePlayer(ctx, testPlayerID1, testPassword, "127.0.0.1")
+	_ = database.CreateGame(ctx, testGameID1, []string{testPlayerID1})
+	_ = database.SaveFileContent(ctx, testGameID1, 1, testPlayerID1, "127.0.0.1", []byte(`{"turns":1}`))
+	_ = database.SaveFileContent(ctx, testGameID1, 2, testPlayerID1, "127.0.0.1", []byte(`{"turns":2}`))
+	_ = database.SaveFilePreview(ctx, testGameID1, 1, testPlayerID1, "127.0.0.1", []byte(`{"turns":1}`))
+	_ = database.SaveFilePreview(ctx, testGameID1, 2, testPlayerID1, "127.0.0.1", []byte(`{"turns":2}`))
+
+	metadata, err := database.GetTurnsMetadata(ctx, testGameID1)
+	if err != nil {
+		t.Fatalf("GetTurnsMetadata 失败: %v", err)
+	}
+
+	turnID := fmt.Sprintf("%d", metadata[0].ID)
+	r := httptest.NewRequest("POST", "/api/games/"+testGameID1+"/turns/"+turnID+"/rollback", nil)
+	r.SetPathValue("gameId", testGameID1)
+	r.SetPathValue("turnId", turnID)
+	r = withSession(r, testPlayerID1, false)
+	w := httptest.NewRecorder()
+	RollbackGameToTurn(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestRollbackGameToTurn_NonCreatorForbidden(t *testing.T) {
+	setupHandlerTest(t)
+	ctx := context.Background()
+
+	_ = database.CreatePlayer(ctx, testPlayerID1, testPassword, "127.0.0.1")
+	_ = database.CreatePlayer(ctx, testPlayerID2, testPassword, "127.0.0.1")
+	_ = database.CreateGame(ctx, testGameID1, []string{testPlayerID1, testPlayerID2})
+	_ = database.SaveFileContent(ctx, testGameID1, 1, testPlayerID1, "127.0.0.1", []byte(`{"turns":1}`))
+	_ = database.SaveFileContent(ctx, testGameID1, 2, testPlayerID2, "127.0.0.1", []byte(`{"turns":2}`))
+
+	metadata, err := database.GetTurnsMetadata(ctx, testGameID1)
+	if err != nil {
+		t.Fatalf("GetTurnsMetadata 失败: %v", err)
+	}
+
+	turnID := fmt.Sprintf("%d", metadata[0].ID)
+	r := httptest.NewRequest("POST", "/api/games/"+testGameID1+"/turns/"+turnID+"/rollback", nil)
+	r.SetPathValue("gameId", testGameID1)
+	r.SetPathValue("turnId", turnID)
+	r = withSession(r, testPlayerID2, false)
+	w := httptest.NewRecorder()
+	RollbackGameToTurn(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestRollbackGameToTurn_NotFound(t *testing.T) {
+	setupHandlerTest(t)
+	ctx := context.Background()
+
+	_ = database.CreatePlayer(ctx, testPlayerID1, testPassword, "127.0.0.1")
+	_ = database.CreateGame(ctx, testGameID1, []string{testPlayerID1})
+	_ = database.SaveFileContent(ctx, testGameID1, 1, testPlayerID1, "127.0.0.1", []byte(`{"turns":1}`))
+	_ = database.CreateGame(ctx, testGameID2, []string{testPlayerID1})
+	_ = database.SaveFileContent(ctx, testGameID2, 9, testPlayerID1, "127.0.0.1", []byte(`{"turns":9}`))
+
+	metadata, err := database.GetTurnsMetadata(ctx, testGameID2)
+	if err != nil {
+		t.Fatalf("GetTurnsMetadata 失败: %v", err)
+	}
+
+	turnID := fmt.Sprintf("%d", metadata[0].ID)
+	r := httptest.NewRequest("POST", "/api/games/"+testGameID1+"/turns/"+turnID+"/rollback", nil)
+	r.SetPathValue("gameId", testGameID1)
+	r.SetPathValue("turnId", turnID)
+	r = withSession(r, "admin", true)
+	w := httptest.NewRecorder()
+	RollbackGameToTurn(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestRollbackGameToTurn_PreviewNotFound(t *testing.T) {
+	setupHandlerTest(t)
+	ctx := context.Background()
+
+	_ = database.CreatePlayer(ctx, testPlayerID1, testPassword, "127.0.0.1")
+	_ = database.CreateGame(ctx, testGameID1, []string{testPlayerID1})
+	_ = database.SaveFileContent(ctx, testGameID1, 1, testPlayerID1, "127.0.0.1", []byte(`{"turns":1}`))
+
+	metadata, err := database.GetTurnsMetadata(ctx, testGameID1)
+	if err != nil {
+		t.Fatalf("GetTurnsMetadata 失败: %v", err)
+	}
+
+	turnID := fmt.Sprintf("%d", metadata[0].ID)
+	r := httptest.NewRequest("POST", "/api/games/"+testGameID1+"/turns/"+turnID+"/rollback", nil)
+	r.SetPathValue("gameId", testGameID1)
+	r.SetPathValue("turnId", turnID)
+	r = withSession(r, "admin", true)
+	w := httptest.NewRecorder()
+	RollbackGameToTurn(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}

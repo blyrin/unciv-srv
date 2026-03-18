@@ -185,3 +185,114 @@ func TestGetTurnByID(t *testing.T) {
 		t.Error("不存在的 ID 应返回 nil")
 	}
 }
+
+func TestRollbackGameToTurn(t *testing.T) {
+	setupTest(t)
+	ctx := context.Background()
+
+	seedPlayer(t, testPlayerID1, testPassword)
+	seedGame(t, testGameID1, []string{testPlayerID1})
+
+	SaveFileContent(ctx, testGameID1, 1, testPlayerID1, testIP, json.RawMessage(`{"turns":1}`))
+	time.Sleep(time.Millisecond)
+	SaveFileContent(ctx, testGameID1, 2, testPlayerID1, testIP, json.RawMessage(`{"turns":2}`))
+	time.Sleep(time.Millisecond)
+	SaveFileContent(ctx, testGameID1, 3, testPlayerID1, testIP, json.RawMessage(`{"turns":3}`))
+
+	SaveFilePreview(ctx, testGameID1, 1, testPlayerID1, testIP, json.RawMessage(`{"turns":1}`))
+	time.Sleep(time.Millisecond)
+	SaveFilePreview(ctx, testGameID1, 2, testPlayerID1, testIP, json.RawMessage(`{"turns":2}`))
+	time.Sleep(time.Millisecond)
+	SaveFilePreview(ctx, testGameID1, 3, testPlayerID1, testIP, json.RawMessage(`{"turns":3}`))
+
+	turns, err := GetTurnsMetadata(ctx, testGameID1)
+	if err != nil {
+		t.Fatalf("GetTurnsMetadata 失败: %v", err)
+	}
+
+	result, err := RollbackGameToTurn(ctx, testGameID1, turns[1].ID)
+	if err != nil {
+		t.Fatalf("RollbackGameToTurn 失败: %v", err)
+	}
+	if result == nil {
+		t.Fatal("回档结果不应为 nil")
+	}
+	if result.DeletedTurns != 1 {
+		t.Errorf("DeletedTurns = %d, want 1", result.DeletedTurns)
+	}
+	if result.DeletedPreviews != 1 {
+		t.Errorf("DeletedPreviews = %d, want 1", result.DeletedPreviews)
+	}
+	if result.CurrentTurns != 2 {
+		t.Errorf("CurrentTurns = %d, want 2", result.CurrentTurns)
+	}
+
+	contents, err := GetAllTurnsForGame(ctx, testGameID1)
+	if err != nil {
+		t.Fatalf("GetAllTurnsForGame 失败: %v", err)
+	}
+	if len(contents) != 2 {
+		t.Fatalf("回档后回合数量 = %d, want 2", len(contents))
+	}
+	if contents[len(contents)-1].Turns != 2 {
+		t.Errorf("最新回合 = %d, want 2", contents[len(contents)-1].Turns)
+	}
+
+	preview, err := GetLatestFilePreview(ctx, testGameID1)
+	if err != nil {
+		t.Fatalf("GetLatestFilePreview 失败: %v", err)
+	}
+	if preview == nil {
+		t.Fatal("回档后预览不应为空")
+	}
+	if preview.Turns != 2 {
+		t.Errorf("预览回合 = %d, want 2", preview.Turns)
+	}
+}
+
+func TestRollbackGameToTurn_UsesOldestMatchedPreview(t *testing.T) {
+	setupTest(t)
+	ctx := context.Background()
+
+	seedPlayer(t, testPlayerID1, testPassword)
+	seedGame(t, testGameID1, []string{testPlayerID1})
+
+	SaveFileContent(ctx, testGameID1, 1, testPlayerID1, testIP, json.RawMessage(`{"turns":1}`))
+	time.Sleep(time.Millisecond)
+	SaveFileContent(ctx, testGameID1, 2, testPlayerID1, testIP, json.RawMessage(`{"turns":2}`))
+
+	SaveFilePreview(ctx, testGameID1, 1, testPlayerID1, testIP, json.RawMessage(`{"turns":1,"preview":"old"}`))
+	time.Sleep(time.Millisecond)
+	SaveFilePreview(ctx, testGameID1, 2, testPlayerID1, testIP, json.RawMessage(`{"turns":2,"preview":"first"}`))
+	time.Sleep(time.Millisecond)
+	SaveFilePreview(ctx, testGameID1, 2, testPlayerID1, testIP, json.RawMessage(`{"turns":2,"preview":"second"}`))
+
+	turns, err := GetTurnsMetadata(ctx, testGameID1)
+	if err != nil {
+		t.Fatalf("GetTurnsMetadata 失败: %v", err)
+	}
+
+	result, err := RollbackGameToTurn(ctx, testGameID1, turns[1].ID)
+	if err != nil {
+		t.Fatalf("RollbackGameToTurn 失败: %v", err)
+	}
+	if result == nil {
+		t.Fatal("回档结果不应为 nil")
+	}
+	if result.DeletedPreviews != 1 {
+		t.Errorf("DeletedPreviews = %d, want 1", result.DeletedPreviews)
+	}
+
+	var previewCount int
+	err = DB.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM files_preview
+		WHERE game_id = ?
+	`, testGameID1).Scan(&previewCount)
+	if err != nil {
+		t.Fatalf("统计预览数量失败: %v", err)
+	}
+	if previewCount != 2 {
+		t.Errorf("预览数量 = %d, want 2", previewCount)
+	}
+}

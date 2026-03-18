@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -311,6 +312,13 @@ type BatchDeleteGamesRequest struct {
 	GameIDs []string `json:"gameIds"`
 }
 
+// RollbackGameResponse 回档结果
+type RollbackGameResponse struct {
+	DeletedTurns    int64 `json:"deletedTurns"`
+	DeletedPreviews int64 `json:"deletedPreviews"`
+	CurrentTurns    int   `json:"currentTurns"`
+}
+
 // BatchDeleteGames 处理 DELETE /api/games/batch
 // 批量删除游戏（管理员）
 func BatchDeleteGames(w http.ResponseWriter, r *http.Request) {
@@ -331,4 +339,66 @@ func BatchDeleteGames(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.SuccessResponse(w)
+}
+
+// RollbackGameToTurn 处理 POST /api/games/{gameId}/turns/{turnId}/rollback
+// 管理员可回档任意游戏，玩家只能回档自己创建的游戏
+func RollbackGameToTurn(w http.ResponseWriter, r *http.Request) {
+	gameID := r.PathValue("gameId")
+	turnIDStr := r.PathValue("turnId")
+	if gameID == "" || turnIDStr == "" {
+		utils.ErrorResponse(w, http.StatusBadRequest, "缺少参数", nil)
+		return
+	}
+
+	turnID, err := strconv.ParseInt(turnIDStr, 10, 64)
+	if err != nil {
+		utils.ErrorResponse(w, http.StatusBadRequest, "无效的回合ID", nil)
+		return
+	}
+
+	userID := middleware.GetSessionUserID(r)
+	isAdmin := middleware.IsSessionAdmin(r)
+
+	game, err := database.GetGameByID(r.Context(), gameID)
+	if err != nil {
+		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
+		return
+	}
+	if game == nil {
+		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在", nil)
+		return
+	}
+
+	if !isAdmin {
+		isCreator, err := database.IsGameCreator(r.Context(), userID, gameID)
+		if err != nil {
+			utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
+			return
+		}
+		if !isCreator {
+			utils.ErrorResponse(w, http.StatusForbidden, "只能回档自己创建的游戏", nil)
+			return
+		}
+	}
+
+	result, err := database.RollbackGameToTurn(r.Context(), gameID, turnID)
+	if err != nil {
+		if errors.Is(err, database.ErrRollbackPreviewNotFound) {
+			utils.ErrorResponse(w, http.StatusNotFound, "找不到对应预览存档", nil)
+			return
+		}
+		utils.ErrorResponse(w, http.StatusInternalServerError, "回档失败", err)
+		return
+	}
+	if result == nil {
+		utils.ErrorResponse(w, http.StatusNotFound, "指定存档不存在", nil)
+		return
+	}
+
+	utils.JSONResponse(w, http.StatusOK, RollbackGameResponse{
+		DeletedTurns:    result.DeletedTurns,
+		DeletedPreviews: result.DeletedPreviews,
+		CurrentTurns:    result.CurrentTurns,
+	})
 }

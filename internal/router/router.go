@@ -75,6 +75,7 @@ func Setup(cfg *config.Config, rateLimiter *middleware.RateLimiter) *http.ServeM
 	mux.Handle("GET /api/games/{gameId}/download", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.DownloadGameHistory))))
 	mux.Handle("GET /api/games/{gameId}/turns", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.GetGameTurns))))
 	mux.Handle("GET /api/games/{gameId}/turns/{turnId}/download", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.DownloadSingleTurn))))
+	mux.Handle("POST /api/games/{gameId}/turns/{turnId}/rollback", middleware.Logger(middleware.SessionAuth(http.HandlerFunc(handler.RollbackGameToTurn))))
 
 	return mux
 }
