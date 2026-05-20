@@ -35,8 +35,8 @@ func PutAuth(w http.ResponseWriter, r *http.Request) {
 	defer func(Body io.ReadCloser) { _ = Body.Close() }(r.Body)
 
 	newPassword := string(body)
-	if newPassword == "" {
-		utils.ErrorResponse(w, http.StatusBadRequest, "密码不能为空", nil)
+	if len(newPassword) < 6 {
+		utils.ErrorResponse(w, http.StatusBadRequest, "密码至少6位", nil)
 		return
 	}
 
