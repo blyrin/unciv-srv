@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config 应用配置结构
@@ -79,97 +80,30 @@ func LoadEnvFile(filename string) error {
 		return err
 	}
 
-	lines := splitLines(string(data))
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	for _, line := range lines {
-		// 跳过空行和注释
+		line = strings.TrimSpace(line)
 		if line == "" || line[0] == '#' {
 			continue
 		}
 
-		// 解析 KEY=VALUE 格式
-		key, value := parseEnvLine(line)
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		value = strings.Trim(value, "\"'")
+
 		if key != "" {
-			// 只设置未定义的环境变量
 			if os.Getenv(key) == "" {
 				if err := os.Setenv(key, value); err != nil {
 					slog.Warn("设置环境变量失败", "key", key, "error", err)
-					continue
 				}
 			}
 		}
 	}
 
 	return nil
-}
-
-// splitLines 按行分割字符串
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			line := s[start:i]
-			// 移除可能的 \r
-			if len(line) > 0 && line[len(line)-1] == '\r' {
-				line = line[:len(line)-1]
-			}
-			lines = append(lines, line)
-			start = i + 1
-		}
-	}
-	// 添加最后一行（如果有）
-	if start < len(s) {
-		line := s[start:]
-		if len(line) > 0 && line[len(line)-1] == '\r' {
-			line = line[:len(line)-1]
-		}
-		lines = append(lines, line)
-	}
-	return lines
-}
-
-// parseEnvLine 解析环境变量行
-func parseEnvLine(line string) (key, value string) {
-	// 查找等号位置
-	for i := 0; i < len(line); i++ {
-		if line[i] == '=' {
-			key = line[:i]
-			value = line[i+1:]
-
-			// 移除键的前后空格
-			key = trimSpace(key)
-
-			// 移除值的引号和前后空格
-			value = trimSpace(value)
-			value = trimQuotes(value)
-
-			return key, value
-		}
-	}
-	return "", ""
-}
-
-// trimSpace 移除字符串前后的空格
-func trimSpace(s string) string {
-	start := 0
-	end := len(s)
-
-	for start < end && (s[start] == ' ' || s[start] == '\t') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
-		end--
-	}
-
-	return s[start:end]
-}
-
-// trimQuotes 移除字符串的引号
-func trimQuotes(s string) string {
-	if len(s) >= 2 {
-		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
-			return s[1 : len(s)-1]
-		}
-	}
-	return s
 }

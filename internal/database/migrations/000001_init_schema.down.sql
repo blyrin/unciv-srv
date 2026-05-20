@@ -1,5 +1,5 @@
 -- 回滚初始化架构
-DROP TABLE IF EXISTS files_preview;
-DROP TABLE IF EXISTS files_content;
-DROP TABLE IF EXISTS files;
-DROP TABLE IF EXISTS players;
+drop table if exists files_preview;
+drop table if exists files_content;
+drop table if exists files;
+drop table if exists players;

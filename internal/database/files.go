@@ -6,25 +6,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 )
 
-// GetLatestFileContent 获取游戏的最新存档内容
-func GetLatestFileContent(ctx context.Context, gameID string) (*FileContent, error) {
-	var fc FileContent
-	var createdPlayer *string
-	var createdIP *string
+// getLatestFileData 获取游戏的最新文件数据（通用实现）
+func getLatestFileData(ctx context.Context, table, gameID string) (*FileData, error) {
+	var fd FileData
+	var createdPlayer, createdIP *string
 	var data []byte
 
-	err := DB.QueryRowContext(ctx, `
+	err := DB.QueryRowContext(ctx, fmt.Sprintf(`
 		SELECT id, game_id, turns, created_player, created_ip, created_at, data
-		FROM files_content
+		FROM %s
 		WHERE game_id = ?
 		ORDER BY turns DESC, created_at DESC
 		LIMIT 1
-	`, gameID).Scan(
-		&fc.ID, &fc.GameID, &fc.Turns, &createdPlayer, &createdIP, &fc.CreatedAt, &data,
+	`, table), gameID).Scan(
+		&fd.ID, &fd.GameID, &fd.Turns, &createdPlayer, &createdIP, &fd.CreatedAt, &data,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -34,68 +32,50 @@ func GetLatestFileContent(ctx context.Context, gameID string) (*FileContent, err
 		return nil, err
 	}
 
-	if createdPlayer != nil {
-		fc.CreatedPlayer = *createdPlayer
-	}
-	if createdIP != nil {
-		fc.CreatedIP = *createdIP
-	}
-	fc.Data = data
+	fd.CreatedPlayer = deref(createdPlayer)
+	fd.CreatedIP = deref(createdIP)
+	fd.Data = data
 
+	return &fd, nil
+}
+
+// saveFileData 保存文件数据（通用实现）
+func saveFileData(ctx context.Context, table, gameID string, turns int, playerID, ip string, data json.RawMessage) error {
+	_, err := DB.ExecContext(ctx, fmt.Sprintf(`
+		INSERT INTO %s (game_id, turns, created_player, created_ip, created_at, data)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, table), gameID, turns, playerID, ip, time.Now(), data)
+	return err
+}
+
+// GetLatestFileContent 获取游戏的最新存档内容
+func GetLatestFileContent(ctx context.Context, gameID string) (*FileContent, error) {
+	fd, err := getLatestFileData(ctx, "files_content", gameID)
+	if err != nil || fd == nil {
+		return nil, err
+	}
+	fc := FileContent{*fd}
 	return &fc, nil
 }
 
 // SaveFileContent 保存游戏存档内容
 func SaveFileContent(ctx context.Context, gameID string, turns int, playerID, ip string, data json.RawMessage) error {
-	_, err := DB.ExecContext(ctx, `
-		INSERT INTO files_content (game_id, turns, created_player, created_ip, created_at, data)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, gameID, turns, playerID, ip, time.Now(), data)
-	return err
+	return saveFileData(ctx, "files_content", gameID, turns, playerID, ip, data)
 }
 
 // GetLatestFilePreview 获取游戏的最新预览内容
 func GetLatestFilePreview(ctx context.Context, gameID string) (*FilePreview, error) {
-	var fp FilePreview
-	var createdPlayer *string
-	var createdIP *string
-	var data []byte
-
-	err := DB.QueryRowContext(ctx, `
-		SELECT id, game_id, turns, created_player, created_ip, created_at, data
-		FROM files_preview
-		WHERE game_id = ?
-		ORDER BY turns DESC, created_at DESC
-		LIMIT 1
-	`, gameID).Scan(
-		&fp.ID, &fp.GameID, &fp.Turns, &createdPlayer, &createdIP, &fp.CreatedAt, &data,
-	)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
+	fd, err := getLatestFileData(ctx, "files_preview", gameID)
+	if err != nil || fd == nil {
 		return nil, err
 	}
-
-	if createdPlayer != nil {
-		fp.CreatedPlayer = *createdPlayer
-	}
-	if createdIP != nil {
-		fp.CreatedIP = *createdIP
-	}
-	fp.Data = data
-
+	fp := FilePreview{*fd}
 	return &fp, nil
 }
 
 // SaveFilePreview 保存游戏预览内容
 func SaveFilePreview(ctx context.Context, gameID string, turns int, playerID, ip string, data json.RawMessage) error {
-	_, err := DB.ExecContext(ctx, `
-		INSERT INTO files_preview (game_id, turns, created_player, created_ip, created_at, data)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, gameID, turns, playerID, ip, time.Now(), data)
-	return err
+	return saveFileData(ctx, "files_preview", gameID, turns, playerID, ip, data)
 }
 
 // GetAllTurnsForGame 获取游戏的所有回合数据（用于打包下载）
@@ -109,13 +89,12 @@ func GetAllTurnsForGame(ctx context.Context, gameID string) ([]FileContent, erro
 	if err != nil {
 		return nil, err
 	}
-	defer func(rows *sql.Rows) { _ = rows.Close() }(rows)
+	defer rows.Close()
 
 	var contents []FileContent
 	for rows.Next() {
 		var fc FileContent
-		var createdPlayer *string
-		var createdIP *string
+		var createdPlayer, createdIP *string
 		var data []byte
 
 		if err := rows.Scan(
@@ -124,14 +103,9 @@ func GetAllTurnsForGame(ctx context.Context, gameID string) ([]FileContent, erro
 			return nil, err
 		}
 
-		if createdPlayer != nil {
-			fc.CreatedPlayer = *createdPlayer
-		}
-		if createdIP != nil {
-			fc.CreatedIP = *createdIP
-		}
+		fc.CreatedPlayer = deref(createdPlayer)
+		fc.CreatedIP = deref(createdIP)
 		fc.Data = data
-
 		contents = append(contents, fc)
 	}
 
@@ -149,7 +123,7 @@ func GetTurnsMetadata(ctx context.Context, gameID string) ([]TurnMetadata, error
 	if err != nil {
 		return nil, err
 	}
-	defer func(rows *sql.Rows) { _ = rows.Close() }(rows)
+	defer rows.Close()
 
 	var turns []TurnMetadata
 	for rows.Next() {
@@ -160,13 +134,8 @@ func GetTurnsMetadata(ctx context.Context, gameID string) ([]TurnMetadata, error
 			return nil, err
 		}
 
-		if createdPlayer != nil {
-			t.CreatedPlayer = *createdPlayer
-		}
-		if createdIP != nil {
-			t.CreatedIP = *createdIP
-		}
-
+		t.CreatedPlayer = deref(createdPlayer)
+		t.CreatedIP = deref(createdIP)
 		turns = append(turns, t)
 	}
 
@@ -194,12 +163,8 @@ func GetTurnByID(ctx context.Context, turnID int64) (*FileContent, error) {
 		return nil, err
 	}
 
-	if createdPlayer != nil {
-		fc.CreatedPlayer = *createdPlayer
-	}
-	if createdIP != nil {
-		fc.CreatedIP = *createdIP
-	}
+	fc.CreatedPlayer = deref(createdPlayer)
+	fc.CreatedIP = deref(createdIP)
 	fc.Data = data
 
 	return &fc, nil
@@ -207,13 +172,32 @@ func GetTurnByID(ctx context.Context, turnID int64) (*FileContent, error) {
 
 // RollbackResult 回档结果
 type RollbackResult struct {
-	DeletedTurns    int64
-	DeletedPreviews int64
-	CurrentTurns    int
+	DeletedTurns    int64 `json:"deletedTurns"`
+	DeletedPreviews int64 `json:"deletedPreviews"`
+	CurrentTurns    int   `json:"currentTurns"`
 }
 
 // ErrRollbackPreviewNotFound 未找到对应预览记录
 var ErrRollbackPreviewNotFound = errors.New("未找到对应预览记录")
+
+// deleteRowsAfterTarget 删除目标 ID 之后的所有记录（基于 turns, created_at, id 排序）
+func deleteRowsAfterTarget(ctx context.Context, tx *sql.Tx, table, gameID string, targetID int64) (int64, error) {
+	result, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		DELETE FROM %s WHERE game_id = ? AND id IN (
+			SELECT t1.id FROM %s t1 WHERE t1.game_id = ? AND t1.id != ? AND (
+				t1.turns > (SELECT t2.turns FROM %s t2 WHERE t2.id = ?)
+				OR (t1.turns = (SELECT t3.turns FROM %s t3 WHERE t3.id = ?)
+					AND (t1.created_at > (SELECT t4.created_at FROM %s t4 WHERE t4.id = ?)
+						OR (t1.created_at = (SELECT t5.created_at FROM %s t5 WHERE t5.id = ?) AND t1.id > ?)))
+			)
+		)
+	`, table, table, table, table, table, table),
+		gameID, gameID, targetID, targetID, targetID, targetID, targetID, targetID, targetID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
 
 // RollbackGameToTurn 将游戏回退到指定存档
 func RollbackGameToTurn(ctx context.Context, gameID string, turnID int64) (*RollbackResult, error) {
@@ -231,8 +215,7 @@ func RollbackGameToTurn(ctx context.Context, gameID string, turnID int64) (*Roll
 	var createdPlayer, createdIP *string
 	err = tx.QueryRowContext(ctx, `
 		SELECT id, game_id, turns, created_player, created_ip, created_at
-		FROM files_content
-		WHERE id = ? AND game_id = ?
+		FROM files_content WHERE id = ? AND game_id = ?
 	`, turnID, gameID).Scan(
 		&target.ID, &target.GameID, &target.Turns, &createdPlayer, &createdIP, &target.CreatedAt,
 	)
@@ -242,60 +225,21 @@ func RollbackGameToTurn(ctx context.Context, gameID string, turnID int64) (*Roll
 	if err != nil {
 		return nil, err
 	}
-
-	if createdPlayer != nil {
-		target.CreatedPlayer = *createdPlayer
-	}
-	if createdIP != nil {
-		target.CreatedIP = *createdIP
-	}
-
-	rows, err := tx.QueryContext(ctx, `
-		SELECT id
-		FROM files_content
-		WHERE game_id = ?
-		ORDER BY turns, created_at, id
-	`, gameID)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	deleteTurnIDs := make([]int64, 0)
-	targetReached := false
-	for rows.Next() {
-		var currentID int64
-		if err = rows.Scan(&currentID); err != nil {
-			return nil, err
-		}
-		if targetReached {
-			deleteTurnIDs = append(deleteTurnIDs, currentID)
-			continue
-		}
-		if currentID == target.ID {
-			targetReached = true
-		}
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
+	target.CreatedPlayer = deref(createdPlayer)
+	target.CreatedIP = deref(createdIP)
 
 	var targetPreviewID int64
-	if createdPlayer != nil {
+	if target.CreatedPlayer != "" {
 		err = tx.QueryRowContext(ctx, `
-			SELECT id
-			FROM files_preview
+			SELECT id FROM files_preview
 			WHERE game_id = ? AND turns = ? AND created_player = ?
-			ORDER BY created_at, id
-			LIMIT 1
-		`, gameID, target.Turns, *createdPlayer).Scan(&targetPreviewID)
+			ORDER BY created_at, id LIMIT 1
+		`, gameID, target.Turns, target.CreatedPlayer).Scan(&targetPreviewID)
 	} else {
 		err = tx.QueryRowContext(ctx, `
-			SELECT id
-			FROM files_preview
+			SELECT id FROM files_preview
 			WHERE game_id = ? AND turns = ? AND created_player IS NULL
-			ORDER BY created_at, id
-			LIMIT 1
+			ORDER BY created_at, id LIMIT 1
 		`, gameID, target.Turns).Scan(&targetPreviewID)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
@@ -305,89 +249,17 @@ func RollbackGameToTurn(ctx context.Context, gameID string, turnID int64) (*Roll
 		return nil, err
 	}
 
-	var deletedTurns int64
-	if len(deleteTurnIDs) > 0 {
-		placeholders := make([]string, len(deleteTurnIDs))
-		args := make([]any, 0, len(deleteTurnIDs)+1)
-		args = append(args, gameID)
-		for i, id := range deleteTurnIDs {
-			placeholders[i] = "?"
-			args = append(args, id)
-		}
-
-		deleteTurnsResult, execErr := tx.ExecContext(ctx, fmt.Sprintf(`
-			DELETE FROM files_content
-			WHERE game_id = ?
-			AND id IN (%s)
-		`, strings.Join(placeholders, ", ")), args...)
-		if execErr != nil {
-			return nil, execErr
-		}
-		deletedTurns, err = deleteTurnsResult.RowsAffected()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	previewRows, err := tx.QueryContext(ctx, `
-		SELECT id
-		FROM files_preview
-		WHERE game_id = ?
-		ORDER BY turns, created_at, id
-	`, gameID)
+	deletedTurns, err := deleteRowsAfterTarget(ctx, tx, "files_content", gameID, target.ID)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = previewRows.Close() }()
 
-	deletePreviewIDs := make([]int64, 0)
-	targetPreviewReached := false
-	for previewRows.Next() {
-		var currentID int64
-		if err = previewRows.Scan(&currentID); err != nil {
-			return nil, err
-		}
-		if targetPreviewReached {
-			deletePreviewIDs = append(deletePreviewIDs, currentID)
-			continue
-		}
-		if currentID == targetPreviewID {
-			targetPreviewReached = true
-		}
-	}
-	if err = previewRows.Err(); err != nil {
+	deletedPreviews, err := deleteRowsAfterTarget(ctx, tx, "files_preview", gameID, targetPreviewID)
+	if err != nil {
 		return nil, err
 	}
 
-	var deletedPreviews int64
-	if len(deletePreviewIDs) > 0 {
-		placeholders := make([]string, len(deletePreviewIDs))
-		args := make([]any, 0, len(deletePreviewIDs)+1)
-		args = append(args, gameID)
-		for i, id := range deletePreviewIDs {
-			placeholders[i] = "?"
-			args = append(args, id)
-		}
-
-		deletePreviewsResult, execErr := tx.ExecContext(ctx, fmt.Sprintf(`
-			DELETE FROM files_preview
-			WHERE game_id = ?
-			AND id IN (%s)
-		`, strings.Join(placeholders, ", ")), args...)
-		if execErr != nil {
-			return nil, execErr
-		}
-		deletedPreviews, err = deletePreviewsResult.RowsAffected()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if _, err = tx.ExecContext(ctx, `
-		UPDATE files
-		SET updated_at = ?
-		WHERE game_id = ?
-	`, time.Now(), gameID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE files SET updated_at = ? WHERE game_id = ?`, time.Now(), gameID); err != nil {
 		return nil, err
 	}
 

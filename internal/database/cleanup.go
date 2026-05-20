@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 )
@@ -33,16 +34,16 @@ func CleanupExpiredGames(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// CleanupOldPreviews 清理旧的预览记录，只保留每个游戏最新的一条
-func CleanupOldPreviews(ctx context.Context) (int64, error) {
-	result, err := DB.ExecContext(ctx, `
-		DELETE FROM files_preview
+// cleanupOldFileRecords 清理旧的文件记录，只保留每个游戏最新的一条（通用实现）
+func cleanupOldFileRecords(ctx context.Context, table string) (int64, error) {
+	result, err := DB.ExecContext(ctx, fmt.Sprintf(`
+		DELETE FROM %s
 		WHERE EXISTS (
-			SELECT 1 FROM files_preview fp2
-			WHERE fp2.game_id = files_preview.game_id
-			AND (fp2.turns > files_preview.turns OR (fp2.turns = files_preview.turns AND fp2.created_at > files_preview.created_at))
+			SELECT 1 FROM %s t2
+			WHERE t2.game_id = %s.game_id
+			AND (t2.turns > %s.turns OR (t2.turns = %s.turns AND t2.created_at > %s.created_at))
 		)
-	`)
+	`, table, table, table, table, table, table))
 	if err != nil {
 		return 0, err
 	}
@@ -52,35 +53,20 @@ func CleanupOldPreviews(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	if count > 0 {
-		slog.Info("清理旧预览记录", "count", count)
+		slog.Info("清理旧记录", "table", table, "count", count)
 	}
 
 	return count, nil
 }
 
+// CleanupOldPreviews 清理旧的预览记录，只保留每个游戏最新的一条
+func CleanupOldPreviews(ctx context.Context) (int64, error) {
+	return cleanupOldFileRecords(ctx, "files_preview")
+}
+
 // CleanupOldContents 清理旧的内容记录，只保留每个游戏最新的一条
 func CleanupOldContents(ctx context.Context) (int64, error) {
-	result, err := DB.ExecContext(ctx, `
-		DELETE FROM files_content
-		WHERE EXISTS (
-			SELECT 1 FROM files_content fc2
-			WHERE fc2.game_id = files_content.game_id
-			AND (fc2.turns > files_content.turns OR (fc2.turns = files_content.turns AND fc2.created_at > files_content.created_at))
-		)
-	`)
-	if err != nil {
-		return 0, err
-	}
-
-	count, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	if count > 0 {
-		slog.Info("清理旧内容记录", "count", count)
-	}
-
-	return count, nil
+	return cleanupOldFileRecords(ctx, "files_content")
 }
 
 // RunCleanup 执行所有清理操作

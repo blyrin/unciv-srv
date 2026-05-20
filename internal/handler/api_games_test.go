@@ -465,7 +465,7 @@ func TestRollbackGameToTurn_Admin(t *testing.T) {
 		t.Fatalf("状态码 = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	var resp RollbackGameResponse
+	var resp database.RollbackResult
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("解析响应失败: %v", err)
 	}

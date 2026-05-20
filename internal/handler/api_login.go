@@ -28,6 +28,18 @@ type LoginHandler struct {
 	RateLimiter *middleware.RateLimiter
 }
 
+// loginSuccess 处理登录成功的通用逻辑
+func (h *LoginHandler) loginSuccess(w http.ResponseWriter, ip, userID string, isAdmin bool) {
+	h.RateLimiter.ResetAttempts(ip)
+	sessionID := middleware.CreateSession(userID, isAdmin)
+	middleware.SetSessionCookie(w, sessionID)
+	resp := LoginSuccessResponse{IsAdmin: isAdmin}
+	if !isAdmin {
+		resp.PlayerID = userID
+	}
+	utils.JSONResponse(w, http.StatusOK, resp)
+}
+
 // Login 处理 POST /api/login
 func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 	ip := utils.GetClientIP(r)
@@ -48,16 +60,7 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// 验证管理员账户
 	if req.Username == h.Config.AdminUsername && req.Password == h.Config.AdminPassword {
-		// 登录成功，重置限流
-		h.RateLimiter.ResetAttempts(ip)
-
-		// 创建 Session
-		sessionID := middleware.CreateSession(req.Username, true)
-		middleware.SetSessionCookie(w, sessionID)
-
-		utils.JSONResponse(w, http.StatusOK, LoginSuccessResponse{
-			IsAdmin: true,
-		})
+		h.loginSuccess(w, ip, req.Username, true)
 		return
 	}
 
@@ -69,17 +72,7 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if player != nil && player.Password == req.Password {
-			// 登录成功，重置限流
-			h.RateLimiter.ResetAttempts(ip)
-
-			// 创建 Session
-			sessionID := middleware.CreateSession(req.Username, false)
-			middleware.SetSessionCookie(w, sessionID)
-
-			utils.JSONResponse(w, http.StatusOK, LoginSuccessResponse{
-				IsAdmin:  false,
-				PlayerID: player.PlayerID,
-			})
+			h.loginSuccess(w, ip, req.Username, false)
 			return
 		}
 	}

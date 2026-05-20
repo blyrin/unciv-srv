@@ -127,34 +127,3 @@ func TestLoadEnvFile(t *testing.T) {
 		t.Fatalf("DB_PATH = %q, want data/test.db", got)
 	}
 }
-
-func TestSplitLines(t *testing.T) {
-	lines := splitLines("a\r\nb\nc")
-	if len(lines) != 3 || lines[0] != "a" || lines[2] != "c" {
-		t.Fatalf("splitLines = %#v", lines)
-	}
-}
-
-func TestParseEnvLine(t *testing.T) {
-	key, value := parseEnvLine(" DB_PATH = \"data/test.db\" ")
-	if key != "DB_PATH" || value != "data/test.db" {
-		t.Fatalf("parseEnvLine = (%q, %q)", key, value)
-	}
-
-	key, value = parseEnvLine("INVALID")
-	if key != "" || value != "" {
-		t.Fatalf("非法行应返回空值, got (%q, %q)", key, value)
-	}
-}
-
-func TestTrimHelpers(t *testing.T) {
-	if got := trimSpace("\t hello \t"); got != "hello" {
-		t.Fatalf("trimSpace = %q, want hello", got)
-	}
-	if got := trimQuotes(`"hello"`); got != "hello" {
-		t.Fatalf("trimQuotes = %q, want hello", got)
-	}
-	if got := trimQuotes("'hello'"); got != "hello" {
-		t.Fatalf("trimQuotes = %q, want hello", got)
-	}
-}

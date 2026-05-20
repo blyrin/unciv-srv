@@ -4,7 +4,9 @@ package utils
 import (
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 )
 
 // ErrorResponseBody 统一错误响应结构
@@ -62,11 +64,8 @@ func FileResponse(w http.ResponseWriter, contentType string, filename string, da
 func GetClientIP(r *http.Request) string {
 	// 优先从 X-Forwarded-For 获取
 	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-		// 可能有多个 IP，取第一个
-		for i := 0; i < len(ip); i++ {
-			if ip[i] == ',' {
-				return ip[:i]
-			}
+		if idx := strings.IndexByte(ip, ','); idx >= 0 {
+			return strings.TrimSpace(ip[:idx])
 		}
 		return ip
 	}
@@ -75,12 +74,9 @@ func GetClientIP(r *http.Request) string {
 		return ip
 	}
 	// 最后从 RemoteAddr 获取
-	addr := r.RemoteAddr
-	// 去除端口号
-	for i := len(addr) - 1; i >= 0; i-- {
-		if addr[i] == ':' {
-			return addr[:i]
-		}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
 	}
-	return addr
+	return host
 }

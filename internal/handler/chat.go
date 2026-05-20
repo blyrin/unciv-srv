@@ -2,12 +2,10 @@ package handler
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -207,28 +205,10 @@ func ChatWebSocket(w http.ResponseWriter, r *http.Request) {
 
 // parseWebSocketAuth 解析 WebSocket 认证信息
 func parseWebSocketAuth(ctx context.Context, r *http.Request) (string, error) {
-	auth := r.Header.Get("Authorization")
-	if auth == "" {
-		return "", errors.New("缺少认证信息")
-	}
-
-	if !strings.HasPrefix(auth, "Basic ") {
-		return "", errors.New("无效的认证格式")
-	}
-
-	payload, err := base64.StdEncoding.DecodeString(auth[6:])
+	playerID, password, err := middleware.ParseBasicAuthCredentials(r)
 	if err != nil {
 		return "", err
 	}
-
-	pair := string(payload)
-	colonIdx := strings.Index(pair, ":")
-	if colonIdx < 0 {
-		return "", errors.New("无效的认证格式")
-	}
-
-	playerID := pair[:colonIdx]
-	password := pair[colonIdx+1:]
 
 	validatedPlayerID, err := middleware.ValidatePlayer(ctx, playerID, password)
 	if err != nil {

@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strconv"
 	"time"
 
 	"unciv-srv/internal/database"
-	"unciv-srv/internal/middleware"
 	"unciv-srv/pkg/utils"
 )
 
@@ -23,18 +21,7 @@ type UpdateGameRequest struct {
 // GetAllGames 处理 GET /api/games
 // 获取游戏列表（管理员），支持分页和关键字搜索
 func GetAllGames(w http.ResponseWriter, r *http.Request) {
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
-	if pageSize < 1 {
-		pageSize = 20
-	}
-	if pageSize > 100 {
-		pageSize = 100
-	}
-	keyword := r.URL.Query().Get("keyword")
+	page, pageSize, keyword := parsePagination(r)
 
 	result, err := database.GetGamesPage(r.Context(), keyword, page, pageSize)
 	if err != nil {
@@ -77,36 +64,10 @@ func DeleteGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := middleware.GetSessionUserID(r)
-	isAdmin := middleware.IsSessionAdmin(r)
-
-	// 检查游戏是否存在
-	game, err := database.GetGameByID(r.Context(), gameID)
-	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
+	if _, ok := getGameWithCreatorCheck(w, r, gameID, "只能删除自己创建的游戏"); !ok {
 		return
 	}
 
-	if game == nil {
-		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在", nil)
-		return
-	}
-
-	// 非管理员需要检查是否是创建者
-	if !isAdmin {
-		isCreator, err := database.IsGameCreator(r.Context(), userID, gameID)
-		if err != nil {
-			utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
-			return
-		}
-
-		if !isCreator {
-			utils.ErrorResponse(w, http.StatusForbidden, "只能删除自己创建的游戏", nil)
-			return
-		}
-	}
-
-	// 删除游戏
 	if err := database.DeleteGame(r.Context(), gameID); err != nil {
 		utils.ErrorResponse(w, http.StatusInternalServerError, "删除游戏失败", err)
 		return
@@ -124,28 +85,8 @@ func DownloadGameHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := middleware.GetSessionUserID(r)
-	isAdmin := middleware.IsSessionAdmin(r)
-
-	// 检查游戏是否存在
-	game, err := database.GetGameByID(r.Context(), gameID)
-	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
+	if _, ok := getGameWithPlayerCheck(w, r, gameID, "无权下载此游戏"); !ok {
 		return
-	}
-
-	if game == nil {
-		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在", nil)
-		return
-	}
-
-	// 非管理员需要检查是否是游戏参与者
-	if !isAdmin {
-		isPlayer := slices.Contains(game.Players, userID)
-		if !isPlayer {
-			utils.ErrorResponse(w, http.StatusForbidden, "无权下载此游戏", nil)
-			return
-		}
 	}
 
 	// 获取所有回合数据
@@ -189,27 +130,8 @@ func GetGameTurns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := middleware.GetSessionUserID(r)
-	isAdmin := middleware.IsSessionAdmin(r)
-
-	// 检查游戏是否存在
-	game, err := database.GetGameByID(r.Context(), gameID)
-	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
+	if _, ok := getGameWithPlayerCheck(w, r, gameID, "无权查看此游戏"); !ok {
 		return
-	}
-	if game == nil {
-		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在", nil)
-		return
-	}
-
-	// 非管理员需要检查是否是游戏参与者
-	if !isAdmin {
-		isPlayer := slices.Contains(game.Players, userID)
-		if !isPlayer {
-			utils.ErrorResponse(w, http.StatusForbidden, "无权查看此游戏", nil)
-			return
-		}
 	}
 
 	turns, err := database.GetTurnsMetadata(r.Context(), gameID)
@@ -242,27 +164,8 @@ func DownloadSingleTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := middleware.GetSessionUserID(r)
-	isAdmin := middleware.IsSessionAdmin(r)
-
-	// 检查游戏是否存在
-	game, err := database.GetGameByID(r.Context(), gameID)
-	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
+	if _, ok := getGameWithPlayerCheck(w, r, gameID, "无权下载此游戏"); !ok {
 		return
-	}
-	if game == nil {
-		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在", nil)
-		return
-	}
-
-	// 非管理员需要检查是否是游戏参与者
-	if !isAdmin {
-		isPlayer := slices.Contains(game.Players, userID)
-		if !isPlayer {
-			utils.ErrorResponse(w, http.StatusForbidden, "无权下载此游戏", nil)
-			return
-		}
 	}
 
 	turn, err := database.GetTurnByID(r.Context(), turnID)
@@ -312,13 +215,6 @@ type BatchDeleteGamesRequest struct {
 	GameIDs []string `json:"gameIds"`
 }
 
-// RollbackGameResponse 回档结果
-type RollbackGameResponse struct {
-	DeletedTurns    int64 `json:"deletedTurns"`
-	DeletedPreviews int64 `json:"deletedPreviews"`
-	CurrentTurns    int   `json:"currentTurns"`
-}
-
 // BatchDeleteGames 处理 DELETE /api/games/batch
 // 批量删除游戏（管理员）
 func BatchDeleteGames(w http.ResponseWriter, r *http.Request) {
@@ -357,29 +253,8 @@ func RollbackGameToTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := middleware.GetSessionUserID(r)
-	isAdmin := middleware.IsSessionAdmin(r)
-
-	game, err := database.GetGameByID(r.Context(), gameID)
-	if err != nil {
-		utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
+	if _, ok := getGameWithCreatorCheck(w, r, gameID, "只能回档自己创建的游戏"); !ok {
 		return
-	}
-	if game == nil {
-		utils.ErrorResponse(w, http.StatusNotFound, "游戏不存在", nil)
-		return
-	}
-
-	if !isAdmin {
-		isCreator, err := database.IsGameCreator(r.Context(), userID, gameID)
-		if err != nil {
-			utils.ErrorResponse(w, http.StatusInternalServerError, "数据库错误", err)
-			return
-		}
-		if !isCreator {
-			utils.ErrorResponse(w, http.StatusForbidden, "只能回档自己创建的游戏", nil)
-			return
-		}
 	}
 
 	result, err := database.RollbackGameToTurn(r.Context(), gameID, turnID)
@@ -396,9 +271,5 @@ func RollbackGameToTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.JSONResponse(w, http.StatusOK, RollbackGameResponse{
-		DeletedTurns:    result.DeletedTurns,
-		DeletedPreviews: result.DeletedPreviews,
-		CurrentTurns:    result.CurrentTurns,
-	})
+	utils.JSONResponse(w, http.StatusOK, result)
 }

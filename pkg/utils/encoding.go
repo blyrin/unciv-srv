@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"regexp"
+	"strings"
 )
 
 // GameIDRegex 游戏ID正则表达式
@@ -72,7 +73,6 @@ func EncodeFile(data json.RawMessage) (string, error) {
 	// Gzip 压缩
 	var buf bytes.Buffer
 	writer := gzip.NewWriter(&buf)
-	defer func(writer *gzip.Writer) { _ = writer.Close() }(writer)
 
 	if _, err := writer.Write(data); err != nil {
 		return "", fmt.Errorf("gzip压缩失败: %w", err)
@@ -144,13 +144,10 @@ func ValidatePlayerID(playerID string) bool {
 
 // IsPreviewID 检查是否是预览ID
 func IsPreviewID(gameID string) bool {
-	return len(gameID) > 8 && gameID[len(gameID)-8:] == "_Preview"
+	return len(gameID) > len("_Preview") && strings.HasSuffix(gameID, "_Preview")
 }
 
 // GetBaseGameID 获取基础游戏ID（去除_Preview后缀）
 func GetBaseGameID(gameID string) string {
-	if IsPreviewID(gameID) {
-		return gameID[:len(gameID)-8]
-	}
-	return gameID
+	return strings.TrimSuffix(gameID, "_Preview")
 }

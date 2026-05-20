@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -30,15 +29,9 @@ func GetPlayerByID(ctx context.Context, playerID string) (*Player, error) {
 		return nil, err
 	}
 
-	if remark != nil {
-		p.Remark = *remark
-	}
-	if createIP != nil {
-		p.CreateIP = *createIP
-	}
-	if updateIP != nil {
-		p.UpdateIP = *updateIP
-	}
+	p.Remark = deref(remark)
+	p.CreateIP = deref(createIP)
+	p.UpdateIP = deref(updateIP)
 
 	return &p, nil
 }
@@ -83,7 +76,7 @@ func GetAllPlayers(ctx context.Context) ([]Player, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func(rows *sql.Rows) { _ = rows.Close() }(rows)
+	defer rows.Close()
 
 	players := make([]Player, 0, 100)
 	for rows.Next() {
@@ -97,15 +90,9 @@ func GetAllPlayers(ctx context.Context) ([]Player, error) {
 			return nil, err
 		}
 
-		if remark != nil {
-			p.Remark = *remark
-		}
-		if createIP != nil {
-			p.CreateIP = *createIP
-		}
-		if updateIP != nil {
-			p.UpdateIP = *updateIP
-		}
+		p.Remark = deref(remark)
+		p.CreateIP = deref(createIP)
+		p.UpdateIP = deref(updateIP)
 
 		players = append(players, p)
 	}
@@ -143,7 +130,7 @@ func GetPlayersPage(ctx context.Context, keyword string, page, pageSize int) (*P
 	if err != nil {
 		return nil, err
 	}
-	defer func(rows *sql.Rows) { _ = rows.Close() }(rows)
+	defer rows.Close()
 
 	items := make([]Player, 0)
 	for rows.Next() {
@@ -157,15 +144,9 @@ func GetPlayersPage(ctx context.Context, keyword string, page, pageSize int) (*P
 			return nil, err
 		}
 
-		if remark != nil {
-			p.Remark = *remark
-		}
-		if createIP != nil {
-			p.CreateIP = *createIP
-		}
-		if updateIP != nil {
-			p.UpdateIP = *updateIP
-		}
+		p.Remark = deref(remark)
+		p.CreateIP = deref(createIP)
+		p.UpdateIP = deref(updateIP)
 
 		items = append(items, p)
 	}
@@ -204,18 +185,10 @@ func BatchUpdatePlayersWhitelist(ctx context.Context, playerIDs []string, whitel
 	if len(playerIDs) == 0 {
 		return nil
 	}
-	placeholders := make([]string, len(playerIDs))
-	args := make([]any, 0, len(playerIDs)+2)
-	args = append(args, whitelist, time.Now())
-	for i, id := range playerIDs {
-		placeholders[i] = "?"
-		args = append(args, id)
-	}
-	query := fmt.Sprintf(`
-		UPDATE players
-		SET whitelist = ?, updated_at = ?
-		WHERE player_id IN (%s)
-	`, strings.Join(placeholders, ", "))
-	_, err := DB.ExecContext(ctx, query, args...)
+	clause, args := buildInClause(playerIDs)
+	args = append([]any{whitelist, time.Now()}, args...)
+	_, err := DB.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE players SET whitelist = ?, updated_at = ? WHERE player_id IN (%s)
+	`, clause), args...)
 	return err
 }

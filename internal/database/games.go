@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -36,9 +35,7 @@ func GetGameByID(ctx context.Context, gameID string) (*Game, error) {
 		return nil, err
 	}
 
-	if remark != nil {
-		g.Remark = *remark
-	}
+	g.Remark = deref(remark)
 	return &g, nil
 }
 
@@ -98,12 +95,8 @@ func scanGameWithTurns(rows *sql.Rows) (GameWithTurns, error) {
 		return g, err
 	}
 
-	if remark != nil {
-		g.Remark = *remark
-	}
-	if createdPlayer != nil {
-		g.CreatedPlayer = *createdPlayer
-	}
+	g.Remark = deref(remark)
+	g.CreatedPlayer = deref(createdPlayer)
 
 	return g, nil
 }
@@ -121,7 +114,7 @@ func GetAllGames(ctx context.Context) ([]GameWithTurns, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func(rows *sql.Rows) { _ = rows.Close() }(rows)
+	defer rows.Close()
 
 	var games []GameWithTurns
 	for rows.Next() {
@@ -168,7 +161,7 @@ func GetGamesPage(ctx context.Context, keyword string, page, pageSize int) (*Pag
 	if err != nil {
 		return nil, err
 	}
-	defer func(rows *sql.Rows) { _ = rows.Close() }(rows)
+	defer rows.Close()
 
 	items := make([]GameWithTurns, 0)
 	for rows.Next() {
@@ -200,7 +193,7 @@ func GetGamesByPlayer(ctx context.Context, playerID string) ([]GameWithTurns, er
 	if err != nil {
 		return nil, err
 	}
-	defer func(rows *sql.Rows) { _ = rows.Close() }(rows)
+	defer rows.Close()
 
 	var games []GameWithTurns
 	for rows.Next() {
@@ -275,19 +268,11 @@ func BatchUpdateGamesWhitelist(ctx context.Context, gameIDs []string, whitelist 
 	if len(gameIDs) == 0 {
 		return nil
 	}
-	placeholders := make([]string, len(gameIDs))
-	args := make([]any, 0, len(gameIDs)+2)
-	args = append(args, whitelist, time.Now())
-	for i, id := range gameIDs {
-		placeholders[i] = "?"
-		args = append(args, id)
-	}
-	query := fmt.Sprintf(`
-		UPDATE files
-		SET whitelist = ?, updated_at = ?
-		WHERE game_id IN (%s)
-	`, strings.Join(placeholders, ", "))
-	_, err := DB.ExecContext(ctx, query, args...)
+	clause, args := buildInClause(gameIDs)
+	args = append([]any{whitelist, time.Now()}, args...)
+	_, err := DB.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE files SET whitelist = ?, updated_at = ? WHERE game_id IN (%s)
+	`, clause), args...)
 	return err
 }
 
@@ -296,13 +281,7 @@ func BatchDeleteGames(ctx context.Context, gameIDs []string) error {
 	if len(gameIDs) == 0 {
 		return nil
 	}
-	placeholders := make([]string, len(gameIDs))
-	args := make([]any, 0, len(gameIDs))
-	for i, id := range gameIDs {
-		placeholders[i] = "?"
-		args = append(args, id)
-	}
-	query := fmt.Sprintf(`DELETE FROM files WHERE game_id IN (%s)`, strings.Join(placeholders, ", "))
-	_, err := DB.ExecContext(ctx, query, args...)
+	clause, args := buildInClause(gameIDs)
+	_, err := DB.ExecContext(ctx, fmt.Sprintf(`DELETE FROM files WHERE game_id IN (%s)`, clause), args...)
 	return err
 }
