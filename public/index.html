@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>Unciv 服务器管理</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#fff7ed',
+              100: '#ffedd5',
+              200: '#fed7aa',
+              300: '#fdba74',
+              400: '#fb923c',
+              500: '#f97316',
+              600: '#ea580c',
+              700: '#c2410c',
+              800: '#9a3412',
+              900: '#7c2d12',
+            },
+          },
+          boxShadow: {
+            'glass': '0 8px 32px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.5)',
+            'glass-hover': '0 12px 40px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.6)',
+            'glass-strong': '0 8px 32px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.5)',
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    :root {
+      --brand: #f97316;
+      --brand-dark: #ea580c;
+      --glass-bg: rgba(255, 255, 255, 0.72);
+      --glass-border: rgba(255, 255, 255, 0.3);
+      --glass-blur: 16px;
+    }
+
+    [v-cloak] {
+      display: none;
+    }
+
+    .glass {
+      background: var(--glass-bg);
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    }
+
+    /* 全局按钮过渡 */
+    button:not([disabled]), a[class] {
+      transition: color .15s ease-out, background-color .15s ease-out, border-color .15s ease-out, box-shadow .15s ease-out, opacity .15s ease-out;
+    }
+
+    /* 键盘焦点样式 */
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline: 2px solid var(--brand);
+      outline-offset: 2px;
+    }
+
+    /* Toast 滑入 */
+    .toast-item {
+      animation: toast-in .3s cubic-bezier(.16, 1, .3, 1);
+    }
+
+    @keyframes toast-in {
+      from {
+        opacity: 0;
+        transform: translateX(1rem) scale(.95);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+      }
+    }
+
+    /* Modal 动画 */
+    .modal-overlay {
+      animation: fade-in .2s ease-out;
+    }
+
+    .modal-panel {
+      animation: scale-in .25s cubic-bezier(.16, 1, .3, 1);
+    }
+
+    @keyframes fade-in {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes scale-in {
+      from {
+        opacity: 0;
+        transform: scale(.96) translateY(.25rem);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    /* Spinner */
+    .spinner {
+      width: 1.25rem;
+      height: 1.25rem;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* 背景装饰球浮动 */
+    @keyframes float {
+      0%, 100% {
+        transform: translate(0, 0) scale(1);
+      }
+      50% {
+        transform: translate(20px, -30px) scale(1.05);
+      }
+    }
+
+    .animate-float {
+      animation: float 20s ease-in-out infinite;
+    }
+
+    .animate-float-delayed {
+      animation: float 25s ease-in-out infinite 5s;
+    }
+
+    /* 减弱动画 */
+    @media (prefers-reduced-motion: reduce) {
+      .toast-item, .modal-overlay, .modal-panel {
+        animation: none;
+      }
+
+      .spinner {
+        animation-duration: 1.5s;
+      }
+
+      .animate-float, .animate-float-delayed {
+        animation: none;
+      }
+    }
+  </style>
+</head>
+<body class="bg-stone-100 text-stone-800 antialiased min-h-screen overflow-x-hidden">
+
+<div class="flex flex-col min-h-screen" id="app" v-cloak>
+
+  <!-- 背景装饰层 -->
+  <div class="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
+    <div class="absolute -top-32 -right-32 w-96 h-96 bg-brand-400/20 rounded-full blur-3xl animate-float"></div>
+    <div
+      class="absolute top-1/2 -left-48 w-[500px] h-[500px] bg-brand-300/15 rounded-full blur-3xl animate-float-delayed"></div>
+    <div class="absolute -bottom-24 right-1/3 w-80 h-80 bg-amber-300/15 rounded-full blur-3xl animate-float"></div>
+  </div>
+
+  <!-- Toast 通知 -->
+  <div aria-live="polite" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+    <div :class="['toast-item pointer-events-auto px-4 py-3 rounded-xl backdrop-blur-xl border text-sm font-medium flex items-center gap-2 min-w-[300px] shadow-glass-strong',
+                 toast.type === 'error' ? 'bg-red-500/90 border-red-400/30 text-white' : 'bg-stone-900/85 border-stone-700/30 text-white']"
+         :key="toast.id" role="alert"
+         v-for="toast in toasts">
+      <svg v-if="toast.type === 'success'" class="w-4 h-4 text-brand-400 flex-shrink-0" fill="none"
+           stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+      </svg>
+      <svg v-else class="w-4 h-4 text-red-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+      {{ toast.message }}
+    </div>
+  </div>
+
+  <!-- 模态框 -->
+  <div :aria-label="modal.title"
+       @click.self="closeModal"
+       aria-modal="true"
+       class="modal-overlay fixed inset-0 z-40 bg-stone-900/40 backdrop-blur-md flex items-center justify-center p-2 sm:p-4"
+       role="dialog"
+       v-if="modal.show">
+    <div
+      class="modal-panel glass bg-white/80 backdrop-blur-xl rounded-2xl border-white/30 shadow-glass-strong w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div class="p-3 border-b border-stone-200/50 flex justify-between items-center bg-white/50 backdrop-blur">
+        <h3 class="font-bold text-base text-stone-700 truncate pr-2">{{ modal.title }}</h3>
+        <button @click="closeModal"
+                aria-label="关闭"
+                class="text-stone-400 hover:text-stone-600 hover:bg-stone-200/60 rounded-md p-1 flex-shrink-0">✕
+        </button>
+      </div>
+      <div class="overflow-y-auto p-4 sm:p-0">
+        <div v-html="modal.content" v-if="modal.type === 'html'"></div>
+
+        <div class="space-y-4 sm:p-4" v-if="modal.type === 'edit'">
+          <label class="flex items-center space-x-2">
+            <input class="rounded text-brand-600 focus:ring-brand-500 w-5 h-5" type="checkbox"
+                   v-model="modal.data.whitelist">
+            <span class="font-medium">{{ modal.data.whitelistLabel }}</span>
+          </label>
+          <div>
+            <label class="block text-sm font-medium text-stone-700 mb-1">备注</label>
+            <textarea
+              class="w-full rounded-lg border-stone-300/60 border p-2 bg-white/60 backdrop-blur focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none"
+              rows="3"
+              v-model="modal.data.remark"></textarea>
+          </div>
+        </div>
+        <div class="space-y-4 sm:p-4" v-if="modal.type === 'changePassword'">
+          <div v-if="modal.data.isAdmin">
+            <label class="block text-sm font-medium text-stone-700 mb-1">新密码</label>
+            <input
+              class="w-full rounded-lg border-stone-300/60 border p-2 bg-white/60 backdrop-blur focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none"
+              placeholder="至少6位"
+              type="password"
+              v-model="modal.data.newPassword">
+          </div>
+          <template v-else>
+            <div>
+              <label class="block text-sm font-medium text-stone-700 mb-1">旧密码</label>
+              <input
+                class="w-full rounded-lg border-stone-300/60 border p-2 bg-white/60 backdrop-blur focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none"
+                type="password"
+                v-model="modal.data.oldPassword">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-stone-700 mb-1">新密码</label>
+              <input
+                class="w-full rounded-lg border-stone-300/60 border p-2 bg-white/60 backdrop-blur focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none"
+                placeholder="至少6位"
+                type="password"
+                v-model="modal.data.newPassword">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-stone-700 mb-1">确认新密码</label>
+              <input
+                class="w-full rounded-lg border-stone-300/60 border p-2 bg-white/60 backdrop-blur focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none"
+                type="password"
+                v-model="modal.data.confirmPassword">
+            </div>
+          </template>
+        </div>
+        <div class="sm:p-4 space-y-4" v-if="modal.type === 'turns'">
+          <div class="mx-4 sm:mx-0 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+               v-if="modal.data.canRollback">
+            回档会删除该游戏中比目标存档更新的所有记录，操作后无法恢复。
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left min-w-[640px]">
+              <thead class="bg-stone-100/50 text-stone-500 font-medium">
+              <tr>
+                <th class="p-3">回合</th>
+                <th class="p-3">玩家</th>
+                <th class="p-3">时间</th>
+                <th class="p-3 text-right">操作</th>
+              </tr>
+              </thead>
+              <tbody class="divide-y divide-stone-200/40">
+              <tr :key="turn.id" v-for="turn in modal.data.turns">
+                <td class="p-3">{{ turn.turns }}</td>
+                <td class="p-3">{{ turn.createdPlayer || '-' }}</td>
+                <td class="p-3">{{ formatDate(turn.createdAt) }}</td>
+                <td class="p-3">
+                  <div class="flex justify-end gap-2">
+                    <a :href="`/api/games/${modal.data.gameId}/turns/${turn.id}/download`"
+                       class="px-3 py-1.5 rounded text-xs font-medium bg-white/60 backdrop-blur border border-stone-200/60 hover:bg-white/80 text-stone-700">
+                      下载
+                    </a>
+                    <button @click="rollbackGame(modal.data.gameId, turn)"
+                            class="px-3 py-1.5 rounded text-xs font-medium border border-amber-700 bg-amber-600 text-white hover:bg-amber-700"
+                            v-if="modal.data.canRollback">
+                      回档到此
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="py-8 text-center text-stone-400" v-if="!modal.data.turns.length">暂无记录</div>
+        </div>
+      </div>
+      <div class="p-3 border-t border-stone-200/50 bg-white/50 backdrop-blur flex justify-end gap-2 sm:gap-3">
+        <button @click="closeModal"
+                class="px-3 sm:px-4 py-2 rounded-lg border bg-white/60 hover:bg-white/80 backdrop-blur border-stone-200/60 active:bg-white text-stone-700 text-sm font-medium">
+          取消
+        </button>
+        <button @click="confirmModal"
+                class="px-3 sm:px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white text-sm font-medium border border-brand-700"
+                v-if="modal.onConfirm">
+          确认
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 登录页 -->
+  <div class="flex-1 flex items-center justify-center p-3 sm:p-4 relative overflow-hidden" v-if="view === 'login'">
+    <!-- 多层渐变背景 -->
+    <div class="absolute inset-0 bg-gradient-to-br from-stone-900 via-stone-800 to-stone-900"></div>
+    <div
+      class="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-brand-500/30 via-transparent to-transparent"></div>
+    <div
+      class="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-amber-500/20 via-transparent to-transparent"></div>
+    <!-- 装饰性光晕 -->
+    <div class="absolute inset-0 overflow-hidden pointer-events-none">
+      <div class="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-500/20 rounded-full blur-[100px] animate-float"></div>
+      <div
+        class="absolute bottom-1/3 right-1/4 w-80 h-80 bg-amber-400/15 rounded-full blur-[80px] animate-float-delayed"></div>
+      <div class="absolute top-1/2 right-1/3 w-64 h-64 bg-rose-400/10 rounded-full blur-[60px] animate-float"></div>
+    </div>
+    <!-- 微妙网格图案 -->
+    <div class="absolute inset-0 opacity-[0.03]"
+         style="background-image: url('data:image/svg+xml,%3Csvg width=&quot;60&quot; height=&quot;60&quot; viewBox=&quot;0 0 60 60&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot;%3E%3Cg fill=&quot;none&quot; fill-rule=&quot;evenodd&quot;%3E%3Cg fill=&quot;%23ffffff&quot; fill-opacity=&quot;1&quot;%3E%3Cpath d=&quot;M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z&quot;/%3E%3C/g%3E%3C/g%3E%3C/svg%3E');"></div>
+
+    <div
+      class="glass bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-6 sm:p-8 w-full max-w-md space-y-5 sm:space-y-6 shadow-glass relative">
+      <h1 class="text-center text-2xl sm:text-3xl font-bold text-white drop-shadow-sm">Unciv Server</h1>
+      <form @submit.prevent="handleLogin" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-white/80 mb-2">用户名</label>
+          <input
+            class="w-full px-4 py-2.5 sm:py-2 rounded-lg border border-white/20 bg-white/10 backdrop-blur text-white placeholder-white/50 focus:ring-2 focus:ring-brand-400 focus:border-transparent outline-none text-base"
+            required type="text"
+            v-model="loginForm.username">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-white/80 mb-2">密码</label>
+          <input
+            class="w-full px-4 py-2.5 sm:py-2 rounded-lg border border-white/20 bg-white/10 backdrop-blur text-white placeholder-white/50 focus:ring-2 focus:ring-brand-400 focus:border-transparent outline-none text-base"
+            required type="password"
+            v-model="loginForm.password">
+        </div>
+        <div class="pt-4">
+          <button :disabled="loading"
+                  class="w-full bg-white/50 text-brand-700 font-bold py-2.5 rounded-lg hover:bg-white/70 active:bg-white/80 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg transition-all"
+                  type="submit">
+          <span class="inline-flex items-center gap-2" v-if="loading">
+            <span class="spinner"
+                  style="width:1rem;height:1rem;border-color:var(--brand-dark);border-right-color:transparent"></span>登录中...</span>
+            <span v-else>登 录</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 主应用 -->
+  <div class="flex-1 flex flex-col" v-else-if="view !== 'loading'">
+    <nav class="glass bg-white/60 backdrop-blur-xl border-b border-white/20 sticky top-0 z-30">
+      <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2">
+        <div class="flex space-x-0.5 sm:space-x-1 bg-stone-200/50 backdrop-blur p-0.5 sm:p-1 rounded-lg flex-shrink-0">
+          <button :class="['px-2.5 sm:px-4 py-1.5 rounded-md text-xs sm:text-sm font-medium whitespace-nowrap transition-all duration-150',
+                        activeTab === tab.id ? 'bg-white/80 text-brand-600 shadow-sm backdrop-blur' : 'text-stone-500 hover:text-stone-700']"
+                  :key="tab.id"
+                  @click="activeTab = tab.id"
+                  v-for="tab in currentTabs">
+            {{ tab.name }}
+          </button>
+        </div>
+        <div class="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+          <div
+            class="hidden sm:flex bg-stone-200/50 backdrop-blur px-3 py-1 rounded-full text-sm font-medium text-stone-600 items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-brand-500"></div>
+            {{ userInfo.name }}
+          </div>
+          <button @click="openChangeMyPassword"
+                  class="text-xs sm:text-sm text-blue-600 hover:text-blue-700 font-medium hover:bg-blue-50 px-2 sm:px-3 py-1 rounded"
+                  v-if="!isAdmin">
+            改密
+          </button>
+          <a
+            class="text-xs sm:text-sm text-red-600 hover:text-red-700 font-medium hover:bg-red-50 px-2 sm:px-3 py-1 rounded"
+            href="/api/logout">退出</a>
+        </div>
+      </div>
+    </nav>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6">
+
+      <div class="flex flex-col items-center justify-center py-20 text-stone-400 gap-3" v-if="contentLoading">
+        <span class="spinner"></span>
+        <span class="text-sm">加载数据中...</span>
+      </div>
+
+      <div v-else>
+        <!-- 管理员统计 -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6"
+             v-if="isAdmin && activeTab === 'stats'">
+          <stat-card :value="stats.playerCount"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>'
+                     label="玩家总数"></stat-card>
+          <stat-card :value="stats.whitelistPlayerCount" color="text-brand-600"
+                     icon='<svg class="w-6 h-6 text-brand-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>'
+                     label="白名单玩家"></stat-card>
+          <stat-card :value="stats.todayNewPlayers"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/></svg>'
+                     label="今日新增" sub="玩家"></stat-card>
+          <stat-card :value="stats.activePlayers7Days"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1A3.75 3.75 0 0012 18z"/></svg>'
+                     label="7天活跃" sub="玩家"></stat-card>
+          <stat-card :value="stats.activePlayers30Days"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1A3.75 3.75 0 0012 18z"/></svg>'
+                     label="30天活跃" sub="玩家"></stat-card>
+
+          <stat-card :value="stats.gameCount"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.39 48.39 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z"/></svg>'
+                     label="游戏总数"></stat-card>
+          <stat-card :value="stats.whitelistGameCount" color="text-brand-600"
+                     icon='<svg class="w-6 h-6 text-brand-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>'
+                     label="白名单游戏"></stat-card>
+          <stat-card :value="stats.todayNewGames"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>'
+                     label="今日新增" sub="游戏"></stat-card>
+          <stat-card :value="stats.activeGames7Days"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75H6A2.25 2.25 0 003.75 6v1.5M16.5 3.75H18A2.25 2.25 0 0120.25 6v1.5m0 9V18A2.25 2.25 0 0118 20.25h-1.5m-9 0H6A2.25 2.25 0 013.75 18v-1.5M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'
+                     label="7天活跃" sub="游戏"></stat-card>
+          <stat-card :value="stats.activeGames30Days"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75H6A2.25 2.25 0 003.75 6v1.5M16.5 3.75H18A2.25 2.25 0 0120.25 6v1.5m0 9V18A2.25 2.25 0 0118 20.25h-1.5m-9 0H6A2.25 2.25 0 013.75 18v-1.5M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'
+                     label="30天活跃" sub="游戏"></stat-card>
+
+          <stat-card :value="stats.totalSaves"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/></svg>'
+                     label="总存档数"></stat-card>
+          <stat-card :value="stats.todayNewSaves"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>'
+                     label="今日存档"></stat-card>
+          <stat-card :value="stats.avgGameTurns?.toFixed(1)"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
+                     label="平均回合"></stat-card>
+          <stat-card :value="stats.maxGameTurns"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M18.75 4.236c.982.143 1.954.317 2.916.52A6.003 6.003 0 0116.27 9.728M18.75 4.236V4.5c0 2.108-.966 3.99-2.48 5.228m0 0a6.003 6.003 0 01-5.54 0"/></svg>'
+                     label="最高回合"></stat-card>
+        </div>
+
+        <!-- 玩家管理 -->
+        <div v-if="isAdmin && activeTab === 'players'">
+          <div
+            class="glass bg-white/50 backdrop-blur-xl p-3 sm:p-4 rounded-2xl border-white/30 mb-4 flex flex-col gap-3">
+            <div class="flex flex-wrap gap-2 sm:gap-3 w-full">
+              <input
+                class="flex-1 min-w-[140px] px-3 sm:px-4 py-2 rounded-lg border border-stone-200/60 bg-white/40 backdrop-blur focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none text-sm"
+                placeholder="搜索 ID 或备注..."
+                v-model="filters.playerSearch">
+              <button @click="resetFilters" class="text-sm text-stone-500 hover:text-brand-600 px-2">重置</button>
+            </div>
+            <div
+              class="flex flex-wrap items-center gap-2 sm:gap-3 bg-brand-50/50 px-3 py-2 rounded-lg border border-brand-200/40 backdrop-blur"
+              v-if="selectedPlayers.length > 0">
+              <span class="text-sm text-brand-800 font-medium">选中 {{ selectedPlayers.length }} 项</span>
+              <button @click="batchUpdatePlayers(true)"
+                      class="px-3 py-1.5 rounded text-xs font-medium border border-brand-700 bg-brand-600 text-white">
+                设为白名单
+              </button>
+              <button @click="batchUpdatePlayers(false)"
+                      class="px-3 py-1.5 rounded text-xs font-medium bg-white text-red-600 border border-red-200">
+                取消白名单
+              </button>
+            </div>
+          </div>
+
+          <div class="glass bg-white/50 backdrop-blur-xl rounded-2xl border-white/30 overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left min-w-[600px]">
+                <thead class="bg-stone-100/50 text-stone-500 font-medium">
+                <tr>
+                  <th class="p-3 sm:p-4 w-10"><input class="rounded text-brand-600" type="checkbox"
+                                                     v-model="selectAllPlayers"></th>
+                  <th class="p-3 sm:p-4">玩家 ID</th>
+                  <th class="p-3 sm:p-4">状态</th>
+                  <th class="p-3 sm:p-4 hidden sm:table-cell">备注</th>
+                  <th class="p-3 sm:p-4 hidden md:table-cell">注册/活跃</th>
+                  <th class="p-3 sm:p-4 text-right">操作</th>
+                </tr>
+                </thead>
+                <tbody class="divide-y divide-stone-200/40">
+                <tr :key="p.playerId" class="hover:bg-brand-50/30 transition-colors duration-150" v-for="p in players">
+                  <td class="p-3 sm:p-4"><input :value="p.playerId" class="rounded text-brand-600" type="checkbox"
+                                                v-model="selectedPlayers"></td>
+                  <td class="p-3 sm:p-4 font-mono text-stone-700 text-xs sm:text-sm break-all">{{ p.playerId }}</td>
+                  <td class="p-3 sm:p-4">
+                    <span
+                      :class="['px-2 py-1 rounded-full text-xs font-medium text-nowrap', p.whitelist ? 'bg-brand-100/80 text-brand-700' : 'bg-stone-100 text-stone-500']">
+                        {{ p.whitelist ? '白名单' : '普通' }}
+                    </span>
+                  </td>
+                  <td class="p-3 sm:p-4 text-stone-500 truncate max-w-[150px] hidden sm:table-cell">{{ p.remark || '-'
+                    }}
+                  </td>
+                  <td class="p-3 sm:p-4 text-xs text-stone-400 hidden md:table-cell">
+                    <div>注: {{ formatDate(p.createdAt) }}</div>
+                    <div>活: {{ formatDate(p.updatedAt) }}</div>
+                  </td>
+                  <td class="p-3 sm:p-4 text-right space-x-1 sm:space-x-2 whitespace-nowrap">
+                    <button @click="openEditPlayer(p)" class="text-brand-600 hover:underline text-xs sm:text-sm">
+                      编辑
+                    </button>
+                    <button @click="viewPassword(p.playerId)"
+                            class="text-stone-500 hover:text-stone-800 text-xs sm:text-sm">密码
+                    </button>
+                    <button @click="openChangePlayerPassword(p.playerId)"
+                            class="text-blue-600 hover:underline text-xs sm:text-sm">改密
+                    </button>
+                  </td>
+                </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="p-8 text-center text-stone-400" v-if="players.length === 0">暂无数据</div>
+            <div
+              class="flex items-center justify-between px-4 py-3 border-t border-stone-200/40 bg-white/30 backdrop-blur text-sm"
+              v-if="playersTotal > 0">
+              <span class="text-stone-500">共 {{ playersTotal }} 条</span>
+              <div class="flex items-center gap-2">
+                <button :disabled="playerPage <= 1" @click="setPlayerPage(playerPage - 1)"
+                        class="px-3 py-1 rounded-lg border border-stone-200/60 bg-white/50 hover:bg-white/80 backdrop-blur disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  上一页
+                </button>
+                <span class="text-stone-600">{{ playerPage }} / {{ playerTotalPages }}</span>
+                <button :disabled="playerPage >= playerTotalPages" @click="setPlayerPage(playerPage + 1)"
+                        class="px-3 py-1 rounded-lg border border-stone-200/60 bg-white/50 hover:bg-white/80 backdrop-blur disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  下一页
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 游戏管理 -->
+        <div v-if="isAdmin && activeTab === 'games'">
+          <div
+            class="glass bg-white/50 backdrop-blur-xl p-3 sm:p-4 rounded-2xl border-white/30 mb-4 flex flex-col gap-3">
+            <div class="flex flex-wrap gap-2 sm:gap-3 w-full">
+              <input
+                class="flex-1 min-w-[140px] px-3 sm:px-4 py-2 rounded-lg border border-stone-200/60 bg-white/40 backdrop-blur focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none text-sm"
+                placeholder="搜索 ID 或玩家..."
+                v-model="filters.gameSearch">
+              <button @click="resetFilters" class="text-sm text-stone-500 hover:text-brand-600 px-2">重置</button>
+            </div>
+            <div
+              class="flex flex-wrap items-center gap-2 sm:gap-3 bg-brand-50/50 px-3 py-2 rounded-lg border border-brand-200/40 backdrop-blur"
+              v-if="selectedGames.length > 0">
+              <span class="text-sm text-brand-800 font-medium">选中 {{ selectedGames.length }} 项</span>
+              <button @click="batchUpdateGames(true)"
+                      class="px-3 py-1.5 rounded text-xs font-medium border border-brand-700 bg-brand-600 text-white">
+                设为白名单
+              </button>
+              <button @click="batchUpdateGames(false)"
+                      class="px-3 py-1.5 rounded text-xs font-medium bg-white text-red-600 border border-red-200">
+                取消白名单
+              </button>
+              <button @click="batchDeleteGames"
+                      class="px-3 py-1.5 rounded text-xs font-medium border border-red-700 bg-red-600 text-white">
+                删除
+              </button>
+            </div>
+          </div>
+
+          <div class="glass bg-white/50 backdrop-blur-xl rounded-2xl border-white/30 overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left min-w-[600px]">
+                <thead class="bg-stone-100/50 text-stone-500 font-medium">
+                <tr>
+                  <th class="p-3 sm:p-4 w-10"><input class="rounded text-brand-600" type="checkbox"
+                                                     v-model="selectAllGames">
+                  </th>
+                  <th class="p-3 sm:p-4">Game ID / 玩家</th>
+                  <th class="p-3 sm:p-4">回合</th>
+                  <th class="p-3 sm:p-4 hidden md:table-cell">时间</th>
+                  <th class="p-3 sm:p-4">状态</th>
+                  <th class="p-3 sm:p-4 text-right">操作</th>
+                </tr>
+                </thead>
+                <tbody class="divide-y divide-stone-200/40">
+                <tr :key="g.gameId" class="hover:bg-brand-50/30 transition-colors duration-150" v-for="g in games">
+                  <td class="p-3 sm:p-4"><input :value="g.gameId" class="rounded text-brand-600" type="checkbox"
+                                                v-model="selectedGames"></td>
+                  <td class="p-3 sm:p-4">
+                    <div class="font-mono text-brand-700 font-medium text-xs sm:text-sm break-all">{{ g.gameId }}
+                    </div>
+                    <div class="text-xs text-stone-400 mt-1 flex flex-wrap gap-1">
+                      <span class="bg-stone-100/60 px-1.5 rounded" v-for="p in g.players">{{ p }}</span>
+                    </div>
+                  </td>
+                  <td class="p-3 sm:p-4">{{ g.turns || 0 }}</td>
+                  <td class="p-3 sm:p-4 text-xs text-stone-400 hidden md:table-cell">
+                    <div>创: {{ formatDate(g.createdAt) }}</div>
+                    <div>更: {{ formatDate(g.updatedAt) }}</div>
+                  </td>
+                  <td class="p-3 sm:p-4">
+                    <span
+                      :class="['px-2 py-1 rounded-full text-xs font-medium text-nowrap', g.whitelist ? 'bg-brand-100/80 text-brand-700' : 'bg-stone-100 text-stone-500']">
+                       {{ g.whitelist ? '白名单' : '普通' }}
+                    </span>
+                  </td>
+                  <td class="p-3 sm:p-4 text-right space-x-1 sm:space-x-2 whitespace-nowrap">
+                    <button @click="openEditGame(g)" class="text-brand-600 hover:underline text-xs sm:text-sm">编辑
+                    </button>
+                    <button @click="viewHistory(g)"
+                            class="text-blue-600 hover:underline text-xs sm:text-sm">历史
+                    </button>
+                  </td>
+                </tr>
+                </tbody>
+              </table>
+            </div>
+            <div
+              class="flex items-center justify-between px-4 py-3 border-t border-stone-200/40 bg-white/30 backdrop-blur text-sm"
+              v-if="gamesTotal > 0">
+              <span class="text-stone-500">共 {{ gamesTotal }} 条</span>
+              <div class="flex items-center gap-2">
+                <button :disabled="gamePage <= 1" @click="setGamePage(gamePage - 1)"
+                        class="px-3 py-1 rounded-lg border border-stone-200/60 bg-white/50 hover:bg-white/80 backdrop-blur disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  上一页
+                </button>
+                <span class="text-stone-600">{{ gamePage }} / {{ gameTotalPages }}</span>
+                <button :disabled="gamePage >= gameTotalPages" @click="setGamePage(gamePage + 1)"
+                        class="px-3 py-1 rounded-lg border border-stone-200/60 bg-white/50 hover:bg-white/80 backdrop-blur disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  下一页
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 用户统计 -->
+        <div class="grid grid-cols-2 md:grid-cols-2 gap-3 sm:gap-6" v-if="!isAdmin && activeTab === 'stats'">
+          <stat-card :value="userStats.gameCount"
+                     icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.39 48.39 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z"/></svg>'
+                     label="参与游戏数"></stat-card>
+          <stat-card :value="userStats.createdCount" color="text-brand-600"
+                     icon='<svg class="w-6 h-6 text-brand-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"/></svg>'
+                     label="创建游戏数"></stat-card>
+        </div>
+
+        <!-- 用户游戏列表 -->
+        <div v-if="!isAdmin && activeTab === 'games'">
+          <div class="glass bg-white/50 backdrop-blur-xl rounded-2xl border-white/30 overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left min-w-[500px]">
+                <thead class="bg-stone-100/50 text-stone-500 font-medium">
+                <tr>
+                  <th class="p-3 sm:p-4">Game ID</th>
+                  <th class="p-3 sm:p-4">回合</th>
+                  <th class="p-3 sm:p-4 hidden sm:table-cell">创建时间</th>
+                  <th class="p-3 sm:p-4 hidden md:table-cell">创建者</th>
+                  <th class="p-3 sm:p-4 text-right">操作</th>
+                </tr>
+                </thead>
+                <tbody class="divide-y divide-stone-200/40">
+                <tr :key="g.gameId" class="hover:bg-brand-50/30 transition-colors duration-150" v-for="g in userGames">
+                  <td class="p-3 sm:p-4 font-mono font-medium text-brand-700 text-xs sm:text-sm break-all">
+                    {{ g.gameId}}
+                  </td>
+                  <td class="p-3 sm:p-4">{{ g.turns }}</td>
+                  <td class="p-3 sm:p-4 text-stone-500 text-xs sm:text-sm hidden sm:table-cell">
+                    {{ formatDate(g.createdAt) }}
+                  </td>
+                  <td class="p-3 sm:p-4 hidden md:table-cell">
+                    <span class="px-2 py-1 bg-brand-100/80 text-brand-700 rounded text-xs"
+                          v-if="g.createdPlayer === userInfo.id">我</span>
+                    <span class="text-stone-500 text-xs" v-else>{{ g.createdPlayer }}</span>
+                  </td>
+                  <td class="p-3 sm:p-4 text-right">
+                    <div class="flex flex-wrap justify-end gap-1 sm:gap-2">
+                      <button @click="viewHistory(g)"
+                              class="px-2 sm:px-3 py-1 sm:py-1.5 rounded text-xs font-medium bg-white/60 backdrop-blur border border-stone-200/60 hover:bg-white/80 text-stone-700">
+                        历史
+                      </button>
+                      <button @click="downloadGame(g.gameId)"
+                              class="px-2 sm:px-3 py-1 sm:py-1.5 rounded text-xs font-medium border border-brand-700 bg-brand-600 text-white hover:bg-brand-700">
+                        下载
+                      </button>
+                      <button @click="deleteUserGame(g.gameId)"
+                              class="px-2 sm:px-3 py-1 sm:py-1.5 rounded text-xs font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100"
+                              v-if="g.createdPlayer === userInfo.id">
+                        删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="p-8 text-center text-stone-400" v-if="userGames.length === 0">暂无游戏</div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- 加载页 -->
+  <div class="fixed inset-0 bg-stone-100 flex items-center justify-center z-50" v-if="view === 'loading'">
+    <div class="text-brand-600 font-medium flex flex-col items-center gap-3">
+      <span class="spinner" style="width:2rem;height:2rem;border-width:2.5px"></span>
+      <span class="text-stone-500">正在连接服务器...</span>
+    </div>
+  </div>
+</div>
+
+<template id="stat-card-tpl">
+  <div
+    class="glass bg-white/50 backdrop-blur-xl rounded-2xl border-white/30 p-4 sm:p-6 hover:shadow-glass-hover transition-all duration-300 group">
+    <div class="flex items-center justify-between mb-2 sm:mb-3">
+      <span class="text-stone-500 text-xs sm:text-sm font-medium">{{ label }}</span>
+      <span class="text-lg sm:text-xl opacity-60 group-hover:opacity-100 transition-opacity" v-html="icon"></span>
+    </div>
+    <div class="flex items-baseline gap-1 sm:gap-2">
+      <span :class="['text-2xl sm:text-3xl font-bold tracking-tight', color || 'text-stone-800']">{{ value || 0
+        }}</span>
+      <span class="text-xs text-stone-400" v-if="sub">{{ sub }}</span>
+    </div>
+  </div>
+</template>
+
+<script>
+  const API = {
+    async request(url, options = {}) {
+      options.credentials = 'include'
+      options.headers = { 'Content-Type': 'application/json', ...options.headers }
+      const res = await fetch(url, options)
+      if (res.status === 401) throw new Error('Unauthorized')
+      if (res.status === 204) return null
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.message || '请求失败')
+      }
+      return res.json()
+    },
+    checkSession: () => API.request('/api/session'),
+    login: (u, p) => API.request('/api/login', { method: 'POST', body: JSON.stringify({ username: u, password: p }) }),
+    getStats: () => API.request('/api/stats'),
+    getPlayers: (page, pageSize, keyword) => API.request(`/api/players?page=${page}&pageSize=${pageSize}&keyword=${encodeURIComponent(keyword || '')}`),
+    getGames: (page, pageSize, keyword) => API.request(`/api/games?page=${page}&pageSize=${pageSize}&keyword=${encodeURIComponent(keyword || '')}`),
+    getUserStats: () => API.request('/api/users/stats'),
+    getUserGames: () => API.request('/api/users/games'),
+    updatePlayer: (id, data) => API.request(`/api/players/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    getPlayerPwd: (id) => API.request(`/api/players/${id}/password`),
+    updatePlayerPwd: (id, password) => API.request(`/api/players/${id}/password`, {
+      method: 'PUT',
+      body: JSON.stringify({ password }),
+    }),
+    updateUserPwd: (oldPassword, newPassword) => API.request('/api/users/password', {
+      method: 'PUT',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    }),
+    updateGame: (id, data) => API.request(`/api/games/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    batchPlayers: (ids, wl) => API.request('/api/players/batch', {
+      method: 'PATCH',
+      body: JSON.stringify({ playerIds: ids, whitelist: wl }),
+    }),
+    batchGames: (ids, wl) => API.request('/api/games/batch', {
+      method: 'PATCH',
+      body: JSON.stringify({ gameIds: ids, whitelist: wl }),
+    }),
+    batchDelGames: (ids) => API.request('/api/games/batch', {
+      method: 'DELETE',
+      body: JSON.stringify({ gameIds: ids }),
+    }),
+    deleteGame: (id) => API.request(`/api/games/${id}`, { method: 'DELETE' }),
+    getTurns: (id) => API.request(`/api/games/${id}/turns`),
+    rollbackGame: (gameId, turnId) => API.request(`/api/games/${gameId}/turns/${turnId}/rollback`, { method: 'POST' }),
+  }
+  const StatCard = {
+    props: ['label', 'value', 'icon', 'color', 'sub'],
+    template: '#stat-card-tpl',
+  }
+  const { createApp, ref, reactive, computed, onMounted, watch } = Vue
+  createApp({
+    components: { StatCard },
+    setup() {
+      // --- 状态 ---
+      const view = ref('loading') // loading, login, app
+      const isAdmin = ref(false)
+      const userInfo = reactive({ name: '', id: '' })
+      const loginForm = reactive({ username: '', password: '' })
+      const loading = ref(false)
+      const contentLoading = ref(false)
+      const activeTab = ref('stats')
+      // 数据
+      const stats = ref({})
+      const players = ref([])
+      const playersTotal = ref(0)
+      const games = ref([])
+      const gamesTotal = ref(0)
+      const userStats = ref({})
+      const userGames = ref([])
+      // UI
+      const toasts = ref([])
+      const modal = reactive({ show: false, title: '', content: '', type: '', data: {}, onConfirm: null })
+      // 筛选 & 批量
+      const filters = reactive({ playerSearch: '', gameSearch: '' })
+      const playerPage = ref(1)
+      const playerPageSize = ref(20)
+      const gamePage = ref(1)
+      const gamePageSize = ref(20)
+      const selectedPlayers = ref([])
+      const selectedGames = ref([])
+      // --- 计算属性 ---
+      const currentTabs = computed(() => {
+        if (isAdmin.value) {
+          return [
+            { id: 'stats', name: '数据概览' }, { id: 'players', name: '玩家管理' }, { id: 'games', name: '游戏管理' },
+          ]
+        }
+        return [{ id: 'stats', name: '我的统计' }, { id: 'games', name: '我的游戏' }]
+      })
+      const playerTotalPages = computed(() => Math.max(1, Math.ceil(playersTotal.value / playerPageSize.value)))
+      const gameTotalPages = computed(() => Math.max(1, Math.ceil(gamesTotal.value / gamePageSize.value)))
+      const selectAllPlayers = computed({
+        get: () => players.value.length > 0 && selectedPlayers.value.length === players.value.length,
+        set: (val) => selectedPlayers.value = val ? players.value.map(p => p.playerId) : [],
+      })
+      const selectAllGames = computed({
+        get: () => games.value.length > 0 && selectedGames.value.length === games.value.length,
+        set: (val) => selectedGames.value = val ? games.value.map(g => g.gameId) : [],
+      })
+      // --- 方法 ---
+      const showToast = (msg, type = 'success') => {
+        const id = Date.now()
+        toasts.value.push({ id, message: msg, type })
+        setTimeout(() => toasts.value = toasts.value.filter(t => t.id !== id), 3000)
+      }
+      const closeModal = () => {
+        modal.show = false
+        modal.onConfirm = null
+      }
+      const confirmModal = async () => {
+        if (modal.onConfirm) {
+          try {
+            await modal.onConfirm()
+            closeModal()
+          } catch (e) {
+            showToast(e.message || e, 'error')
+          }
+        }
+      }
+      // 初始化
+      onMounted(async () => {
+        try {
+          const session = await API.checkSession()
+          if (session.isLoggedIn) {
+            isAdmin.value = session.isAdmin
+            userInfo.name = session.isAdmin ? '管理员' : '玩家'
+            view.value = 'app'
+            loadTabData()
+          } else {
+            view.value = 'login'
+          }
+        } catch (e) {
+          view.value = 'login'
+        }
+      })
+      // 监听 Tab 切换
+      watch(activeTab, () => loadTabData())
+      const loadTabData = async () => {
+        contentLoading.value = true
+        try {
+          if (isAdmin.value) {
+            if (activeTab.value === 'stats') stats.value = await API.getStats()
+            if (activeTab.value === 'players') {
+              const res = await API.getPlayers(playerPage.value, playerPageSize.value, filters.playerSearch)
+              players.value = res.items
+              playersTotal.value = res.total
+            }
+            if (activeTab.value === 'games') {
+              const res = await API.getGames(gamePage.value, gamePageSize.value, filters.gameSearch)
+              games.value = res.items
+              gamesTotal.value = res.total
+            }
+          } else {
+            if (activeTab.value === 'stats') userStats.value = await API.getUserStats()
+            if (activeTab.value === 'games') {
+              const data = await API.getUserGames()
+              userGames.value = data.games
+              userInfo.id = data.playerId
+              userInfo.name = data.playerId
+            }
+          }
+        } catch (e) {
+          if (e.message === 'Unauthorized') location.reload()
+          showToast(e.message, 'error')
+        } finally {
+          contentLoading.value = false
+        }
+      }
+      const handleLogin = async () => {
+        loading.value = true
+        try {
+          const res = await API.login(loginForm.username, loginForm.password)
+          isAdmin.value = res.isAdmin
+          userInfo.name = res.isAdmin ? '管理员' : loginForm.username
+          view.value = 'app'
+          activeTab.value = 'stats'
+          loadTabData()
+        } catch (e) {
+          showToast(e.message || '登录失败', 'error')
+        } finally {
+          loading.value = false
+        }
+      }
+      // --- 业务操作 ---
+      const formatDate = (str) => new Date(str).toLocaleString('zh-CN', { hour12: false })
+      const resetFilters = () => {
+        filters.playerSearch = ''
+        filters.gameSearch = ''
+        playerPage.value = 1
+        gamePage.value = 1
+        loadTabData()
+      }
+      /**
+       * 搜索防抖。
+       */
+      let playerSearchTimer = null
+      let gameSearchTimer = null
+      watch(() => filters.playerSearch, () => {
+        clearTimeout(playerSearchTimer)
+        playerSearchTimer = setTimeout(() => {
+          playerPage.value = 1
+          loadTabData()
+        }, 300)
+      })
+      watch(() => filters.gameSearch, () => {
+        clearTimeout(gameSearchTimer)
+        gameSearchTimer = setTimeout(() => {
+          gamePage.value = 1
+          loadTabData()
+        }, 300)
+      })
+      // 分页操作
+      const setPlayerPage = (p) => {
+        playerPage.value = p
+        selectedPlayers.value = []
+        loadTabData()
+      }
+      const setGamePage = (p) => {
+        gamePage.value = p
+        selectedGames.value = []
+        loadTabData()
+      }
+      // 通用编辑操作
+      const openEdit = (type, id, data, updateFn) => {
+        modal.title = `编辑${type}: ${id}`
+        modal.type = 'edit'
+        modal.data = { whitelist: data.whitelist, remark: data.remark || '', whitelistLabel: `白名单${type}` }
+        modal.onConfirm = async () => {
+          await updateFn(id, { whitelist: modal.data.whitelist, remark: modal.data.remark })
+          showToast('更新成功')
+          loadTabData()
+        }
+        modal.show = true
+      }
+      const openEditPlayer = (p) => openEdit('玩家', p.playerId, p, API.updatePlayer)
+      const canRollbackGame = (game) => isAdmin.value || game.createdPlayer === userInfo.id
+      const viewPassword = async (id) => {
+        try {
+          const res = await API.getPlayerPwd(id)
+          const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+          modal.title = '查看密码'
+          modal.type = 'html'
+          modal.content = `<div class="bg-stone-100 p-4 rounded text-center font-mono select-all text-xl tracking-wider">${esc(res.password)}</div>`
+          modal.show = true
+        } catch (e) { showToast(e.message, 'error') }
+      }
+      const openChangePlayerPassword = (playerId) => {
+        modal.title = `修改密码: ${playerId}`
+        modal.type = 'changePassword'
+        modal.data = { playerId, isAdmin: true, newPassword: '' }
+        modal.onConfirm = async () => {
+          if (!modal.data.newPassword || modal.data.newPassword.length < 6) {
+            throw new Error('密码至少6位')
+          }
+          await API.updatePlayerPwd(playerId, modal.data.newPassword)
+        }
+        modal.show = true
+      }
+      const openChangeMyPassword = () => {
+        modal.title = '修改我的密码'
+        modal.type = 'changePassword'
+        modal.data = { isAdmin: false, oldPassword: '', newPassword: '', confirmPassword: '' }
+        modal.onConfirm = async () => {
+          if (!modal.data.oldPassword) {
+            throw new Error('请输入旧密码')
+          }
+          if (!modal.data.newPassword || modal.data.newPassword.length < 6) {
+            throw new Error('新密码至少6位')
+          }
+          if (modal.data.newPassword !== modal.data.confirmPassword) {
+            throw new Error('两次密码不一致')
+          }
+          await API.updateUserPwd(modal.data.oldPassword, modal.data.newPassword)
+          showToast('密码修改成功')
+        }
+        modal.show = true
+      }
+      const batchUpdatePlayers = async (wl) => {
+        if (!selectedPlayers.value.length) return
+        if (!confirm(`确定更新 ${selectedPlayers.value.length} 个玩家吗？`)) return
+        try {
+          await API.batchPlayers(selectedPlayers.value, wl)
+          showToast('批量操作成功')
+          selectedPlayers.value = []
+          loadTabData()
+        } catch (e) { showToast(e.message, 'error') }
+      }
+      const openEditGame = (g) => openEdit('游戏', g.gameId, g, API.updateGame)
+      const batchUpdateGames = async (wl) => {
+        if (!selectedGames.value.length) return
+        try {
+          await API.batchGames(selectedGames.value, wl)
+          showToast('操作成功')
+          selectedGames.value = []
+          loadTabData()
+        } catch (e) { showToast(e.message, 'error') }
+      }
+      const batchDeleteGames = async () => {
+        if (!selectedGames.value.length) return
+        if (!confirm('此操作不可恢复，确定删除？')) return
+        try {
+          await API.batchDelGames(selectedGames.value)
+          showToast('删除成功')
+          selectedGames.value = []
+          loadTabData()
+        } catch (e) { showToast(e.message, 'error') }
+      }
+      // 历史与下载
+      const viewHistory = async (game) => {
+        try {
+          const turns = await API.getTurns(game.gameId)
+          modal.title = `游戏历史: ${game.gameId}`
+          modal.type = 'turns'
+          modal.data = { gameId: game.gameId, turns, canRollback: canRollbackGame(game) }
+          modal.show = true
+        } catch (e) { showToast('无法获取历史', 'error') }
+      }
+      const downloadGame = (gid) => window.location.href = `/api/games/${gid}/download`
+      const rollbackGame = async (gid, turn) => {
+        const firstConfirm = `确定将游戏回档到第 ${turn.turns} 回合吗？当前比该存档更新的记录都会被删除。`
+        if (!confirm(firstConfirm)) return
+        const secondConfirm = `最后确认：回档后数据不可恢复，是否继续回档到第 ${turn.turns} 回合？`
+        if (!confirm(secondConfirm)) return
+        try {
+          const result = await API.rollbackGame(gid, turn.id)
+          showToast(`回档成功，当前回合 ${result.currentTurns}，删除 ${result.deletedTurns} 条历史记录`)
+          await loadTabData()
+          const currentGame = isAdmin.value
+            ? games.value.find(g => g.gameId === gid) || { gameId: gid, createdPlayer: '', turns: result.currentTurns }
+            : userGames.value.find(g => g.gameId === gid) || {
+            gameId: gid, createdPlayer: userInfo.id, turns: result.currentTurns,
+          }
+          await viewHistory(currentGame)
+        } catch (e) {
+          showToast(e.message, 'error')
+        }
+      }
+      const deleteUserGame = async (gid) => {
+        if (!confirm('确定删除此游戏？')) return
+        try {
+          await API.deleteGame(gid)
+          showToast('删除成功')
+          loadTabData()
+        } catch (e) { showToast(e.message, 'error') }
+      }
+      return {
+        view, isAdmin, userInfo, loginForm, loading, contentLoading, activeTab, currentTabs,
+        stats, userStats, userGames,
+        players, playersTotal, playerPage, playerPageSize, playerTotalPages,
+        games, gamesTotal, gamePage, gamePageSize, gameTotalPages,
+        filters, selectedPlayers, selectedGames, selectAllPlayers, selectAllGames,
+        toasts, modal,
+        handleLogin, formatDate, resetFilters, setPlayerPage, setGamePage,
+        openEditPlayer, viewPassword, openChangePlayerPassword, openChangeMyPassword, batchUpdatePlayers,
+        openEditGame, batchUpdateGames, batchDeleteGames,
+        viewHistory, downloadGame, rollbackGame, deleteUserGame,
+        closeModal, confirmModal,
+      }
+    },
+  }).mount('#app')
+</script>
+</body>
+</html>
