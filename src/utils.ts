@@ -239,7 +239,12 @@ export function encodeFile(data: string): string {
  * 解析存档中的关键游戏字段。
  */
 export function parseGameData(data: string): GameData {
-  return JSON.parse(data) as GameData
+  const gameData = JSON.parse(data) as Omit<GameData, 'turns'> & { turns?: unknown }
+  const turns = gameData.turns === undefined ? 0 : gameData.turns
+  if (!Number.isInteger(turns) || (turns as number) < 0) {
+    throw new Error('无效的回合数')
+  }
+  return { ...gameData, turns: turns as number }
 }
 
 /**

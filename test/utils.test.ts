@@ -72,6 +72,12 @@ test('存档解码错误和游戏数据解析覆盖失败路径', () => {
   assert.throws(() => decodeFile('not-base64-gzip'))
   assert.throws(() => decodeFile(Buffer.from('plain').toString('base64')))
   assert.throws(() => parseGameData('{'))
+  assert.throws(() => parseGameData(JSON.stringify({ gameId: testGameID1, turns: -1 })), /无效的回合数/)
+  assert.throws(() => parseGameData(JSON.stringify({ gameId: testGameID1, turns: 1.5 })), /无效的回合数/)
+})
+
+test('存档缺省回合数时按初始回合处理', () => {
+  assert.equal(parseGameData(JSON.stringify({ gameId: testGameID1 })).turns, 0)
 })
 
 test('玩家列表只提取人类玩家', () => {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'node:test'
-import { getPlayerByID } from '../src/database.js'
-import { decodeFile } from '../src/utils.js'
+import { getLatestFileContent, getPlayerByID } from '../src/database.js'
+import { decodeFile, encodeFile } from '../src/utils.js'
 import {
   basicAuth, buildGameData, seedGameWithContent, seedPlayer, setupTestServer, startHttpServer, testGameID1,
   testPassword, testPlayerID1, type TestServer,
@@ -67,6 +67,28 @@ test('/files 上传和下载正式存档', async () => {
   })
   assert.equal(get.status, 200)
   assert.equal(JSON.parse(decodeFile(await get.text())).turns, 4)
+})
+
+test('/files 上传缺省回合数的初始存档', async () => {
+  seedPlayer()
+  const body = encodeFile(JSON.stringify({
+    gameId: testGameID1,
+    gameParameters: {
+      players: [{ playerId: testPlayerID1, playerType: 'Human' }],
+    },
+  }))
+
+  const put = await server.app.request(`/files/${testGameID1}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: basicAuth(),
+      'User-Agent': 'Unciv',
+    },
+    body,
+  })
+
+  assert.equal(put.status, 204)
+  assert.equal(getLatestFileContent(testGameID1)?.turns, 0)
 })
 
 test('/files 拒绝非 Unciv 客户端', async () => {
