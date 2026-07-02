@@ -51,72 +51,75 @@ test('/auth 覆盖认证错误和修改密码', async () => {
 test('/files 覆盖上传错误、既有游戏权限和预览存档', async () => {
   seedPlayer(testPlayerID1)
   seedPlayer(testPlayerID2)
+  const uncivHeaders = { Authorization: basicAuth(), 'User-Agent': 'Unciv' }
+  const gameFile = `/files/${testGameID1}`
+  const previewFile = `/files/${testGameID2}_Preview`
 
-  const missing = await server.app.request(`/files/${testGameID1}`, {
-    headers: { Authorization: basicAuth(), 'User-Agent': 'Unciv' },
+  const missing = await server.app.request(gameFile, {
+    headers: uncivHeaders,
   })
   assert.equal(missing.status, 404)
 
   const invalidGameId = await server.app.request('/files/invalid', {
     method: 'PUT',
-    headers: { Authorization: basicAuth(), 'User-Agent': 'Unciv' },
+    headers: uncivHeaders,
     body: buildGameData(testGameID1, 1, [testPlayerID1]),
   })
   assert.equal(invalidGameId.status, 400)
 
-  const empty = await server.app.request(`/files/${testGameID1}`, {
+  const empty = await server.app.request(gameFile, {
     method: 'PUT',
-    headers: { Authorization: basicAuth(), 'User-Agent': 'Unciv' },
+    headers: uncivHeaders,
     body: '',
   })
   assert.equal(empty.status, 400)
 
-  const invalidData = await server.app.request(`/files/${testGameID1}`, {
+  const invalidData = await server.app.request(gameFile, {
     method: 'PUT',
-    headers: { Authorization: basicAuth(), 'User-Agent': 'Unciv' },
+    headers: uncivHeaders,
     body: 'not-base64-gzip',
   })
   assert.equal(invalidData.status, 400)
 
-  const mismatchedGame = await server.app.request(`/files/${testGameID1}`, {
+  const mismatchedGame = await server.app.request(gameFile, {
     method: 'PUT',
-    headers: { Authorization: basicAuth(), 'User-Agent': 'Unciv' },
+    headers: uncivHeaders,
     body: buildGameData(testGameID2, 1, [testPlayerID1]),
   })
   assert.equal(mismatchedGame.status, 400)
 
-  const invalidPlayers = await server.app.request(`/files/${testGameID1}`, {
+  const invalidPlayers = await server.app.request(gameFile, {
     method: 'PUT',
-    headers: { Authorization: basicAuth(), 'User-Agent': 'Unciv' },
+    headers: uncivHeaders,
     body: encodeFile(JSON.stringify({ gameId: testGameID1, turns: 1, gameParameters: { players: {} } })),
   })
   assert.equal(invalidPlayers.status, 400)
 
-  const notParticipant = await server.app.request(`/files/${testGameID1}`, {
+  const notParticipant = await server.app.request(gameFile, {
     method: 'PUT',
-    headers: { Authorization: basicAuth(), 'User-Agent': 'Unciv' },
+    headers: uncivHeaders,
     body: buildGameData(testGameID1, 1, [testPlayerID2]),
   })
   assert.equal(notParticipant.status, 403)
 
   createGame(testGameID1, [testPlayerID2])
-  const existingForbidden = await server.app.request(`/files/${testGameID1}`, {
+  const existingForbidden = await server.app.request(gameFile, {
     method: 'PUT',
-    headers: { Authorization: basicAuth(), 'User-Agent': 'Unciv' },
+    headers: uncivHeaders,
     body: buildGameData(testGameID1, 2, [testPlayerID1, testPlayerID2]),
   })
   assert.equal(existingForbidden.status, 403)
 
-  const preview = await server.app.request(`/files/${testGameID2}_Preview`, {
+  const preview = await server.app.request(previewFile, {
     method: 'PUT',
-    headers: { Authorization: basicAuth(), 'User-Agent': 'Unciv' },
+    headers: uncivHeaders,
     body: buildGameData(testGameID2, 3, [testPlayerID1]),
   })
   assert.equal(preview.status, 204)
   assert.equal(getLatestFilePreview(testGameID2)?.turns, 3)
 
-  const previewDownload = await server.app.request(`/files/${testGameID2}_Preview`, {
-    headers: { Authorization: basicAuth(), 'User-Agent': 'Unciv' },
+  const previewDownload = await server.app.request(previewFile, {
+    headers: uncivHeaders,
   })
   assert.equal(previewDownload.status, 200)
 })

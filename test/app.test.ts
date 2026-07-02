@@ -3,8 +3,8 @@ import { afterEach, beforeEach, test } from 'vitest'
 import { getLatestFileContent, getPlayerByID } from '../src/database.js'
 import { decodeFile, encodeFile } from '../src/utils.js'
 import {
-  basicAuth, buildGameData, seedGameWithContent, seedPlayer, setupTestServer, startHttpServer, testGameID1,
-  testPassword, testPlayerID1, type TestServer,
+  basicAuth, buildGameData, loginAsPlayer, seedGameWithContent, seedPlayer, setupTestServer, startHttpServer,
+  testGameID1, testPassword, testPlayerID1, type TestServer,
 } from './helpers/server.js'
 
 let server: TestServer
@@ -49,21 +49,16 @@ test('HTTP 直连请求写入真实远端 IP', async () => {
 test('/files 上传和下载正式存档', async () => {
   seedPlayer()
   const body = buildGameData(testGameID1, 4, [testPlayerID1])
+  const uncivHeaders = { Authorization: basicAuth(), 'User-Agent': 'Unciv' }
   const put = await server.app.request(`/files/${testGameID1}`, {
     method: 'PUT',
-    headers: {
-      Authorization: basicAuth(),
-      'User-Agent': 'Unciv',
-    },
+    headers: uncivHeaders,
     body,
   })
   assert.equal(put.status, 204)
 
   const get = await server.app.request(`/files/${testGameID1}`, {
-    headers: {
-      Authorization: basicAuth(),
-      'User-Agent': 'Unciv',
-    },
+    headers: uncivHeaders,
   })
   assert.equal(get.status, 200)
   assert.equal(JSON.parse(decodeFile(await get.text())).turns, 4)
@@ -117,11 +112,7 @@ test('/api/login 和 /api/session 保持 Cookie 会话行为', async () => {
 
 test('用户可以下载参与游戏的回合列表和 ZIP', async () => {
   seedGameWithContent()
-  const login = await server.app.request('/api/login', {
-    method: 'POST',
-    body: JSON.stringify({ username: testPlayerID1, password: testPassword }),
-  })
-  const cookie = login.headers.get('set-cookie') ?? ''
+  const cookie = await loginAsPlayer(server.app)
 
   const turns = await server.app.request(`/api/games/${testGameID1}/turns`, {
     headers: { Cookie: cookie },

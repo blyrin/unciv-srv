@@ -11,6 +11,8 @@ import {
 } from '../src/session.js'
 
 const savedEnv = { ...process.env }
+const configEnvKeys = ['PORT', 'DB_PATH', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'MAX_ATTEMPTS', 'LOCK_TIME'] as const
+const oneMinuteMs = 60 * 1000
 
 afterEach(() => {
   process.env = { ...savedEnv }
@@ -18,12 +20,9 @@ afterEach(() => {
 })
 
 test('配置默认值和环境变量覆盖符合约定', () => {
-  delete process.env.PORT
-  delete process.env.DB_PATH
-  delete process.env.ADMIN_USERNAME
-  delete process.env.ADMIN_PASSWORD
-  delete process.env.MAX_ATTEMPTS
-  delete process.env.LOCK_TIME
+  for (const key of configEnvKeys) {
+    delete process.env[key]
+  }
 
   const defaults = loadConfig()
   assert.equal(defaults.port, '11451')
@@ -102,15 +101,16 @@ test('Session 过期读取和批量清理符合约定', () => {
 
 test('登录限流记录失败、锁定和重置', () => {
   const limiter = new RateLimiter(2, 5)
+  const ip = '127.0.0.1'
   try {
-    assert.equal(limiter.isLocked('127.0.0.1'), false)
-    assert.equal(limiter.recordAttempt('127.0.0.1'), false)
-    assert.equal(limiter.getRemainingAttempts('127.0.0.1'), 1)
-    assert.equal(limiter.recordAttempt('127.0.0.1'), true)
-    assert.equal(limiter.isLocked('127.0.0.1'), true)
-    assert.match(limiter.getLockRemainingText('127.0.0.1'), /^\d+s$/)
-    limiter.resetAttempts('127.0.0.1')
-    assert.equal(limiter.isLocked('127.0.0.1'), false)
+    assert.equal(limiter.isLocked(ip), false)
+    assert.equal(limiter.recordAttempt(ip), false)
+    assert.equal(limiter.getRemainingAttempts(ip), 1)
+    assert.equal(limiter.recordAttempt(ip), true)
+    assert.equal(limiter.isLocked(ip), true)
+    assert.match(limiter.getLockRemainingText(ip), /^\d+s$/)
+    limiter.resetAttempts(ip)
+    assert.equal(limiter.isLocked(ip), false)
   } finally {
     limiter.close()
   }
@@ -129,7 +129,7 @@ test('登录限流锁定过期后重新计数并清理旧记录', () => {
 
     assert.equal(limiter.recordAttempt('stale'), false)
     vi.setSystemTime(new Date('2026-01-02T00:01:00.002Z'))
-    vi.advanceTimersByTime(60 * 1000)
+    vi.advanceTimersByTime(oneMinuteMs)
     assert.equal(limiter.getRemainingAttempts('stale'), 2)
   } finally {
     limiter.close()

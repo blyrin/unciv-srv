@@ -51,8 +51,8 @@ test('统计和回档返回接口字段', () => {
   assert.equal(stats.gameCount, 1)
   assert.equal(stats.totalSaves, 2)
 
-  const firstTurn = getLatestFileContent(testGameID1)
-  assert.equal(firstTurn?.turns, 2)
+  const latestTurn = getLatestFileContent(testGameID1)
+  assert.equal(latestTurn?.turns, 2)
   const result = rollbackGameToTurn(testGameID1, 1)
   assert.deepEqual(result, { deletedTurns: 1, deletedPreviews: 1, currentTurns: 1 })
 })

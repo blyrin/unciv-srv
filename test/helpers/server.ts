@@ -19,16 +19,15 @@ export {
   testGameID1, testGameID2, testPassword, testPlayerID1, testPlayerID2, testPlayerID3,
 } from '../fixtures/ids.js'
 
+type TestApp = Hono<{ Variables: AppVariables }>
+
 export interface TestServer {
-  app: Hono<{ Variables: AppVariables }>
+  app: TestApp
   config: Config
   limiter: RateLimiter
   close: () => void
 }
 
-/**
- * 创建隔离的数据库和 Hono 应用。
- */
 export function setupTestServer(): TestServer {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unciv-srv-vitest-'))
   const config: Config = {
@@ -60,16 +59,10 @@ export function setupTestServer(): TestServer {
   }
 }
 
-/**
- * 生成 Basic Auth 请求头。
- */
 export function basicAuth(playerId = testPlayerID1, password = testPassword): string {
   return `Basic ${Buffer.from(`${playerId}:${password}`).toString('base64')}`
 }
 
-/**
- * 构造测试用编码存档。
- */
 export function buildGameData(gameId: string, turns: number, playerIds: string[]): string {
   const data = JSON.stringify({
     gameId,
@@ -81,16 +74,10 @@ export function buildGameData(gameId: string, turns: number, playerIds: string[]
   return gzipSync(Buffer.from(data)).toString('base64')
 }
 
-/**
- * 创建测试玩家。
- */
 export function seedPlayer(playerId = testPlayerID1, password = testPassword): void {
   createPlayer(playerId, password, '127.0.0.1')
 }
 
-/**
- * 创建带正式和预览存档的测试游戏。
- */
 export function seedGameWithContent(): void {
   seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
@@ -99,10 +86,7 @@ export function seedGameWithContent(): void {
   saveFilePreview(testGameID1, 1, testPlayerID1, '127.0.0.1', data)
 }
 
-/**
- * 登录管理员并返回 Cookie。
- */
-export async function loginAsAdmin(app: Hono<{ Variables: AppVariables }>): Promise<string> {
+export async function loginAsAdmin(app: TestApp): Promise<string> {
   const response = await app.request('/api/login', {
     method: 'POST',
     body: JSON.stringify({ username: 'admin', password: 'admin123' }),
@@ -114,12 +98,11 @@ export async function loginAsAdmin(app: Hono<{ Variables: AppVariables }>): Prom
   return cookie
 }
 
-/**
- * 登录玩家并返回 Cookie。
- */
-export async function loginAsPlayer(app: Hono<{
-  Variables: AppVariables
-}>, playerId = testPlayerID1, password = testPassword): Promise<string> {
+export async function loginAsPlayer(
+  app: TestApp,
+  playerId = testPlayerID1,
+  password = testPassword,
+): Promise<string> {
   const response = await app.request('/api/login', {
     method: 'POST',
     body: JSON.stringify({ username: playerId, password }),
@@ -131,10 +114,7 @@ export async function loginAsPlayer(app: Hono<{
   return cookie
 }
 
-/**
- * 启动带 WebSocket 的测试服务器。
- */
-export async function startHttpServer(app: Hono<{ Variables: AppVariables }>): Promise<{
+export async function startHttpServer(app: TestApp): Promise<{
   url: string
   server: ServerType
 }> {

@@ -20,20 +20,18 @@ afterEach(() => {
   server.close()
 })
 
-/**
- * 建立测试 WebSocket 连接。
- */
+function wsUrl(url: string, path = '/chat'): string {
+  return `ws${url.slice('http'.length)}${path}`
+}
+
 async function openSocket(url: string, auth = basicAuth(), headers: Record<string, string> = {}): Promise<WebSocket> {
-  const ws = new WebSocket(`ws${url.slice('http'.length)}/chat`, {
+  const ws = new WebSocket(wsUrl(url), {
     headers: { ...headers, Authorization: auth },
   })
   await once(ws, 'open')
   return ws
 }
 
-/**
- * 关闭测试 WebSocket 并等待服务端清理。
- */
 async function closeSocket(ws: WebSocket): Promise<void> {
   if (ws.readyState === WebSocket.CLOSED) {
     return
@@ -43,9 +41,6 @@ async function closeSocket(ws: WebSocket): Promise<void> {
   await closed
 }
 
-/**
- * 读取一条 JSON 消息。
- */
 async function readMessage(ws: WebSocket): Promise<Record<string, unknown>> {
   const timeout = new Promise<never>((_, reject) => {
     const timer = setTimeout(() => reject(new Error('等待 WebSocket 消息超时')), 2000)
@@ -55,9 +50,6 @@ async function readMessage(ws: WebSocket): Promise<Record<string, unknown>> {
   return JSON.parse(data.toString()) as Record<string, unknown>
 }
 
-/**
- * 读取握手失败状态并消费响应体。
- */
 async function readUnexpectedStatus(ws: WebSocket): Promise<number | undefined> {
   const [, response] = await once(ws, 'unexpected-response')
   response.resume()
@@ -163,10 +155,10 @@ test('WebSocket 拒绝缺失和错误认证', async () => {
   const http = await startHttpServer(server.app)
 
   try {
-    const noAuth = new WebSocket(`ws${http.url.slice('http'.length)}/chat`)
+    const noAuth = new WebSocket(wsUrl(http.url))
     assert.equal(await readUnexpectedStatus(noAuth), 401)
 
-    const wrongAuth = new WebSocket(`ws${http.url.slice('http'.length)}/chat`, {
+    const wrongAuth = new WebSocket(wsUrl(http.url), {
       headers: { Authorization: basicAuth(testPlayerID1, 'wrong-pass') },
     })
     assert.equal(await readUnexpectedStatus(wrongAuth), 401)
@@ -223,7 +215,7 @@ test('未知消息、无频道 join 和未订阅在线状态会被忽略', async
 test('非聊天路径的 WebSocket 升级会被拒绝', async () => {
   seedPlayer(testPlayerID1)
   const http = await startHttpServer(server.app)
-  const ws = new WebSocket(`ws${http.url.slice('http'.length)}/not-chat`, {
+  const ws = new WebSocket(wsUrl(http.url, '/not-chat'), {
     headers: { Authorization: basicAuth(), 'X-Real-IP': '127.0.0.9' },
   })
 

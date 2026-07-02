@@ -8,6 +8,14 @@ import {
 } from '../src/utils.js'
 import { basicAuth, testGameID1, testPassword, testPlayerID1 } from './helpers/server.js'
 
+function encodedBasicAuth(payload: string): string {
+  return `Basic ${Buffer.from(payload).toString('base64')}`
+}
+
+function requestWithHeaders(headers: HeadersInit): Request {
+  return new Request('http://localhost', { headers })
+}
+
 test('存档编码可以往返解码', () => {
   const data = JSON.stringify({ gameId: testGameID1, turns: 3 })
   assert.equal(decodeFile(encodeFile(data)), data)
@@ -54,9 +62,9 @@ test('响应工具返回约定状态码和响应头', async () => {
 })
 
 test('客户端 IP 按代理头优先级解析', () => {
-  assert.equal(getClientIP(new Request('http://localhost', { headers: { 'X-Forwarded-For': '1.1.1.1, 2.2.2.2' } })), '1.1.1.1')
-  assert.equal(getClientIP(new Request('http://localhost', { headers: { 'X-Forwarded-For': '::ffff:1.1.1.1, 2.2.2.2' } })), '1.1.1.1')
-  assert.equal(getClientIP(new Request('http://localhost', { headers: { 'X-Real-IP': '3.3.3.3' } })), '3.3.3.3')
+  assert.equal(getClientIP(requestWithHeaders({ 'X-Forwarded-For': '1.1.1.1, 2.2.2.2' })), '1.1.1.1')
+  assert.equal(getClientIP(requestWithHeaders({ 'X-Forwarded-For': '::ffff:1.1.1.1, 2.2.2.2' })), '1.1.1.1')
+  assert.equal(getClientIP(requestWithHeaders({ 'X-Real-IP': '3.3.3.3' })), '3.3.3.3')
   assert.equal(getClientIP(new Request('http://localhost'), '::ffff:4.4.4.4'), '4.4.4.4')
 })
 
@@ -113,9 +121,9 @@ test('Basic Auth 错误格式返回约定消息', () => {
   assert.throws(() => parseBasicAuthCredentials(null), /需要认证/)
   assert.throws(() => parseBasicAuthCredentials('Bearer token'), /无效的认证格式/)
   assert.throws(() => parseBasicAuthCredentials('Basic !!!'), /无效的认证数据/)
-  assert.throws(() => parseBasicAuthCredentials(`Basic ${Buffer.from('bad-pair').toString('base64')}`), /无效的认证格式/)
-  assert.throws(() => parseBasicAuthCredentials(`Basic ${Buffer.from('bad-player:password123').toString('base64')}`), /无效的玩家ID格式/)
-  assert.throws(() => parseBasicAuthCredentials(`Basic ${Buffer.from(`${testPlayerID1}:short`).toString('base64')}`), /密码至少6位/)
+  assert.throws(() => parseBasicAuthCredentials(encodedBasicAuth('bad-pair')), /无效的认证格式/)
+  assert.throws(() => parseBasicAuthCredentials(encodedBasicAuth('bad-player:password123')), /无效的玩家ID格式/)
+  assert.throws(() => parseBasicAuthCredentials(encodedBasicAuth(`${testPlayerID1}:short`)), /密码至少6位/)
 })
 
 test('受限请求体读取覆盖空体、成功和超限', async () => {

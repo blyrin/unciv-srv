@@ -16,6 +16,10 @@ afterEach(() => {
   server.close()
 })
 
+async function requestStatus(path: string, init?: RequestInit): Promise<number> {
+  return (await server.app.request(path, init)).status
+}
+
 test('管理员玩家接口覆盖列表、备注、密码和批量白名单', async () => {
   seedPlayer(testPlayerID1)
   seedPlayer(testPlayerID2)
@@ -63,20 +67,23 @@ test('管理员玩家接口返回预期错误状态', async () => {
   seedPlayer(testPlayerID1)
   const cookie = await loginAsAdmin(server.app)
 
-  assert.equal((await server.app.request('/api/players/not-exist/password', { headers: { Cookie: cookie } })).status, 404)
-  assert.equal((await server.app.request(`/api/players/${testPlayerID1}`, {
-    method: 'PUT', headers: { Cookie: cookie }, body: '{',
-  })).status, 400)
-  assert.equal((await server.app.request(`/api/players/${testPlayerID1}/password`, {
+  const headers = { Cookie: cookie }
+  assert.equal(await requestStatus('/api/players/not-exist/password', { headers }), 404)
+  assert.equal(await requestStatus(`/api/players/${testPlayerID1}`, {
     method: 'PUT',
-    headers: { Cookie: cookie },
+    headers,
+    body: '{',
+  }), 400)
+  assert.equal(await requestStatus(`/api/players/${testPlayerID1}/password`, {
+    method: 'PUT',
+    headers,
     body: JSON.stringify({ password: 'short' }),
-  })).status, 400)
-  assert.equal((await server.app.request('/api/players/batch', {
+  }), 400)
+  assert.equal(await requestStatus('/api/players/batch', {
     method: 'PATCH',
-    headers: { Cookie: cookie },
+    headers,
     body: JSON.stringify({ playerIds: [], whitelist: true }),
-  })).status, 400)
+  }), 400)
 })
 
 test('管理员游戏接口覆盖列表、更新、批量和删除', async () => {
