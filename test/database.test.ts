@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { afterEach, beforeEach, test } from 'node:test'
+import { afterEach, beforeEach, test } from 'vitest'
 import {
   createGame, getAllStats, getGameByID, getGamesByPlayer, getLatestFileContent, getPlayerByID, getPlayersPage,
   rollbackGameToTurn, saveFileContent, saveFilePreview,
 } from '../src/database.js'
-import { seedPlayer, setupTestServer, testGameID1, testPassword, testPlayerID1, type TestServer } from './helpers.js'
+import { seedPlayer, setupTestServer, testGameID1, testPassword, testPlayerID1, type TestServer } from './helpers/server.js'
 
 let server: TestServer
 

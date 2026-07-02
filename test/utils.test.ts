@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { unzipSync } from 'fflate'
 import {
   createZip, decodeFile, decodeHeaderValue, encodeFile, errorResponse, fileResponse, generateRandomStr, getBaseGameID,
   getClientIP, getPlayerIDsFromGameData, isPreviewID, jsonResponse, parseBasicAuthCredentials, parseGameData,
-  successResponse, textResponse, validateGameID, validatePlayerID,
+  readLimitedText, successResponse, textResponse, validateGameID, validatePlayerID,
 } from '../src/utils.js'
-import { basicAuth, testGameID1, testPassword, testPlayerID1 } from './helpers.js'
+import { basicAuth, testGameID1, testPassword, testPlayerID1 } from './helpers/server.js'
 
 test('存档编码可以往返解码', () => {
   const data = JSON.stringify({ gameId: testGameID1, turns: 3 })
@@ -114,5 +114,15 @@ test('Basic Auth 错误格式返回约定消息', () => {
   assert.throws(() => parseBasicAuthCredentials('Bearer token'), /无效的认证格式/)
   assert.throws(() => parseBasicAuthCredentials('Basic !!!'), /无效的认证数据/)
   assert.throws(() => parseBasicAuthCredentials(`Basic ${Buffer.from('bad-pair').toString('base64')}`), /无效的认证格式/)
+  assert.throws(() => parseBasicAuthCredentials(`Basic ${Buffer.from('bad-player:password123').toString('base64')}`), /无效的玩家ID格式/)
   assert.throws(() => parseBasicAuthCredentials(`Basic ${Buffer.from(`${testPlayerID1}:short`).toString('base64')}`), /密码至少6位/)
+})
+
+test('受限请求体读取覆盖空体、成功和超限', async () => {
+  assert.equal(await readLimitedText(new Request('http://localhost')), '')
+  assert.equal(await readLimitedText(new Request('http://localhost', { method: 'POST', body: 'hello' }), 10), 'hello')
+  await assert.rejects(
+    readLimitedText(new Request('http://localhost', { method: 'POST', body: 'hello' }), 4),
+    /读取请求体失败/,
+  )
 })

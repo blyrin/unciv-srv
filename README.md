@@ -53,8 +53,11 @@ pnpm dev
 # 类型检查
 pnpm typecheck
 
-# 运行测试
+# 运行 Vitest 测试
 pnpm test
+
+# 生成覆盖率报告（输出到 .local/coverage）
+pnpm test:coverage
 
 # 构建
 pnpm build

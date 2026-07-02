@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
-import { afterEach, beforeEach, test } from 'node:test'
+import { afterEach, beforeEach, test } from 'vitest'
 import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersWhitelist, cleanupExpiredGames, cleanupOldContents,
   cleanupOldPreviews, countGamesByPlayer, createGame, createPlayer, deleteGame, getAllTurnsForGame, getDB, getGameByID,
   getGamesCreatedByPlayer, getGamesPage, getLatestFileContent, getLatestFilePreview, getPlayerByID, getPlayerPassword,
-  getTurnByID, getTurnsMetadata, rollbackGameToTurn, saveFileContent, saveFilePreview, updateGameInfo,
+  getTurnByID, getTurnsMetadata, rollbackGameToTurn, runCleanup, saveFileContent, saveFilePreview, updateGameInfo,
   updateGamePlayers, updatePlayerInfo, updatePlayerLastActive, updatePlayerPassword,
 } from '../src/database.js'
 import {
   seedPlayer, setupTestServer, testGameID1, testPassword, testPlayerID1, testPlayerID2, type TestServer,
-} from './helpers.js'
+} from './helpers/server.js'
 
 let server: TestServer
 
@@ -85,6 +85,16 @@ test('文件数据库操作覆盖最新记录、元数据、单回合和预览',
   assert.equal(getTurnByID(turns[0]!.id)?.turns, 1)
 })
 
+test('回档目标不存在或缺少预览时返回约定结果', () => {
+  seedPlayer(testPlayerID1)
+  createGame(testGameID1, [testPlayerID1])
+  saveFileContent(testGameID1, 1, testPlayerID1, '127.0.0.1', '{"turns":1}')
+  const turnId = getTurnsMetadata(testGameID1)[0]!.id
+
+  assert.equal(rollbackGameToTurn(testGameID1, turnId + 999), null)
+  assert.throws(() => rollbackGameToTurn(testGameID1, turnId), /未找到对应预览记录/)
+})
+
 test('回档使用最早匹配预览，同时间记录按 ID 判断', () => {
   seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
@@ -143,6 +153,12 @@ test('清理任务删除过期游戏并只保留最新存档和预览', () => {
   assert.equal(cleanupOldPreviews(), 1)
   assert.equal(getAllTurnsForGame(testGameID1).length, 1)
   assert.equal(getLatestFilePreview(testGameID1)?.turns, 2)
+
+  saveFileContent(testGameID1, 3, testPlayerID1, '127.0.0.1', '{"turns":3}')
+  saveFilePreview(testGameID1, 3, testPlayerID1, '127.0.0.1', '{"preview":3}')
+  runCleanup()
+  assert.equal(getLatestFileContent(testGameID1)?.turns, 3)
+  assert.equal(getAllTurnsForGame(testGameID1).length, 1)
 })
 
 test('批量删除空列表保持空操作', () => {
