@@ -14,6 +14,15 @@ services:
       # 网页登录限制：5 次 / 5 分钟
       MAX_ATTEMPTS: "5"
       LOCK_TIME: "5"
+      # 安装包托管目录（持久化卷）
+      DOWNLOAD_DIR: /data/unciv-dl
+      # 下载保护：并发 4、单连接 1MB/s、每 IP 每分钟 30 次、只保留最新版本
+      DOWNLOAD_MAX_CONCURRENT: "4"
+      DOWNLOAD_RATE_LIMIT_KBPS: "1024"
+      DOWNLOAD_IP_LIMIT_PER_MINUTE: "30"
+      DOWNLOAD_KEEP_VERSIONS: "1"
+      # 单个上传文件大小上限（MB）
+      DOWNLOAD_MAX_FILE_SIZE_MB: "512"
     volumes:
       - unciv-srv-data:/data
     restart: unless-stopped

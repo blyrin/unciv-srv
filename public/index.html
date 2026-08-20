@@ -641,6 +641,67 @@
         </div>
 
         <!-- 用户统计 -->
+        <!-- 安装包托管（CN 官方下载服务器） -->
+        <div v-if="isAdmin && activeTab === 'downloads'">
+          <div
+            class="glass bg-white/50 backdrop-blur-xl p-3 sm:p-4 rounded-2xl border-white/30 mb-4">
+            <div class="text-sm font-semibold text-stone-700 mb-3">上传安装包</div>
+            <div class="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3">
+              <input
+                class="flex-1 min-w-[160px] px-3 sm:px-4 py-2 rounded-lg border border-stone-200/60 bg-white/40 backdrop-blur focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none text-sm"
+                placeholder="版本号，如 4.21.10.1"
+                v-model="uploadTag">
+              <input id="uploadFileInput" type="file"
+                     class="flex-1 min-w-[200px] px-3 py-2 rounded-lg border border-stone-200/60 bg-white/40 text-sm text-stone-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-brand-600 file:text-white file:text-xs file:font-medium file:cursor-pointer"
+                     @change="onUploadFileChange">
+              <button @click="uploadInstaller" :disabled="uploading"
+                      class="px-4 py-2 rounded-lg text-sm font-medium border border-brand-700 bg-brand-600 text-white disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
+                {{ uploading ? '上传中...' : '上传' }}
+              </button>
+            </div>
+            <div class="text-xs text-stone-400 mt-2 leading-relaxed">
+              上传后仅保留最新版本目录（旧版本自动清理，节约存储）。
+              首次启动时游戏会弹窗询问玩家地区——选择「中国大陆」的玩家，其游戏内更新检查与安装包下载会自动使用本服务器
+              （<span class="font-mono">{{ origin }}/dl/&lt;版本号&gt;/&lt;文件名&gt;</span>）；
+              选择「中国大陆以外」的玩家仍走其在选项中设置的下载源。
+            </div>
+          </div>
+
+          <div class="glass bg-white/50 backdrop-blur-xl rounded-2xl border-white/30 overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left min-w-[640px]">
+                <thead class="bg-stone-100/50 text-stone-500 font-medium">
+                <tr>
+                  <th class="p-3 sm:p-4">版本</th>
+                  <th class="p-3 sm:p-4">文件名</th>
+                  <th class="p-3 sm:p-4">大小</th>
+                  <th class="p-3 sm:p-4 hidden md:table-cell">上传时间</th>
+                  <th class="p-3 sm:p-4 text-right">操作</th>
+                </tr>
+                </thead>
+                <tbody class="divide-y divide-stone-200/40">
+                <tr :key="f.tag + '/' + f.filename" class="hover:bg-brand-50/30 transition-colors duration-150" v-for="f in downloads">
+                  <td class="p-3 sm:p-4">
+                    <span class="px-2 py-1 rounded-full text-xs font-medium bg-brand-100/80 text-brand-700">{{ f.tag }}</span>
+                  </td>
+                  <td class="p-3 sm:p-4 font-mono text-xs sm:text-sm break-all">{{ f.filename }}</td>
+                  <td class="p-3 sm:p-4 text-stone-500 whitespace-nowrap">{{ formatSize(f.size) }}</td>
+                  <td class="p-3 sm:p-4 text-xs text-stone-400 hidden md:table-cell">{{ formatDate(f.mtime) }}</td>
+                  <td class="p-3 sm:p-4 text-right space-x-2 whitespace-nowrap">
+                    <a :href="'/dl/' + f.tag + '/' + f.filename" target="_blank"
+                       class="text-blue-600 hover:underline text-xs sm:text-sm">下载</a>
+                    <button @click="deleteInstaller(f)" class="text-red-600 hover:underline text-xs sm:text-sm">删除</button>
+                  </td>
+                </tr>
+                <tr v-if="downloads.length === 0">
+                  <td class="p-8 text-center text-stone-400" colspan="5">暂无托管文件</td>
+                </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <div class="grid grid-cols-2 md:grid-cols-2 gap-3 sm:gap-6" v-if="!isAdmin && activeTab === 'stats'">
           <stat-card :value="userStats.gameCount"
                      icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.39 48.39 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z"/></svg>'
@@ -778,6 +839,21 @@
     deleteGame: (id) => API.request(`/api/games/${id}`, { method: 'DELETE' }),
     getTurns: (id) => API.request(`/api/games/${id}/turns`),
     rollbackGame: (gameId, turnId) => API.request(`/api/games/${gameId}/turns/${turnId}/rollback`, { method: 'POST' }),
+    getDownloads: () => API.request('/api/downloads'),
+    deleteDownload: (tag, filename) => API.request(`/api/downloads/${encodeURIComponent(tag)}/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
+    // 安装包上传：raw body 流式上传（不能用 API.request，它会强制 JSON Content-Type）
+    uploadDownload: (tag, file) => fetch(`/api/downloads/upload?tag=${encodeURIComponent(tag)}&filename=${encodeURIComponent(file.name)}`, {
+      method: 'POST',
+      credentials: 'include',
+      body: file,
+    }).then(async (res) => {
+      if (res.status === 401) throw new Error('Unauthorized')
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: '上传失败' }))
+        throw new Error(err.message || '上传失败')
+      }
+      return res.json()
+    }),
   }
   const StatCard = {
     props: ['label', 'value', 'icon', 'color', 'sub'],
@@ -803,6 +879,11 @@
       const gamesTotal = ref(0)
       const userStats = ref({})
       const userGames = ref([])
+      // 安装包托管
+      const downloads = ref([])
+      const uploadTag = ref('')
+      const selectedUploadFile = ref(null)
+      const uploading = ref(false)
       // UI
       const toasts = ref([])
       const modal = reactive({ show: false, title: '', content: '', type: '', data: {}, onConfirm: null })
@@ -819,6 +900,7 @@
         if (isAdmin.value) {
           return [
             { id: 'stats', name: '数据概览' }, { id: 'players', name: '玩家管理' }, { id: 'games', name: '游戏管理' },
+            { id: 'downloads', name: '安装包托管' },
           ]
         }
         return [{ id: 'stats', name: '我的统计' }, { id: 'games', name: '我的游戏' }]
@@ -886,6 +968,10 @@
               games.value = res.items
               gamesTotal.value = res.total
             }
+            if (activeTab.value === 'downloads') {
+              const res = await API.getDownloads()
+              downloads.value = res.files
+            }
           } else {
             if (activeTab.value === 'stats') userStats.value = await API.getUserStats()
             if (activeTab.value === 'games') {
@@ -919,6 +1005,60 @@
       }
       // --- 业务操作 ---
       const formatDate = (str) => new Date(str).toLocaleString('zh-CN', { hour12: false })
+      const formatSize = (bytes) => {
+        if (!bytes && bytes !== 0) return '-'
+        const units = ['B', 'KB', 'MB', 'GB']
+        let size = bytes
+        let index = 0
+        while (size >= 1024 && index < units.length - 1) {
+          size /= 1024
+          index += 1
+        }
+        return `${size.toFixed(index === 0 || size >= 100 ? 0 : 1)} ${units[index]}`
+      }
+      const onUploadFileChange = (event) => {
+        selectedUploadFile.value = event.target.files[0] || null
+      }
+      const uploadInstaller = async () => {
+        const tag = uploadTag.value.trim()
+        if (!tag) {
+          showToast('请填写版本号', 'error')
+          return
+        }
+        if (!/^\d{1,3}(\.\d{1,3}){2}(\.\d{1,3})?(-patch\d{1,3})?$/.test(tag)) {
+          showToast('版本号格式不正确，如 4.21.10.1', 'error')
+          return
+        }
+        if (!selectedUploadFile.value) {
+          showToast('请选择文件', 'error')
+          return
+        }
+        uploading.value = true
+        try {
+          const res = await API.uploadDownload(tag, selectedUploadFile.value)
+          showToast(`上传成功 (${formatSize(res.size)})`)
+          uploadTag.value = ''
+          selectedUploadFile.value = null
+          const input = document.getElementById('uploadFileInput')
+          if (input) input.value = ''
+          await loadTabData()
+        } catch (e) {
+          if (e.message === 'Unauthorized') location.reload()
+          showToast(e.message, 'error')
+        } finally {
+          uploading.value = false
+        }
+      }
+      const deleteInstaller = async (file) => {
+        if (!confirm(`确定删除 ${file.tag}/${file.filename}？`)) return
+        try {
+          await API.deleteDownload(file.tag, file.filename)
+          showToast('删除成功')
+          await loadTabData()
+        } catch (e) {
+          showToast(e.message, 'error')
+        }
+      }
       const resetFilters = () => {
         filters.playerSearch = ''
         filters.gameSearch = ''
@@ -1080,13 +1220,15 @@
         } catch (e) { showToast(e.message, 'error') }
       }
       return {
-        view, isAdmin, userInfo, loginForm, loading, contentLoading, activeTab, currentTabs,
+        view, isAdmin, userInfo, loginForm, loading, contentLoading, activeTab, currentTabs, origin: window.location.origin,
         stats, userStats, userGames,
         players, playersTotal, playerPage, playerPageSize, playerTotalPages,
         games, gamesTotal, gamePage, gamePageSize, gameTotalPages,
+        downloads, uploadTag, uploading,
         filters, selectedPlayers, selectedGames, selectAllPlayers, selectAllGames,
         toasts, modal,
-        handleLogin, formatDate, resetFilters, setPlayerPage, setGamePage,
+        handleLogin, formatDate, formatSize, resetFilters, setPlayerPage, setGamePage,
+        onUploadFileChange, uploadInstaller, deleteInstaller,
         openEditPlayer, viewPassword, openChangePlayerPassword, openChangeMyPassword, batchUpdatePlayers,
         openEditGame, batchUpdateGames, batchDeleteGames,
         viewHistory, downloadGame, rollbackGame, deleteUserGame,

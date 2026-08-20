@@ -5,6 +5,18 @@ export interface Config {
   adminPassword: string
   maxAttempts: number
   lockTime: number
+  /** 安装包托管根目录（每次发布版本建一个子目录，形如 <dir>/<版本tag>/<文件名>） */
+  downloadDir: string
+  /** 同时进行的安装包下载连接数上限（防止带宽被打满） */
+  downloadMaxConcurrent: number
+  /** 单连接下载限速（KB/s，0 表示不限速） */
+  downloadRateLimitKbps: number
+  /** 单个上传文件大小上限（MB） */
+  downloadMaxFileSizeMb: number
+  /** 每 IP 每分钟最大下载请求数（防刷） */
+  downloadIpLimitPerMinute: number
+  /** 保留的安装包版本数（上传新版本后自动清理更旧的版本目录，节约存储） */
+  downloadKeepVersions: number
 }
 
 export interface Player {

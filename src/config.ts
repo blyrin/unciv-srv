@@ -57,5 +57,11 @@ export function loadConfig(): Config {
     adminPassword: getEnv('ADMIN_PASSWORD', 'admin123'),
     maxAttempts: getEnvAsInt('MAX_ATTEMPTS', 5),
     lockTime: getEnvAsInt('LOCK_TIME', 5),
+    downloadDir: resolveRepoPath(getEnv('DOWNLOAD_DIR', 'data/unciv-dl')),
+    downloadMaxConcurrent: getEnvAsInt('DOWNLOAD_MAX_CONCURRENT', 4),
+    downloadRateLimitKbps: getEnvAsInt('DOWNLOAD_RATE_LIMIT_KBPS', 1024),
+    downloadMaxFileSizeMb: getEnvAsInt('DOWNLOAD_MAX_FILE_SIZE_MB', 512),
+    downloadIpLimitPerMinute: getEnvAsInt('DOWNLOAD_IP_LIMIT_PER_MINUTE', 30),
+    downloadKeepVersions: getEnvAsInt('DOWNLOAD_KEEP_VERSIONS', 1),
   }
 }

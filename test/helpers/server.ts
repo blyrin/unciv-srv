@@ -37,6 +37,12 @@ export function setupTestServer(): TestServer {
     adminPassword: 'admin123',
     maxAttempts: 5,
     lockTime: 5,
+    downloadDir: path.join(dir, 'unciv-dl'),
+    downloadMaxConcurrent: 4,
+    downloadRateLimitKbps: 0,
+    downloadMaxFileSizeMb: 512,
+    downloadIpLimitPerMinute: 30,
+    downloadKeepVersions: 1,
   }
 
   resetSessions()

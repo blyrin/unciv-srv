@@ -25,6 +25,7 @@ import {
   updateGamePlayers, updatePlayerInfo, updatePlayerPassword,
 } from './database.js'
 import { notifyGameUpdated } from './chat.js'
+import { createDownloadsRoutes } from './downloads.js'
 
 type Env = { Variables: AppVariables }
 
@@ -106,6 +107,9 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     console.error('请求处理失败', error)
     return errorResponse(500, '服务器错误')
   })
+
+  // 安装包托管（/dl 下载 + /api/downloads 管理），下载保护见 downloads.ts
+  app.route('/', createDownloadsRoutes(config))
 
   app.get('/isalive', logger(), () => new Response(healthCheckResponse, { status: 200 }))
 
