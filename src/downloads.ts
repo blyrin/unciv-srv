@@ -277,11 +277,15 @@ function proxyUrl(proxyPrefix: string, url: string): string {
   return `${proxyPrefix}${url}`
 }
 
-/** 从 GitHub API（经代理）获取最新或指定 tag 的 release 信息 */
-async function fetchGithubRelease(repo: string, tag: string | null, proxyPrefix: string): Promise<GithubReleaseInfo> {
+/**
+ * 从 GitHub API 获取最新或指定 tag 的 release 信息。
+ * 直连 api.github.com（不经过 [proxyPrefix]）：公共镜像对 GitHub API 的转发受其账号
+ * 限流影响（常 403），而 api.github.com 本身一般可达；镜像仅用于大文件下载。
+ */
+async function fetchGithubRelease(repo: string, tag: string | null, _proxyPrefix: string): Promise<GithubReleaseInfo> {
   const base = `https://api.github.com/repos/${repo}/releases/`
   const url = tag ? `${base}tags/${encodeURIComponent(tag)}` : `${base}latest`
-  const response = await fetch(proxyUrl(proxyPrefix, url), {
+  const response = await fetch(url, {
     headers: { 'User-Agent': 'unciv-srv/1.0', Accept: 'application/vnd.github+json' },
     signal: AbortSignal.timeout(30_000),
   })
