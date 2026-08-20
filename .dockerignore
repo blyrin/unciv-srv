@@ -1,0 +1,26 @@
+# 依赖与构建产物
+node_modules
+.pnpm-store
+
+dist
+coverage
+
+# 本地数据与环境配置
+data
+.env
+.local
+*.log
+
+# 版本控制
+.git
+.gitignore
+.gitmodules
+
+# Docker 自身
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# 开发工具
+.vscode
+.idea
