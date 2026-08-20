@@ -17,6 +17,10 @@ export interface Config {
   downloadIpLimitPerMinute: number
   /** 保留的安装包版本数（上传新版本后自动清理更旧的版本目录，节约存储） */
   downloadKeepVersions: number
+  /** 从 GitHub 同步安装包时使用的仓库（owner/repo） */
+  downloadGithubRepo: string
+  /** 同步时用的 GitHub 代理/镜像前缀（空 = 直连，大陆服务器建议 gh-proxy 等镜像） */
+  downloadGithubProxy: string
 }
 
 export interface Player {

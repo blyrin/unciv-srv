@@ -6,7 +6,7 @@ import { Hono } from 'hono'
 import type { Config, AppVariables } from './types.js'
 import { getSession, parseCookie, sessionCookieName } from './session.js'
 import {
-  decodeHeaderValue, errorResponse, getClientIP, jsonResponse, parseBasicAuthCredentials,
+  decodeHeaderValue, errorResponse, getClientIP, HttpError, jsonResponse, parseBasicAuthCredentials,
 } from './utils.js'
 
 /**
@@ -254,11 +254,108 @@ async function cleanupOldVersions(baseDir: string, keepCount: number): Promise<v
   }
 }
 
+//region 从 GitHub（经代理镜像）同步安装包
+
+/** GitHub release 信息（与 API 响应的最小字段） */
+interface GithubReleaseInfo {
+  tag_name: string
+  assets: Array<{ name: string; browser_download_url: string }>
+}
+
+/** 同步时排除的辅助文件（与 CI 上传的安装包范围一致：不传 linuxFilesForJar / VSCode 扩展等） */
+const syncExcludedNamePatterns = ['linuxfilesforjar', 'unciv-lua-api']
+
+/** 判断某个 release 资产是否属于需要托管的安装包（导出供测试） */
+export function shouldSyncFile(name: string): boolean {
+  const lower = name.toLowerCase()
+  return !syncExcludedNamePatterns.some((pattern) => lower.includes(pattern))
+}
+
+/** 通过（可选）代理前缀拼接 GitHub URL：`<proxy>https://api.github.com/...` */
+function proxyUrl(proxyPrefix: string, url: string): string {
+  if (!proxyPrefix) return url
+  return `${proxyPrefix}${url}`
+}
+
+/** 从 GitHub API（经代理）获取最新或指定 tag 的 release 信息 */
+async function fetchGithubRelease(repo: string, tag: string | null, proxyPrefix: string): Promise<GithubReleaseInfo> {
+  const base = `https://api.github.com/repos/${repo}/releases/`
+  const url = tag ? `${base}tags/${encodeURIComponent(tag)}` : `${base}latest`
+  const response = await fetch(proxyUrl(proxyPrefix, url), {
+    headers: { 'User-Agent': 'unciv-srv/1.0', Accept: 'application/vnd.github+json' },
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (!response.ok) {
+    throw new HttpError(response.status === 404 ? 404 : 502, `获取 GitHub release 失败: HTTP ${response.status}`)
+  }
+  const data = await response.json() as GithubReleaseInfo
+  if (!data.tag_name) throw new HttpError(502, 'GitHub release 响应缺少 tag_name')
+  return data
+}
+
+/** 流式下载单个文件到指定路径（带重试与大小限制），返回字节数 */
+async function downloadFileToPath(url: string, destPath: string, maxBytes: number, retries = 3): Promise<number> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'unciv-srv/1.0' },
+        signal: AbortSignal.timeout(15 * 60_000),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const contentLength = Number(response.headers.get('content-length') ?? 0)
+      if (contentLength > maxBytes) throw new Error(`文件过大 (${contentLength} 字节 > ${maxBytes} 字节)`)
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('响应无内容')
+      await fs.promises.mkdir(path.dirname(destPath), { recursive: true })
+      const writer = fs.createWriteStream(destPath, { flags: 'w' })
+      let total = 0
+      let tooLarge = false
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          total += value.byteLength
+          if (total > maxBytes) {
+            tooLarge = true
+            break
+          }
+          if (!writer.write(value)) {
+            await new Promise<void>((resolve) => writer.once('drain', resolve))
+          }
+        }
+      } finally {
+        reader.releaseLock()
+      }
+      if (tooLarge) {
+        writer.destroy()
+        await fs.promises.rm(destPath, { force: true })
+        throw new Error('文件过大')
+      }
+      await new Promise<void>((resolve, reject) => {
+        writer.end((error?: Error | null) => (error ? reject(error) : resolve()))
+      })
+      return total
+    } catch (error) {
+      lastError = error
+      await fs.promises.rm(destPath, { force: true }).catch(() => {})
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 2000 * attempt))
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('下载失败')
+}
+
+//endregion
+
 /** 创建安装包托管路由 */
 export function createDownloadsRoutes(config: Config): Hono<Env> {
   const app = new Hono<Env>()
   const downloadSemaphore = new Semaphore(config.downloadMaxConcurrent)
   const uploadSemaphore = new Semaphore(1)
+  const syncSemaphore = new Semaphore(1)
   const ipLimiter = new IpRateLimiter(config.downloadIpLimitPerMinute)
   const maxUploadBytes = config.downloadMaxFileSizeMb * 1024 * 1024
 
@@ -341,6 +438,47 @@ export function createDownloadsRoutes(config: Config): Hono<Env> {
           browser_download_url: `${base}/dl/${latestTag}/${file.filename}`,
         })),
     })
+  })
+
+  // ---- 管理：从 GitHub（经代理镜像）同步安装包 ----
+  app.post('/api/downloads/sync', adminAuth(config), async (c) => {
+    const tag = decodeHeaderValue(c.req.query('tag') ?? '')
+    if (tag && !versionTagRegex.test(tag)) return errorResponse(400, '无效的版本号')
+
+    await syncSemaphore.acquire()
+    try {
+      const release = await fetchGithubRelease(config.downloadGithubRepo, tag || null, config.downloadGithubProxy)
+      const assets = release.assets.filter((asset) => shouldSyncFile(asset.name))
+      if (assets.length === 0) {
+        return jsonResponse({ ok: true, tag: release.tag_name, files: [], skipped: true })
+      }
+
+      const files: Array<{ name: string; size: number; durationMs: number }> = []
+      const errors: Array<{ name: string; error: string }> = []
+      const maxBytes = config.downloadMaxFileSizeMb * 1024 * 1024
+      for (const asset of assets) {
+        const destPath = safeDownloadPath(config.downloadDir, release.tag_name, asset.name)
+        if (!destPath) {
+          errors.push({ name: asset.name, error: '非法文件名' })
+          continue
+        }
+        const downloadUrl = proxyUrl(config.downloadGithubProxy, asset.browser_download_url)
+        const started = Date.now()
+        try {
+          const size = await downloadFileToPath(downloadUrl, destPath, maxBytes)
+          files.push({ name: asset.name, size, durationMs: Date.now() - started })
+          console.info('同步安装包', { tag: release.tag_name, name: asset.name, size })
+        } catch (error) {
+          errors.push({ name: asset.name, error: error instanceof Error ? error.message : String(error) })
+          console.error('同步安装包失败', { tag: release.tag_name, name: asset.name, error })
+        }
+      }
+      // 只保留最新版本，释放存储空间
+      await cleanupOldVersions(config.downloadDir, config.downloadKeepVersions)
+      return jsonResponse({ ok: errors.length === 0, tag: release.tag_name, files, errors })
+    } finally {
+      syncSemaphore.release()
+    }
   })
 
   // ---- 管理：上传安装包（raw body 流式写入，CI 与管理后台共用） ----

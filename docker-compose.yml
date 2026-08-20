@@ -23,6 +23,9 @@ services:
       DOWNLOAD_KEEP_VERSIONS: "1"
       # 单个上传文件大小上限（MB）
       DOWNLOAD_MAX_FILE_SIZE_MB: "512"
+      # 从 GitHub 同步安装包的仓库与代理镜像（大陆服务器直连 GitHub release 不通，走镜像）
+      DOWNLOAD_GITHUB_REPO: AutumnPizazz/Unciv
+      DOWNLOAD_GITHUB_PROXY: https://gh-proxy.com/
     volumes:
       - unciv-srv-data:/data
     restart: unless-stopped

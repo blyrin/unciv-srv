@@ -63,5 +63,7 @@ export function loadConfig(): Config {
     downloadMaxFileSizeMb: getEnvAsInt('DOWNLOAD_MAX_FILE_SIZE_MB', 512),
     downloadIpLimitPerMinute: getEnvAsInt('DOWNLOAD_IP_LIMIT_PER_MINUTE', 30),
     downloadKeepVersions: getEnvAsInt('DOWNLOAD_KEEP_VERSIONS', 1),
+    downloadGithubRepo: getEnv('DOWNLOAD_GITHUB_REPO', 'AutumnPizazz/Unciv'),
+    downloadGithubProxy: getEnv('DOWNLOAD_GITHUB_PROXY', 'https://gh-proxy.com/'),
   }
 }

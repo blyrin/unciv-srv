@@ -138,20 +138,22 @@ docker run -d --name unciv-srv \
 | 接口 | 说明 |
 | --- | --- |
 | `GET /api/downloads/latest.json` | 检查更新：返回最新版本与资产清单（公开，无需认证） |
+| `POST /api/downloads/sync?tag=<版本号>` | 从 GitHub（经 `DOWNLOAD_GITHUB_PROXY` 镜像）拉取安装包；tag 留空 = 最新版（管理员认证，同步完成后自动清理旧版本） |
 | `POST /api/downloads/upload?tag=<版本号>&filename=<文件名>` | 上传安装包（请求体为文件原始字节，流式写入） |
 | `GET /api/downloads` | 列出已托管文件 |
 | `DELETE /api/downloads/<版本号>/<文件名>` | 删除指定文件 |
 | `GET /dl/<版本号>/<文件名>` | 下载安装包（无鉴权，受下载保护限制） |
 
-上传示例（CI / 命令行）：
+同步示例（CI / 命令行，tag 留空拉取最新版）：
 
 ```bash
 curl -u "admin:你的管理员密码" -X POST \
-  --data-binary "@UncivCN-4.21.10.1.Apk" \
-  "http://服务器地址/api/downloads/upload?tag=4.21.10.1&filename=UncivCN-4.21.10.1.Apk"
+  "http://服务器地址/api/downloads/sync?tag=4.21.10.1"
 ```
 
-Web 管理后台新增「安装包托管」页签，可上传、查看、下载与删除托管文件。
+Web 管理后台「安装包托管」页签提供上传、**从 GitHub 同步**、查看、下载与删除。
+
+> 为什么从 GitHub 同步走镜像：大陆服务器直连 github.com 的 release 大文件（release-assets.githubusercontent.com）几乎不通，经 `DOWNLOAD_GITHUB_PROXY`（默认 gh-proxy.com）可达约 400KB/s；GitHub Actions 跨国上传到大陆服务器更慢（约 2Mbps），因此 CI 改为只触发本接口，由服务器自行拉取。
 
 ### 下载保护
 
@@ -171,7 +173,9 @@ Web 管理后台新增「安装包托管」页签，可上传、查看、下载�
 | `DOWNLOAD_IP_LIMIT_PER_MINUTE` | `30` | 每 IP 每分钟下载请求上限 |
 | `DOWNLOAD_KEEP_VERSIONS` | `1` | 保留的最新版本数，旧版本自动清理 |
 | `DOWNLOAD_MAX_FILE_SIZE_MB` | `512` | 单个上传文件大小上限（MB） |
+| `DOWNLOAD_GITHUB_REPO` | `AutumnPizazz/Unciv` | 从 GitHub 同步安装包的仓库（owner/repo） |
+| `DOWNLOAD_GITHUB_PROXY` | `https://gh-proxy.com/` | 同步时的 GitHub 代理/镜像前缀（留空 = 直连） |
 
 ### CI 自动同步
 
-`buildAndDeploy.yml` 在 release 发布后自动把安装包同步到本服务器。仓库需配置 Secrets：`CN_DL_SERVER`（如 `http://sp.unciv.cn:30123`）、`CN_DL_USER` / `CN_DL_PASS`（与 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 一致）。未配置时同步自动跳过。
+`buildAndDeploy.yml` 在 release 发布后调用 `POST /api/downloads/sync?tag=<版本号>` 触发服务器自行从 GitHub（经镜像）拉取安装包。仓库需配置 Secrets：`CN_DL_SERVER`（如 `http://sp.unciv.cn:30123`）、`CN_DL_USER` / `CN_DL_PASS`（与 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 一致）。未配置时同步自动跳过。

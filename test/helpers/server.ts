@@ -43,6 +43,8 @@ export function setupTestServer(): TestServer {
     downloadMaxFileSizeMb: 512,
     downloadIpLimitPerMinute: 30,
     downloadKeepVersions: 1,
+    downloadGithubRepo: 'AutumnPizazz/Unciv',
+    downloadGithubProxy: 'https://gh-proxy.com/',
   }
 
   resetSessions()
