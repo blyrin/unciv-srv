@@ -1,5 +1,5 @@
 # ---------- 构建阶段 ----------
-FROM node:20-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 
 WORKDIR /app
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
@@ -21,7 +21,7 @@ COPY . .
 RUN pnpm build && pnpm prune --prod
 
 # ---------- 运行阶段 ----------
-FROM node:20-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production \
