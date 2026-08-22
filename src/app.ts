@@ -22,7 +22,7 @@ import {
   acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
   getGamesPage, getLatestFileContent, getLatestFilePreview, getPlayerByID, getPlayerPassword, getPlayersPage,
   getTurnByID, getTurnsMetadata, isGameCreator, rollbackGameToTurn, saveFileContent, saveFilePreview, updateGameInfo,
-  updateGamePlayers, updatePlayerInfo, updatePlayerPassword,
+  updateGamePlayers, updatePlayerInfo, updatePlayerPassword, appendSimultaneousTurnOperations,
 } from './database.js'
 import { notifyGameUpdated } from './chat.js'
 import { createDownloadsRoutes } from './downloads.js'
@@ -143,6 +143,26 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     if (!Number.isInteger(turn) || turn < 0 || owner !== c.get('playerId')) return errorResponse(400, '锁参数无效')
     const acquired = acquireSimultaneousTurnLock(gameId, turn, owner)
     return new Response(null, { status: acquired ? 201 : 409 })
+  })
+
+  app.post('/simultaneous-turn-operations/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), async (c) => {
+    const gameId = c.get('gameId')
+    const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
+    if (accessError) return accessError
+    let incoming: unknown
+    try {
+      incoming = JSON.parse(await c.req.text())
+    } catch {
+      return errorResponse(400, '操作数据格式无效')
+    }
+    if (!Array.isArray(incoming)) return errorResponse(400, '操作数据格式无效')
+    try {
+      appendSimultaneousTurnOperations(gameId, c.get('playerId'), getClientIP(c), incoming)
+    } catch (error) {
+      console.error('合并同步回合操作失败', { gameId, playerId: c.get('playerId') }, error)
+      return errorResponse(400, '操作数据无效')
+    }
+    return successResponse()
   })
 
   app.delete('/simultaneous-turn-lock/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), async (c) => {

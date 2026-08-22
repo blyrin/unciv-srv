@@ -644,6 +644,36 @@ export function releaseSimultaneousTurnLock(gameId: string, turn: number, owner:
 /**
  * 获取最新预览存档。
  */
+export function appendSimultaneousTurnOperations(
+  gameId: string, playerId: string, ip: string, incoming: unknown[],
+): void {
+  const db = getDB()
+  const transaction = db.transaction(() => {
+    const existing = getLatestFileData('files_content', `${gameId}.ops`)
+    let operations: unknown[] = []
+    if (existing) {
+      const parsed = JSON.parse(existing.data) as unknown
+      if (!Array.isArray(parsed)) throw new Error('操作数据不是数组')
+      operations = parsed
+    }
+    const merged = [...operations, ...incoming]
+    const seen = new Set<string>()
+    const deduplicated = merged.filter((operation) => {
+      if (!operation || typeof operation !== 'object') throw new Error('操作数据项无效')
+      const item = operation as Record<string, unknown>
+      for (const field of ['turn', 'playerId', 'sequence', 'type']) {
+        if (!(field in item)) throw new Error('操作数据项字段缺失')
+      }
+      const key = `${String(item.turn)}:${String(item.playerId)}:${String(item.sequence)}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    saveFileData('files_content', `${gameId}.ops`, 0, playerId, ip, JSON.stringify(deduplicated))
+  })
+  transaction()
+}
+
 export function getLatestFilePreview(gameId: string): FileData | null {
   return getLatestFileData('files_preview', gameId)
 }
