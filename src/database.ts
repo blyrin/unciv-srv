@@ -645,8 +645,21 @@ export function releaseSimultaneousTurnLock(gameId: string, turn: number, owner:
  * 获取最新预览存档。
  */
 export function appendSimultaneousTurnOperations(
-  gameId: string, playerId: string, ip: string, incoming: unknown[],
+  gameId: string, playerId: string, incoming: unknown[],
 ): void {
+  const normalize = (operation: unknown, expectedPlayerId?: string): Record<string, unknown> => {
+    if (!operation || typeof operation !== 'object') throw new Error('操作数据项无效')
+    const item = operation as Record<string, unknown>
+    const turn = item.turn ?? 0
+    const sequence = item.sequence ?? 0
+    if (!Number.isInteger(turn) || Number(turn) < 0) throw new Error('操作回合无效')
+    if (!Number.isInteger(sequence) || Number(sequence) < 0) throw new Error('操作序号无效')
+    if (typeof item.playerId !== 'string' || !item.playerId) throw new Error('操作玩家无效')
+    if (expectedPlayerId && item.playerId !== expectedPlayerId) throw new Error('不能提交其他玩家的操作')
+    if (typeof item.type !== 'string' || !item.type) throw new Error('操作类型无效')
+    return { ...item, turn, sequence }
+  }
+
   const db = getDB()
   const transaction = db.transaction(() => {
     const row = db.prepare('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
@@ -656,14 +669,13 @@ export function appendSimultaneousTurnOperations(
       if (!Array.isArray(parsed)) throw new Error('操作数据不是数组')
       existing = parsed
     }
+    const operations = [
+      ...existing.map((operation) => normalize(operation)),
+      ...incoming.map((operation) => normalize(operation, playerId)),
+    ]
     const seen = new Set<string>()
-    const merged = [...existing, ...incoming].filter((operation) => {
-      if (!operation || typeof operation !== 'object') throw new Error('操作数据项无效')
-      const item = operation as Record<string, unknown>
-      for (const field of ['turn', 'playerId', 'sequence', 'type']) {
-        if (!(field in item)) throw new Error('操作数据项字段缺失')
-      }
-      const key = `${String(item.turn)}:${String(item.playerId)}:${String(item.sequence)}`
+    const merged = operations.filter((operation) => {
+      const key = `${String(operation.turn)}:${String(operation.playerId)}:${String(operation.sequence)}`
       if (seen.has(key)) return false
       seen.add(key)
       return true

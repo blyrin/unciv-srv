@@ -166,7 +166,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     }
     if (!Array.isArray(incoming)) return errorResponse(400, '操作数据格式无效')
     try {
-      appendSimultaneousTurnOperations(gameId, c.get('playerId'), getClientIP(c), incoming)
+      appendSimultaneousTurnOperations(gameId, c.get('playerId'), incoming)
     } catch (error) {
       console.error('合并同步回合操作失败', { gameId, playerId: c.get('playerId') }, error)
       return errorResponse(400, '操作数据无效')

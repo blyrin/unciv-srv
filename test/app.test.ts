@@ -17,19 +17,28 @@ afterEach(() => {
   server.close()
 })
 
-test('同步回合玩家并发提交操作不会互相覆盖', async () => {
+test('同步回合玩家并发提交操作不会互相覆盖且接受省略的默认字段', async () => {
   seedPlayer(testPlayerID1)
   seedPlayer(testPlayerID2)
   createGame(testGameID1, [testPlayerID1, testPlayerID2])
   const request = (playerId: string) => server.app.request(`/simultaneous-turn-operations/${testGameID1}`, {
     method: 'POST', headers: { Authorization: basicAuth(playerId), 'User-Agent': 'Unciv' },
-    body: JSON.stringify([{ turn: 3, playerId, sequence: 0, type: 'done' }]),
+    body: JSON.stringify([{ playerId, type: 'done' }]),
   })
   const [first, second] = await Promise.all([request(testPlayerID1), request(testPlayerID2)])
   assert.equal(first.status, 204)
   assert.equal(second.status, 204)
-  const saved = JSON.parse(getSimultaneousTurnOperations(testGameID1) ?? '[]') as Array<{ playerId: string }>
+  const saved = JSON.parse(getSimultaneousTurnOperations(testGameID1) ?? '[]') as Array<{
+    turn: number, playerId: string, sequence: number
+  }>
   assert.deepEqual(saved.map((operation) => operation.playerId).sort(), [testPlayerID1, testPlayerID2].sort())
+  assert.equal(saved.every((operation) => operation.turn === 0 && operation.sequence === 0), true)
+
+  const spoofed = await server.app.request(`/simultaneous-turn-operations/${testGameID1}`, {
+    method: 'POST', headers: { Authorization: basicAuth(testPlayerID1), 'User-Agent': 'Unciv' },
+    body: JSON.stringify([{ playerId: testPlayerID2, type: 'done' }]),
+  })
+  assert.equal(spoofed.status, 400)
 })
 
 test('/isalive 返回健康检查内容', async () => {
