@@ -26,8 +26,8 @@ test('同步回合玩家并发提交操作不会互相覆盖且接受省略的�
     body: JSON.stringify([{ playerId, type: 'done' }]),
   })
   const [first, second] = await Promise.all([request(testPlayerID1), request(testPlayerID2)])
-  assert.equal(first.status, 204)
-  assert.equal(second.status, 204)
+  assert.equal(first.status, 200)
+  assert.equal(second.status, 200)
   const saved = JSON.parse(getSimultaneousTurnOperations(testGameID1) ?? '[]') as Array<{
     turn: number, playerId: string, sequence: number
   }>

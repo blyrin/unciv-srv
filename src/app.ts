@@ -171,7 +171,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
       console.error('合并同步回合操作失败', { gameId, playerId: c.get('playerId') }, error)
       return errorResponse(400, '操作数据无效')
     }
-    return successResponse()
+    return new Response(null, { status: 200 })
   })
 
   app.delete('/simultaneous-turn-lock/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), async (c) => {
