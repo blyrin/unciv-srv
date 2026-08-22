@@ -76,6 +76,14 @@ export function runMigrations(): void {
     )
   `)
 
+  const migrationColumns = new Set(
+    (conn.prepare('pragma table_info(schema_migrations)').all() as Row[]).map((row) => String(row.name)),
+  )
+  if (!migrationColumns.has('name')) {
+    // Older installations created this table without the migration name column.
+    conn.exec("alter table schema_migrations add column name TEXT not null default ''")
+  }
+
   const applied = new Set<number>(
     conn.prepare('select version from schema_migrations').all().map((row) => Number((row as Row).version)),
   )
