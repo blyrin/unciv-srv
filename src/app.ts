@@ -20,7 +20,7 @@ import {
 import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersWhitelist, countGamesByPlayer, createGame, deleteGame,
   acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
-  getGamesPage, getLatestFileContent, getLatestFilePreview, getPlayerByID, getPlayerPassword, getPlayersPage,
+  getGamesPage, getLatestFileContent, getLatestFilePreview, getSimultaneousTurnOperations, getPlayerByID, getPlayerPassword, getPlayersPage,
   getTurnByID, getTurnsMetadata, isGameCreator, rollbackGameToTurn, saveFileContent, saveFilePreview, updateGameInfo,
   updateGamePlayers, updatePlayerInfo, updatePlayerPassword, appendSimultaneousTurnOperations,
 } from './database.js'
@@ -61,7 +61,8 @@ function checkGamePlayerAccess(c: Context<Env>, gameId: string, forbiddenMessage
   if (!game) {
     return errorResponse(404, '游戏不存在')
   }
-  if (!c.get('sessionIsAdmin') && !game.players.includes(c.get('sessionUserId'))) {
+  const userId = c.get('sessionUserId') || c.get('playerId')
+  if (!c.get('sessionIsAdmin') && !game.players.includes(userId)) {
     return errorResponse(403, forbiddenMessage)
   }
   return null
@@ -143,6 +144,14 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     if (!Number.isInteger(turn) || turn < 0 || owner !== c.get('playerId')) return errorResponse(400, '锁参数无效')
     const acquired = acquireSimultaneousTurnLock(gameId, turn, owner)
     return new Response(null, { status: acquired ? 201 : 409 })
+  })
+
+  app.get('/simultaneous-turn-operations/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), (c) => {
+    const gameId = c.get('gameId')
+    const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
+    if (accessError) return accessError
+    const data = getSimultaneousTurnOperations(gameId)
+    return data == null ? errorResponse(404, '找不到同步回合操作') : textResponse(data)
   })
 
   app.post('/simultaneous-turn-operations/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), async (c) => {

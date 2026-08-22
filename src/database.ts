@@ -649,16 +649,15 @@ export function appendSimultaneousTurnOperations(
 ): void {
   const db = getDB()
   const transaction = db.transaction(() => {
-    const existing = getLatestFileData('files_content', `${gameId}.ops`)
-    let operations: unknown[] = []
-    if (existing) {
-      const parsed = JSON.parse(existing.data) as unknown
+    const row = db.prepare('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
+    let existing: unknown[] = []
+    if (row) {
+      const parsed = JSON.parse(valueText(row.data)) as unknown
       if (!Array.isArray(parsed)) throw new Error('操作数据不是数组')
-      operations = parsed
+      existing = parsed
     }
-    const merged = [...operations, ...incoming]
     const seen = new Set<string>()
-    const deduplicated = merged.filter((operation) => {
+    const merged = [...existing, ...incoming].filter((operation) => {
       if (!operation || typeof operation !== 'object') throw new Error('操作数据项无效')
       const item = operation as Record<string, unknown>
       for (const field of ['turn', 'playerId', 'sequence', 'type']) {
@@ -669,9 +668,18 @@ export function appendSimultaneousTurnOperations(
       seen.add(key)
       return true
     })
-    saveFileData('files_content', `${gameId}.ops`, 0, playerId, ip, JSON.stringify(deduplicated))
+    db.prepare(`
+      insert into simultaneous_turn_operations (game_id, data, updated_at)
+      values (?, ?, ?)
+      on conflict(game_id) do update set data = excluded.data, updated_at = excluded.updated_at
+    `).run(gameId, JSON.stringify(merged), Date.now())
   })
   transaction()
+}
+
+export function getSimultaneousTurnOperations(gameId: string): string | null {
+  const row = getDB().prepare('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
+  return row ? valueText(row.data) : null
 }
 
 export function getLatestFilePreview(gameId: string): FileData | null {

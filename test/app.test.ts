@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
-import { getLatestFileContent, getPlayerByID } from '../src/database.js'
+import { createGame, getLatestFileContent, getPlayerByID, getSimultaneousTurnOperations } from '../src/database.js'
 import { decodeFile, encodeFile } from '../src/utils.js'
 import {
   basicAuth, buildGameData, loginAsPlayer, seedGameWithContent, seedPlayer, setupTestServer, startHttpServer,
-  testGameID1, testPassword, testPlayerID1, type TestServer,
+  testGameID1, testPassword, testPlayerID1, testPlayerID2, type TestServer,
 } from './helpers/server.js'
 
 let server: TestServer
@@ -15,6 +15,21 @@ beforeEach(() => {
 
 afterEach(() => {
   server.close()
+})
+
+test('同步回合玩家并发提交操作不会互相覆盖', async () => {
+  seedPlayer(testPlayerID1)
+  seedPlayer(testPlayerID2)
+  createGame(testGameID1, [testPlayerID1, testPlayerID2])
+  const request = (playerId: string) => server.app.request(`/simultaneous-turn-operations/${testGameID1}`, {
+    method: 'POST', headers: { Authorization: basicAuth(playerId), 'User-Agent': 'Unciv' },
+    body: JSON.stringify([{ turn: 3, playerId, sequence: 0, type: 'done' }]),
+  })
+  const [first, second] = await Promise.all([request(testPlayerID1), request(testPlayerID2)])
+  assert.equal(first.status, 204)
+  assert.equal(second.status, 204)
+  const saved = JSON.parse(getSimultaneousTurnOperations(testGameID1) ?? '[]') as Array<{ playerId: string }>
+  assert.deepEqual(saved.map((operation) => operation.playerId).sort(), [testPlayerID1, testPlayerID2].sort())
 })
 
 test('/isalive 返回健康检查内容', async () => {
