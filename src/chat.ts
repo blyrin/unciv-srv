@@ -29,6 +29,7 @@ export interface GenericMessage {
   turn?: number
   playerId?: string
   sequence?: number
+}
 
 interface Peer {
   ws: WebSocket

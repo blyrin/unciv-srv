@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
 import {
-  createGame, getAllStats, getGameByID, getGamesByPlayer, getLatestFileContent, getPlayerByID, getPlayersPage,
+  acquireSimultaneousTurnLock, createGame, getAllStats, getGameByID, getGamesByPlayer, getLatestFileContent, getPlayerByID, getPlayersPage,
   rollbackGameToTurn, saveFileContent, saveFilePreview,
 } from '../src/database.js'
 import { seedPlayer, setupTestServer, testGameID1, testPassword, testPlayerID1, type TestServer } from './helpers/server.js'
@@ -16,6 +16,14 @@ afterEach(() => {
   server.close()
 })
 
+test('同步回合结算锁对同一游戏回合提供互斥且支持幂等重试', () => {
+  seedPlayer()
+  createGame(testGameID1, [testPlayerID1])
+
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 3, testPlayerID1), true)
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 3, testPlayerID1), true)
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 3, 'other-player'), false)
+})
 test('玩家和分页查询保持 JSON 字段形状', () => {
   seedPlayer()
   const player = getPlayerByID(testPlayerID1)

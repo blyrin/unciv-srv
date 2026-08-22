@@ -19,7 +19,7 @@ import {
 } from './utils.js'
 import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersWhitelist, countGamesByPlayer, createGame, deleteGame,
-  errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
+  acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
   getGamesPage, getLatestFileContent, getLatestFilePreview, getPlayerByID, getPlayerPassword, getPlayersPage,
   getTurnByID, getTurnsMetadata, isGameCreator, rollbackGameToTurn, saveFileContent, saveFilePreview, updateGameInfo,
   updateGamePlayers, updatePlayerInfo, updatePlayerPassword,
@@ -131,6 +131,29 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
       return errorResponse(404, '找不到存档')
     }
     return textResponse(encodeFile(file.data))
+  })
+
+  app.post('/simultaneous-turn-lock/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), async (c) => {
+    const gameId = c.get('gameId')
+    const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
+    if (accessError) return accessError
+    const body = (await c.req.text()).split(':', 2)
+    const turn = Number.parseInt(body[0] ?? '', 10)
+    const owner = body[1] ?? ''
+    if (!Number.isInteger(turn) || turn < 0 || owner !== c.get('playerId')) return errorResponse(400, '锁参数无效')
+    const acquired = acquireSimultaneousTurnLock(gameId, turn, owner)
+    return new Response(null, { status: acquired ? 201 : 409 })
+  })
+
+  app.delete('/simultaneous-turn-lock/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), async (c) => {
+    const gameId = c.get('gameId')
+    const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
+    if (accessError) return accessError
+    const body = (await c.req.text()).split(':', 2)
+    const turn = Number.parseInt(body[0] ?? '', 10)
+    const owner = body[1] ?? ''
+    if (Number.isInteger(turn) && owner === c.get('playerId')) releaseSimultaneousTurnLock(gameId, turn, owner)
+    return successResponse()
   })
 
   app.put('/files/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), async (c) => {
