@@ -18,6 +18,7 @@ export type MessageType =
   | 'gameUpdated'
   | 'onlineQuery'
   | 'onlineResponse'
+  | 'opSignal'
 
 export interface GenericMessage {
   type?: MessageType
@@ -25,7 +26,9 @@ export interface GenericMessage {
   gameIds?: string[]
   civName?: string
   message?: string
-}
+  turn?: number
+  playerId?: string
+  sequence?: number
 
 interface Peer {
   ws: WebSocket
@@ -415,9 +418,14 @@ function handleOnlineMessage(peer: Peer, msg: GenericMessage): void {
   })
 }
 
-/**
- * 解析并分发 WebSocket 消息。
- */
+function handleOperationSignal(peer: Peer, msg: GenericMessage): void {
+  if (!isValidGameChannelID(msg.gameId) || !isPeerSubscribed(peer, msg.gameId)) return
+  publishToPeers(getGameSubscriberPeers(msg.gameId), {
+    type: 'opSignal', gameId: msg.gameId, turn: msg.turn, playerId: msg.playerId, sequence: msg.sequence,
+  })
+}
+
+
 function handleMessage(peer: Peer, data: RawData): void {
   let msg: GenericMessage
   const text = data.toString()
@@ -447,6 +455,9 @@ function handleMessage(peer: Peer, data: RawData): void {
     case 'onlineQuery':
     case 'onlineResponse':
       handleOnlineMessage(peer, msg)
+      break
+    case 'opSignal':
+      handleOperationSignal(peer, msg)
       break
     default:
       console.info('WebSocket 忽略未知消息类型', {
