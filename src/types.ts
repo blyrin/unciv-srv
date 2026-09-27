@@ -43,7 +43,10 @@ export interface Player {
   createdAt: number
   updatedAt: number
   whitelist: boolean
-  /** 账号是否已通过审核（approval 模式新注册的账号为 false，无法使用任何联机接口） */
+  /**
+   * 账号是否已通过审核：approval 模式下新注册的账号为 false，缺列的历史数据同样按 false（未审核）处理，
+   * 未审核账号无法使用任何联机接口，需要管理员在后台通过
+   */
   approved: boolean
   remark: string
   createIp?: string

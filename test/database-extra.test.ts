@@ -7,7 +7,7 @@ import {
   getTurnByID, getTurnsMetadata, rollbackGameToTurn, runCleanup, saveFileContent, saveFilePreview, updateGameInfo,
   updateGamePlayers, updatePlayerInfo, updatePlayerLastActive, updatePlayerPassword,
 } from '../src/database.js'
-import { verifyPassword } from '../src/password.js'
+import { hashPassword, verifyPassword } from '../src/password.js'
 import {
   seedPlayer, setupTestServer, testGameID1, testPassword, testPlayerID1, testPlayerID2, type TestServer,
 } from './helpers/server.js'
@@ -203,4 +203,18 @@ test('批量删除空列表保持空操作', () => {
   batchUpdateGamesWhitelist([], true)
   batchUpdatePlayersWhitelist([], true)
   assert.equal(getGameByID(testGameID1), null)
+})
+
+test('缺失审核字段的历史账号一律按未审核处理', () => {
+  const conn = getDB()
+  // 迁移 000004 以 0 回填历史数据，缺列写入也必须落到未审核
+  const column = conn.prepare("select dflt_value from pragma_table_info('players') where name = 'approved'").get() as {
+    dflt_value: string
+  } | undefined
+  assert.equal(column?.dflt_value, '0')
+
+  conn.prepare('insert into players (player_id, password, created_at, updated_at) values (?, ?, ?, ?)')
+    .run(testPlayerID2, hashPassword(testPassword), Date.now(), Date.now())
+  assert.equal(getPlayerByID(testPlayerID2)?.approved, false)
+  assert.equal(getPlayerByID(testPlayerID2)?.whitelist, false)
 })

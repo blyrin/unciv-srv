@@ -208,7 +208,8 @@ function rowToPlayer(row: Row): Player {
     createdAt: valueTime(row.created_at),
     updatedAt: valueTime(row.updated_at),
     whitelist: rowBool(row.whitelist),
-    approved: row.approved == null ? true : rowBool(row.approved),
+    // 缺列（历史数据或旧查询）一律按未审核处理，避免漏审账号直接可用
+    approved: row.approved == null ? false : rowBool(row.approved),
     remark: valueText(row.remark),
     createIp: optionalText(row.create_ip),
     updateIp: optionalText(row.update_ip),
@@ -280,6 +281,7 @@ export function getPlayerByID(playerId: string): Player | null {
 
 /**
  * 创建新玩家，密码以哈希形式入库。
+ * approved 默认 true，用于管理员/脚本预建的账号；玩家自助注册由中间件按注册模式显式传参。
  */
 export function createPlayer(playerId: string, password: string, ip: string, approved = true): void {
   const now = Date.now()
