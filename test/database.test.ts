@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
 import {
-  acquireSimultaneousTurnLock, createGame, getAllStats, getGameByID, getGamesByPlayer, getLatestFileContent, getPlayerByID, getPlayersPage,
-  rollbackGameToTurn, saveFileContent, saveFilePreview,
+  acquireSimultaneousTurnLock, approveAllPendingPlayers, createGame, createPlayer, getDB, getAllStats, getGameByID, getGamesByPlayer,
+  getLatestFileContent, getPlayerByID, getPlayersPage, rollbackGameToTurn, saveFileContent, saveFilePreview, updatePlayerInfo,
 } from '../src/database.js'
 import { isHashedPassword, verifyPassword } from '../src/password.js'
-import { seedPlayer, setupTestServer, testGameID1, testPassword, testPlayerID1, type TestServer } from './helpers/server.js'
+import {
+  seedPlayer, setupTestServer, testGameID1, testPassword, testPlayerID1, testPlayerID2, testPlayerID3, type TestServer,
+} from './helpers/server.js'
 
 let server: TestServer
 
@@ -33,9 +35,57 @@ test('玩家和分页查询保持 JSON 字段形状', () => {
   assert.equal(player?.whitelist, false)
   assert.equal(player?.approved, true)
 
-  const page = getPlayersPage('', 1, 20)
+  const page = getPlayersPage({ page: 1, pageSize: 20 })
   assert.equal(page.total, 1)
   assert.equal(page.items[0]?.playerId, testPlayerID1)
+})
+
+test('玩家列表支持按审核状态、白名单、关键词与排序筛选', () => {
+  seedPlayer(testPlayerID1)
+  createPlayer(testPlayerID2, testPassword, '127.0.0.1', false)
+  seedPlayer(testPlayerID3)
+  updatePlayerInfo(testPlayerID3, true, '白名单玩家')
+  createGame(testGameID1, [testPlayerID1])
+  // 手动拉开注册时间，保证排序断言稳定
+  getDB().prepare('update players set created_at = ? where player_id = ?').run(1000, testPlayerID1)
+  getDB().prepare('update players set created_at = ? where player_id = ?').run(2000, testPlayerID2)
+  getDB().prepare('update players set created_at = ? where player_id = ?').run(3000, testPlayerID3)
+
+  const pending = getPlayersPage({ page: 1, pageSize: 20, status: 'pending' })
+  assert.deepEqual(pending.items.map((item) => item.playerId), [testPlayerID2])
+  assert.equal(pending.total, 1)
+
+  const approved = getPlayersPage({ page: 1, pageSize: 20, status: 'approved' })
+  assert.equal(approved.total, 2)
+
+  const whitelist = getPlayersPage({ page: 1, pageSize: 20, whitelist: 'yes' })
+  assert.deepEqual(whitelist.items.map((item) => item.playerId), [testPlayerID3])
+  assert.equal(getPlayersPage({ page: 1, pageSize: 20, whitelist: 'no' }).total, 2)
+
+  const keyword = getPlayersPage({ page: 1, pageSize: 20, keyword: '白名单' })
+  assert.deepEqual(keyword.items.map((item) => item.playerId), [testPlayerID3])
+
+  const pendingAndKeyword = getPlayersPage({ page: 1, pageSize: 20, status: 'pending', keyword: testPlayerID3 })
+  assert.equal(pendingAndKeyword.total, 0)
+
+  const asc = getPlayersPage({ page: 1, pageSize: 20, sort: 'created_asc' })
+  assert.deepEqual(asc.items.map((item) => item.playerId), [testPlayerID1, testPlayerID2, testPlayerID3])
+  const desc = getPlayersPage({ page: 1, pageSize: 20, sort: 'created_desc' })
+  assert.deepEqual(desc.items.map((item) => item.playerId), [testPlayerID3, testPlayerID2, testPlayerID1])
+
+  // 对局数：只有 testPlayerID1 参与了对局
+  assert.deepEqual(asc.items.map((item) => item.gameCount), [1, 0, 0])
+})
+
+test('一键通过待审核玩家只改未审核账号', () => {
+  seedPlayer(testPlayerID1)
+  createPlayer(testPlayerID2, testPassword, '127.0.0.1', false)
+  createPlayer(testPlayerID3, testPassword, '127.0.0.1', false)
+
+  assert.equal(approveAllPendingPlayers(), 2)
+  assert.equal(approveAllPendingPlayers(), 0)
+  assert.equal(getPlayerByID(testPlayerID2)?.approved, true)
+  assert.equal(getPlayerByID(testPlayerID3)?.approved, true)
 })
 
 test('游戏和最新存档查询使用项目表结构', () => {

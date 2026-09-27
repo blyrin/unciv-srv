@@ -47,6 +47,11 @@ export interface Player {
   updateIp?: string
 }
 
+/** 后台玩家列表的一行：在玩家信息之外带上参与的对局数，方便审核时判断账号是否真的在用 */
+export interface PlayerListEntry extends Player {
+  gameCount: number
+}
+
 export interface Game {
   gameId: string
   players: string[]

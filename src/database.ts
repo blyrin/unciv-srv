@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import BetterSqlite3 from 'better-sqlite3'
 import type {
-  Config, FileData, Game, GameWithTurns, PageResult, Player, RollbackResult, Stats, TurnMetadata,
+  Config, FileData, Game, GameWithTurns, PageResult, Player, PlayerListEntry, RollbackResult, Stats, TurnMetadata,
 } from './types.js'
 import { projectRoot, resolveRepoPath } from './paths.js'
 import { hashPassword, isHashedPassword } from './password.js'
@@ -383,22 +383,59 @@ export function clearExpiredIPs(retentionDays = getIPRetentionDays()): { players
   return { players, files: content + preview }
 }
 
+/** 玩家列表的审核状态筛选 */
+export type PlayerListStatusFilter = 'all' | 'pending' | 'approved'
+/** 玩家列表的白名单筛选 */
+export type PlayerListWhitelistFilter = 'all' | 'yes' | 'no'
+/** 玩家列表的排序方式 */
+export type PlayerListSort = 'created_desc' | 'created_asc' | 'updated_desc' | 'updated_asc'
+
+export interface GetPlayersPageOptions {
+  page: number
+  pageSize: number
+  keyword?: string
+  status?: PlayerListStatusFilter
+  whitelist?: PlayerListWhitelistFilter
+  sort?: PlayerListSort
+}
+
+/** 排序只允许这几个固定字段，避免把查询参数直接拼进 SQL */
+const playerListOrderBy: Record<PlayerListSort, string> = {
+  created_desc: 'created_at desc',
+  created_asc: 'created_at asc',
+  updated_desc: 'updated_at desc',
+  updated_asc: 'updated_at asc',
+}
+
 /**
- * 分页查询玩家列表。
+ * 分页查询玩家列表，支持关键词、审核状态、白名单与排序筛选。
+ * 每行附带该玩家参与的对局数，方便审核时判断账号是否真的在用。
  */
-export function getPlayersPage(keyword: string, page: number, pageSize: number): PageResult<Player> {
+export function getPlayersPage(options: GetPlayersPageOptions): PageResult<PlayerListEntry> {
   const conn = getDB()
+  const conditions: string[] = []
   const args: unknown[] = []
-  let where = ''
+  const keyword = (options.keyword ?? '').trim()
   if (keyword !== '') {
-    where = ' WHERE player_id LIKE ? OR remark LIKE ?'
+    conditions.push('(player_id LIKE ? OR remark LIKE ?)')
     const like = `%${keyword}%`
     args.push(like, like)
   }
+  if (options.status === 'pending') {
+    conditions.push('approved = 0')
+  } else if (options.status === 'approved') {
+    conditions.push('approved = 1')
+  }
+  if (options.whitelist === 'yes') {
+    conditions.push('whitelist = 1')
+  } else if (options.whitelist === 'no') {
+    conditions.push('whitelist = 0')
+  }
+  const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : ''
 
   const totalRow = conn.prepare(`select count(*) as total
                                  from players${where}`).get(...args) as Row
-  const offset = (page - 1) * pageSize
+  const offset = (options.page - 1) * options.pageSize
   const rows = conn
     .prepare(`
       select player_id,
@@ -409,14 +446,29 @@ export function getPlayersPage(keyword: string, page: number, pageSize: number):
              approved,
              remark,
              create_ip,
-             update_ip
+             update_ip,
+             (select count(*)
+              from files f
+              where exists (select 1 from json_each(f.players) where json_each.value = players.player_id)) as game_count
       from players${where}
-      order by created_at desc LIMIT ?
-      offset ?
+      order by ${playerListOrderBy[options.sort ?? 'created_desc']}
+      LIMIT ? offset ?
     `)
-    .all(...args, pageSize, offset) as Row[]
+    .all(...args, options.pageSize, offset) as Row[]
 
-  return { items: rows.map(rowToPlayer), total: Number(totalRow.total ?? 0) }
+  return {
+    items: rows.map((row) => ({ ...rowToPlayer(row), gameCount: Number(row.game_count ?? 0) })),
+    total: Number(totalRow.total ?? 0),
+  }
+}
+
+/**
+ * 一键通过所有待审核玩家，返回本次通过的数量。
+ */
+export function approveAllPendingPlayers(): number {
+  return getDB()
+    .prepare('update players set approved = 1, updated_at = ? where approved = 0')
+    .run(Date.now()).changes
 }
 
 /**

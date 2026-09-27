@@ -175,6 +175,10 @@ docker run -d --name unciv-srv \
   unciv-srv
 ```
 
+### 镜像标签约定
+
+自建部署时，镜像标签用「配套客户端版本 + 构建号」，例如 `unciv-srv:4.22.4.1-b6`（配套客户端的 `4.22.4.1`，第 6 次服务器端构建）。**不要**写成 `unciv-srv:4.22.4.2` 这类形式：在 UncivCN 的版本规则里，`.2`、`.3`… 是「同一上游版本的 CN 子版本号」（见 `docs/zh/UncivCN/Changelog.md` 开头），会被误读成客户端发版。
+
 ### 环境变量（Docker）
 
 与 `.env` 完全一致，可直接通过 `-e` / `environment` 注入：`PORT`、`DB_PATH`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`MAX_ATTEMPTS`、`LOCK_TIME`。容器默认 `PORT=11451`、`DB_PATH=/data/unciv-srv.db`。

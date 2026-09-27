@@ -414,7 +414,10 @@
                      label="玩家总数"></stat-card>
           <stat-card :value="stats.pendingPlayerCount" color="text-amber-600"
                      icon='<svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>'
-                     label="待审核玩家" v-if="stats.pendingPlayerCount > 0"></stat-card>
+                     label="待审核玩家" v-if="stats.pendingPlayerCount > 0"
+                     @click="openPendingPlayers"
+                     class="cursor-pointer ring-1 ring-amber-200/60 hover:ring-amber-400"
+                     title="点击查看待审核玩家"></stat-card>
           <stat-card :value="stats.whitelistPlayerCount" color="text-brand-600"
                      icon='<svg class="w-6 h-6 text-brand-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>'
                      label="白名单玩家"></stat-card>
@@ -462,31 +465,71 @@
         <div v-if="isAdmin && activeTab === 'players'">
           <div
             class="glass bg-white/50 backdrop-blur-xl p-3 sm:p-4 rounded-2xl border-white/30 mb-4 flex flex-col gap-3">
-            <div class="flex flex-wrap gap-2 sm:gap-3 w-full">
+            <div class="flex flex-wrap gap-2 sm:gap-3 w-full items-center">
               <input
                 class="flex-1 min-w-[140px] px-3 sm:px-4 py-2 rounded-lg border border-stone-200/60 bg-white/40 backdrop-blur focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none text-sm"
                 placeholder="搜索 ID 或备注..."
                 v-model="filters.playerSearch">
+              <div class="flex flex-wrap gap-1.5">
+                <button v-for="opt in playerViewOptions" :key="opt.value" @click="setPlayerView(opt.value)"
+                        :class="filters.playerStatus === opt.value
+                          ? 'bg-brand-600 text-white border-brand-700'
+                          : 'bg-white/50 text-stone-600 border-stone-200/60 hover:bg-white/80'"
+                        class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors whitespace-nowrap">
+                  {{ opt.label }}
+                </button>
+              </div>
+              <select :value="filters.playerSort" @change="setPlayerSort($event.target.value)"
+                      class="px-2 py-1.5 rounded-lg border border-stone-200/60 bg-white/40 backdrop-blur text-xs text-stone-600 outline-none focus:ring-2 focus:ring-brand-500">
+                <option value="created_desc">最新注册</option>
+                <option value="created_asc">最早注册</option>
+                <option value="updated_desc">最近活跃</option>
+                <option value="updated_asc">最久未活跃</option>
+              </select>
+              <select :value="playerPageSize" @change="setPlayerPageSize($event.target.value)"
+                      class="px-2 py-1.5 rounded-lg border border-stone-200/60 bg-white/40 backdrop-blur text-xs text-stone-600 outline-none focus:ring-2 focus:ring-brand-500">
+                <option :value="20">20 条/页</option>
+                <option :value="50">50 条/页</option>
+                <option :value="100">100 条/页</option>
+              </select>
               <button @click="resetFilters" class="text-sm text-stone-500 hover:text-brand-600 px-2">重置</button>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 sm:gap-3" v-if="pendingCount > 0">
+              <span class="text-xs text-amber-800 bg-amber-50 border border-amber-200/60 px-2 py-1 rounded-lg">
+                有 {{ pendingCount }} 个账号等待审核
+              </span>
+              <button @click="approveAllPending"
+                      class="px-3 py-1.5 rounded text-xs font-medium border border-amber-600 bg-amber-500 text-white">
+                一键通过全部待审核
+              </button>
             </div>
             <div
               class="flex flex-wrap items-center gap-2 sm:gap-3 bg-brand-50/50 px-3 py-2 rounded-lg border border-brand-200/40 backdrop-blur"
-              v-if="selectedPlayers.length > 0">
+              v-if="players.length > 0">
               <span class="text-sm text-brand-800 font-medium">选中 {{ selectedPlayers.length }} 项</span>
-              <button @click="batchUpdatePlayers(true)"
-                      class="px-3 py-1.5 rounded text-xs font-medium border border-brand-700 bg-brand-600 text-white">
+              <span class="text-xs text-stone-500" v-if="selectedPlayers.length === 0">勾选本页账号，或点「全选本页」</span>
+              <button @click="selectPlayerPage"
+                      class="px-3 py-1.5 rounded text-xs font-medium bg-white text-stone-600 border border-stone-200">
+                全选本页
+              </button>
+              <button @click="clearPlayerSelection" :disabled="selectedPlayers.length === 0"
+                      class="px-3 py-1.5 rounded text-xs font-medium bg-white text-stone-600 border border-stone-200 disabled:opacity-40 disabled:cursor-not-allowed">
+                清空选择
+              </button>
+              <button @click="batchUpdatePlayers(true)" :disabled="selectedPlayers.length === 0"
+                      class="px-3 py-1.5 rounded text-xs font-medium border border-brand-700 bg-brand-600 text-white disabled:opacity-40 disabled:cursor-not-allowed">
                 设为白名单
               </button>
-              <button @click="batchUpdatePlayers(false)"
-                      class="px-3 py-1.5 rounded text-xs font-medium bg-white text-red-600 border border-red-200">
+              <button @click="batchUpdatePlayers(false)" :disabled="selectedPlayers.length === 0"
+                      class="px-3 py-1.5 rounded text-xs font-medium bg-white text-red-600 border border-red-200 disabled:opacity-40 disabled:cursor-not-allowed">
                 取消白名单
               </button>
-              <button @click="batchUpdatePlayersApproval(true)"
-                      class="px-3 py-1.5 rounded text-xs font-medium border border-amber-600 bg-amber-500 text-white">
+              <button @click="batchUpdatePlayersApproval(true)" :disabled="selectedPlayers.length === 0"
+                      class="px-3 py-1.5 rounded text-xs font-medium border border-amber-600 bg-amber-500 text-white disabled:opacity-40 disabled:cursor-not-allowed">
                 通过审核
               </button>
-              <button @click="batchUpdatePlayersApproval(false)"
-                      class="px-3 py-1.5 rounded text-xs font-medium bg-white text-amber-600 border border-amber-200">
+              <button @click="batchUpdatePlayersApproval(false)" :disabled="selectedPlayers.length === 0"
+                      class="px-3 py-1.5 rounded text-xs font-medium bg-white text-amber-600 border border-amber-200 disabled:opacity-40 disabled:cursor-not-allowed">
                 取消通过
               </button>
             </div>
@@ -501,6 +544,7 @@
                                                      v-model="selectAllPlayers"></th>
                   <th class="p-3 sm:p-4">玩家 ID</th>
                   <th class="p-3 sm:p-4">状态</th>
+                  <th class="p-3 sm:p-4 hidden lg:table-cell">对局</th>
                   <th class="p-3 sm:p-4 hidden sm:table-cell">备注</th>
                   <th class="p-3 sm:p-4 hidden md:table-cell">注册/活跃</th>
                   <th class="p-3 sm:p-4 text-right">操作</th>
@@ -518,6 +562,10 @@
                     </span>
                     <span class="px-2 py-1 rounded-full text-xs font-medium text-nowrap bg-amber-100 text-amber-700"
                           v-if="p.approved === false">待审核</span>
+                    <div class="text-xs text-stone-400 mt-1" v-if="p.approved === false">{{ formatWait(p.createdAt) }}</div>
+                  </td>
+                  <td class="p-3 sm:p-4 text-xs text-stone-500 hidden lg:table-cell">
+                    <span :class="p.gameCount > 0 ? 'text-stone-600' : 'text-stone-300'">{{ p.gameCount ?? 0 }}</span>
                   </td>
                   <td class="p-3 sm:p-4 text-stone-500 truncate max-w-[150px] hidden sm:table-cell">{{ p.remark || '-'
                     }}
@@ -525,8 +573,13 @@
                   <td class="p-3 sm:p-4 text-xs text-stone-400 hidden md:table-cell">
                     <div>注: {{ formatDate(p.createdAt) }}</div>
                     <div>活: {{ formatDate(p.updatedAt) }}</div>
+                    <div v-if="p.createIp">IP: {{ p.createIp }}</div>
                   </td>
                   <td class="p-3 sm:p-4 text-right space-x-1 sm:space-x-2 whitespace-nowrap">
+                    <button @click="copyPlayerId(p.playerId)" title="复制玩家 ID"
+                            class="text-stone-400 hover:text-stone-700 text-xs sm:text-sm">
+                      复制ID
+                    </button>
                     <button @click="openEditPlayer(p)" class="text-brand-600 hover:underline text-xs sm:text-sm">
                       编辑
                     </button>
@@ -770,7 +823,9 @@
     checkSession: () => API.request('/api/session'),
     login: (u, p) => API.request('/api/login', { method: 'POST', body: JSON.stringify({ username: u, password: p }) }),
     getStats: () => API.request('/api/stats'),
-    getPlayers: (page, pageSize, keyword) => API.request(`/api/players?page=${page}&pageSize=${pageSize}&keyword=${encodeURIComponent(keyword || '')}`),
+    getPlayers: (page, pageSize, keyword, status = 'all', whitelist = 'all', sort = 'created_desc') =>
+      API.request(`/api/players?page=${page}&pageSize=${pageSize}&keyword=${encodeURIComponent(keyword || '')}`
+        + `&status=${status}&whitelist=${whitelist}&sort=${sort}`),
     getGames: (page, pageSize, keyword) => API.request(`/api/games?page=${page}&pageSize=${pageSize}&keyword=${encodeURIComponent(keyword || '')}`),
     getUserStats: () => API.request('/api/users/stats'),
     getUserGames: () => API.request('/api/users/games'),
@@ -793,6 +848,7 @@
       method: 'PATCH',
       body: JSON.stringify({ playerIds: ids, approved }),
     }),
+    approveAllPendingPlayers: () => API.request('/api/players/approve-pending', { method: 'POST' }),
     batchGames: (ids, wl) => API.request('/api/games/batch', {
       method: 'PATCH',
       body: JSON.stringify({ gameIds: ids, whitelist: wl }),
@@ -833,7 +889,12 @@
       const toasts = ref([])
       const modal = reactive({ show: false, title: '', content: '', type: '', data: {}, onConfirm: null })
       // 筛选 & 批量
-      const filters = reactive({ playerSearch: '', gameSearch: '' })
+      const filters = reactive({
+        playerSearch: '',
+        playerStatus: 'all', // all / pending / approved / whitelist
+        playerSort: 'created_desc',
+        gameSearch: '',
+      })
       const playerPage = ref(1)
       const playerPageSize = ref(20)
       const gamePage = ref(1)
@@ -851,6 +912,15 @@
       })
       const playerTotalPages = computed(() => Math.max(1, Math.ceil(playersTotal.value / playerPageSize.value)))
       const gameTotalPages = computed(() => Math.max(1, Math.ceil(gamesTotal.value / gamePageSize.value)))
+      /** 待审核账号数量，用于筛选按钮与「一键通过」 */
+      const pendingCount = computed(() => Number(stats.value.pendingPlayerCount ?? 0))
+      /** 玩家管理的筛选视图 */
+      const playerViewOptions = computed(() => [
+        { value: 'all', label: '全部' },
+        { value: 'pending', label: pendingCount.value > 0 ? `待审核 ${pendingCount.value}` : '待审核' },
+        { value: 'approved', label: '已通过' },
+        { value: 'whitelist', label: '白名单' },
+      ])
       const selectAllPlayers = computed({
         get: () => players.value.length > 0 && selectedPlayers.value.length === players.value.length,
         set: (val) => selectedPlayers.value = val ? players.value.map(p => p.playerId) : [],
@@ -901,9 +971,14 @@
         contentLoading.value = true
         try {
           if (isAdmin.value) {
-            if (activeTab.value === 'stats') stats.value = await API.getStats()
+            // 顶部统计卡与待审核数量在任何标签页都要保持最新
+            stats.value = await API.getStats()
             if (activeTab.value === 'players') {
-              const res = await API.getPlayers(playerPage.value, playerPageSize.value, filters.playerSearch)
+              const status = filters.playerStatus === 'pending' || filters.playerStatus === 'approved'
+                ? filters.playerStatus : 'all'
+              const whitelist = filters.playerStatus === 'whitelist' ? 'yes' : 'all'
+              const res = await API.getPlayers(playerPage.value, playerPageSize.value, filters.playerSearch,
+                status, whitelist, filters.playerSort)
               players.value = res.items
               playersTotal.value = res.total
             }
@@ -958,10 +1033,75 @@
       }
       const resetFilters = () => {
         filters.playerSearch = ''
+        filters.playerStatus = 'all'
+        filters.playerSort = 'created_desc'
         filters.gameSearch = ''
         playerPage.value = 1
         gamePage.value = 1
         loadTabData()
+      }
+      /** 重新从第一页加载玩家列表（切换筛选/排序/每页条数时调用） */
+      const reloadPlayers = () => {
+        playerPage.value = 1
+        loadTabData()
+      }
+      const setPlayerView = (value) => {
+        if (filters.playerStatus === value) return
+        filters.playerStatus = value
+        selectedPlayers.value = []
+        reloadPlayers()
+      }
+      const setPlayerSort = (value) => {
+        if (filters.playerSort === value) return
+        filters.playerSort = value
+        reloadPlayers()
+      }
+      const setPlayerPageSize = (value) => {
+        const size = Number(value)
+        if (!Number.isFinite(size) || size === playerPageSize.value) return
+        playerPageSize.value = size
+        reloadPlayers()
+      }
+      /** 从顶部统计卡跳到「待审核」筛选 */
+      const openPendingPlayers = () => {
+        filters.playerStatus = 'pending'
+        playerPage.value = 1
+        if (activeTab.value === 'players') loadTabData()
+        else activeTab.value = 'players'
+      }
+      const selectPlayerPage = () => {
+        selectedPlayers.value = players.value.map(p => p.playerId)
+      }
+      const clearPlayerSelection = () => {
+        selectedPlayers.value = []
+      }
+      /** 待审核账号的等待时长，方便优先处理积压的申请 */
+      const formatWait = (createdAt) => {
+        const ms = Date.now() - Number(createdAt ?? 0)
+        if (!Number.isFinite(ms) || ms < 0) return ''
+        const minutes = Math.floor(ms / 60000)
+        if (minutes < 60) return `已等待 ${Math.max(minutes, 1)} 分钟`
+        const hours = Math.floor(minutes / 60)
+        if (hours < 24) return `已等待 ${hours} 小时`
+        return `已等待 ${Math.floor(hours / 24)} 天`
+      }
+      const copyPlayerId = async (playerId) => {
+        try {
+          await navigator.clipboard.writeText(playerId)
+          showToast('已复制玩家 ID')
+        } catch (e) {
+          try {
+            const input = document.createElement('input')
+            input.value = playerId
+            document.body.appendChild(input)
+            input.select()
+            document.execCommand('copy')
+            input.remove()
+            showToast('已复制玩家 ID')
+          } catch (err) {
+            showToast('复制失败，请手动选择复制', 'error')
+          }
+        }
       }
       /**
        * 搜索防抖。
@@ -1089,6 +1229,18 @@
           loadTabData()
         } catch (e) { showToast(e.message, 'error') }
       }
+      /** 一键通过所有待审核账号，不用逐页勾选 */
+      const approveAllPending = async () => {
+        const count = pendingCount.value
+        if (!count) return
+        if (!confirm(`确定通过全部 ${count} 个待审核账号吗？通过后这些账号即可联机。`)) return
+        try {
+          const res = await API.approveAllPendingPlayers()
+          showToast(`已通过 ${res.count} 个待审核账号`)
+          selectedPlayers.value = []
+          loadTabData()
+        } catch (e) { showToast(e.message, 'error') }
+      }
       const openEditGame = (g) => openEdit('游戏', g.gameId, g, API.updateGame)
       const batchUpdateGames = async (wl) => {
         if (!selectedGames.value.length) return
@@ -1153,8 +1305,11 @@
         players, playersTotal, playerPage, playerPageSize, playerTotalPages,
         games, gamesTotal, gamePage, gamePageSize, gameTotalPages,
         filters, selectedPlayers, selectedGames, selectAllPlayers, selectAllGames,
+        playerViewOptions, pendingCount,
         toasts, modal,
         handleLogin, formatDate, formatSize, resetFilters, setPlayerPage, setGamePage,
+        setPlayerView, setPlayerSort, setPlayerPageSize, openPendingPlayers, formatWait, copyPlayerId,
+        selectPlayerPage, clearPlayerSelection, approveAllPending,
         openEditPlayer, viewPassword, openChangePlayerPassword, openChangeMyPassword, batchUpdatePlayers,
         batchUpdatePlayersApproval, setPlayerApproved,
         openEditGame, batchUpdateGames, batchDeleteGames,

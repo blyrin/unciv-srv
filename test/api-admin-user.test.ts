@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
-import { createGame, getGameByID, getPlayerByID, saveFileContent, saveFilePreview } from '../src/database.js'
+import { createGame, createPlayer, getGameByID, getPlayerByID, saveFileContent, saveFilePreview } from '../src/database.js'
 import { verifyPassword } from '../src/password.js'
 import {
   basicAuth, loginAsAdmin, loginAsPlayer, seedGameWithContent, seedPlayer, setupTestServer, testGameID1, testPassword,
@@ -95,6 +95,45 @@ test('管理员可以关闭和开启玩家审核状态', async () => {
     body: JSON.stringify({ playerIds: [testPlayerID1] }),
   })
   assert.equal(missingFields.status, 400)
+})
+
+test('管理员玩家列表支持状态、白名单、排序筛选与一键通过待审核', async () => {
+  seedPlayer(testPlayerID1)
+  createPlayer(testPlayerID2, testPassword, '127.0.0.1', false)
+  const cookie = await loginAsAdmin(server.app)
+  const headers = { Cookie: cookie }
+
+  const pending = await server.app.request('/api/players?status=pending', { headers })
+  assert.equal(pending.status, 200)
+  const pendingBody = await pending.json() as { items: Array<{ playerId: string; gameCount: number }>; total: number }
+  assert.deepEqual(pendingBody.items.map((item) => item.playerId), [testPlayerID2])
+  assert.equal(pendingBody.total, 1)
+  assert.equal(pendingBody.items[0]?.gameCount, 0)
+
+  const approved = await server.app.request('/api/players?status=approved', { headers })
+  assert.equal((await approved.json() as { total: number }).total, 1)
+
+  // 非法筛选值回落默认，不应报错
+  const invalid = await server.app.request('/api/players?status=nonsense&whitelist=nonsense&sort=nonsense', { headers })
+  assert.equal((await invalid.json() as { total: number }).total, 2)
+
+  const approve = await server.app.request('/api/players/approve-pending', { method: 'POST', headers })
+  assert.equal(approve.status, 200)
+  assert.deepEqual(await approve.json(), { count: 1 })
+  assert.equal(getPlayerByID(testPlayerID2)?.approved, true)
+
+  const after = await server.app.request('/api/players?status=pending', { headers })
+  assert.equal((await after.json() as { total: number }).total, 0)
+})
+
+test('普通玩家不能调用一键通过待审核接口', async () => {
+  seedPlayer(testPlayerID1)
+  const playerCookie = await loginAsPlayer(server.app)
+  const response = await server.app.request('/api/players/approve-pending', {
+    method: 'POST',
+    headers: { Cookie: playerCookie },
+  })
+  assert.equal(response.status, 403)
 })
 
 test('管理员玩家接口返回预期错误状态', async () => {

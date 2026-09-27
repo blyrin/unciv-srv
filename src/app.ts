@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import type { AppVariables, Config } from './types.js'
+import type { PlayerListSort, PlayerListStatusFilter, PlayerListWhitelistFilter } from './database.js'
 import type { PlayerAuthResult } from './middleware.js'
 import {
   adminOnly, authenticatePlayer, basicAuthOnly, basicAuthWithRegister, coldArchiveNotice, logger,
@@ -22,6 +23,7 @@ import {
 } from './utils.js'
 import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersApproval, batchUpdatePlayersWhitelist,
+  approveAllPendingPlayers,
   clearArchivedGame, countGamesByPlayer, createGame, deleteGame, getRestoreRequests,
   acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
   getGamesPage, getLatestFileContent, getLatestFilePreview, getSimultaneousTurnOperations, getPlayerByID, getPlayerPassword, getPlayersPage,
@@ -44,6 +46,21 @@ function parsePagination(c: Context<Env>): { page: number; pageSize: number; key
   const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? pageRaw : 1
   const pageSize = Math.min(Number.isFinite(pageSizeRaw) && pageSizeRaw >= 1 ? pageSizeRaw : 20, 100)
   return { page, pageSize, keyword: c.req.query('keyword') ?? '' }
+}
+
+/** 解析玩家列表的审核状态筛选，非法值按「全部」处理 */
+function parsePlayerStatusFilter(value: string | undefined): PlayerListStatusFilter {
+  return value === 'pending' || value === 'approved' ? value : 'all'
+}
+
+/** 解析玩家列表的白名单筛选，非法值按「全部」处理 */
+function parsePlayerWhitelistFilter(value: string | undefined): PlayerListWhitelistFilter {
+  return value === 'yes' || value === 'no' ? value : 'all'
+}
+
+/** 解析玩家列表排序，非法值按注册时间倒序 */
+function parsePlayerSort(value: string | undefined): PlayerListSort {
+  return value === 'created_asc' || value === 'updated_desc' || value === 'updated_asc' ? value : 'created_desc'
 }
 
 /**
@@ -345,9 +362,23 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
 
   app.get('/api/players', logger(), adminOnly(), (c) => {
     const { page, pageSize, keyword } = parsePagination(c)
-    const result = getPlayersPage(keyword, page, pageSize)
+    const result = getPlayersPage({
+      page,
+      pageSize,
+      keyword,
+      status: parsePlayerStatusFilter(c.req.query('status')),
+      whitelist: parsePlayerWhitelistFilter(c.req.query('whitelist')),
+      sort: parsePlayerSort(c.req.query('sort')),
+    })
     result.items = result.items.map((player) => ({ ...player, password: undefined }))
     return jsonResponse(result)
+  })
+
+  // 一键通过所有待审核账号，避免管理员逐页勾选
+  app.post('/api/players/approve-pending', logger(), adminOnly(), () => {
+    const count = approveAllPendingPlayers()
+    console.info('管理员一键通过待审核玩家', { count })
+    return jsonResponse({ count })
   })
 
   app.put('/api/players/:playerId', logger(), adminOnly(), async (c) => {
