@@ -14,6 +14,14 @@ services:
       # 网页登录限制：5 次 / 5 分钟
       MAX_ATTEMPTS: "5"
       LOCK_TIME: "5"
+      # 注册与联机开关：默认审核制（新账号需在后台「玩家管理」通过），不开放自助注册
+      # 需要开放注册改 REGISTER_MODE=open，只服务预建账号改 closed
+      REGISTER_MODE: approval
+      # 关闭聊天改 "false"（存档同步与游戏更新推送不受影响）
+      CHAT_ENABLED: "true"
+      # IP 只存网段（IPv4 /24、IPv6 /48）并在 30 天后自动清空，完全不存改 none
+      IP_STORAGE: anonymized
+      IP_RETENTION_DAYS: "30"
       # 安装包托管目录（持久化卷）
       DOWNLOAD_DIR: /data/unciv-dl
       # 下载保护：并发 4、单连接 1MB/s、每 IP 每分钟 30 次、只保留最新版本

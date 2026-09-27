@@ -7,7 +7,9 @@
 ## 功能特性
 
 - 游戏存档上传/下载
-- WebSocket 实时聊天
+- WebSocket 实时聊天（可关闭）
+- 注册模式可配置（开放注册 / 管理员审核 / 仅预建账号）
+- 密码哈希存储（scrypt），IP 可只存网段并到期清理
 - Web 管理后台（管理员面板 + 用户面板）
 - 自动数据库版本管理和迁移
 - 定时清理过期数据
@@ -39,7 +41,39 @@ ADMIN_PASSWORD='admin123'
 MAX_ATTEMPTS=5
 ## 分钟
 LOCK_TIME=5
+
+# 注册与联机开关
+## 注册模式：open 开放注册 / approval 新账号需管理员审核 / closed 只有预建账号可登录
+REGISTER_MODE='open'
+## 是否启用多人聊天（关闭后聊天不可用，存档同步与游戏更新推送不受影响）
+CHAT_ENABLED=true
+## IP 存储策略：full 存完整地址 / anonymized 只存网段 / none 不存
+IP_STORAGE='anonymized'
+## IP 保留天数（超过后自动清空 IP，0 表示不清理）
+IP_RETENTION_DAYS=30
 ```
+
+完整变量清单见 `example.env`，容器部署见 `docker-compose.yml`。
+
+### 账号与隐私相关配置
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `REGISTER_MODE` | `open` | `open` 开放自助注册；`approval` 新账号先进入待审核状态，管理员在后台「玩家管理」中通过后才能使用联机接口；`closed` 不开放自助注册，只有管理员预建的账号可登录 |
+| `CHAT_ENABLED` | `true` | 设为 `false` 后聊天消息被拒绝，但订阅、房间加入、同步回合信号与「存档已更新」推送仍正常工作 |
+| `IP_STORAGE` | `anonymized` | `full` 存完整 IP；`anonymized` 只存网段（IPv4 抹掉主机位、IPv6 只存前 3 组）；`none` 完全不写入 IP |
+| `IP_RETENTION_DAYS` | `30` | 超过该天数的 IP 由定时清理任务自动清空，`0` 表示不清理 |
+
+> 密码一律以 scrypt 哈希（每个账号独立随机盐）存储，无法还原；升级旧库时启动日志会提示已把明文密码升级为哈希。管理后台不再提供「查看密码」，只能为玩家重置密码。
+
+## 部署者须知
+
+本服务器是社区自建、自维护的联机服务端，**与 Unciv 上游项目及其开发者无关**，也不代表任何官方服务。部署者以个人或社区身份运营时，需要自行确认并承担所在地区的法律义务（ICP 备案、实名与内容安全、个人信息保护、日志留存等），本项目不提供合规担保。可用的技术手段：
+
+- `REGISTER_MODE=approval` 或 `closed`：只服务确认过的玩家，避免对公众开放注册
+- `CHAT_ENABLED=false`：关闭即时通讯能力，只保留存档同步
+- `IP_STORAGE` / `IP_RETENTION_DAYS`：只记录网段并限制保留时间
+- 部署在境外主机时，请自行评估数据出境与当地法规要求
 
 ## 开发与测试
 
@@ -109,7 +143,7 @@ docker run -d --name unciv-srv \
 
 镜像含健康检查，依赖 `/isalive` 端点，`docker compose ps` 或 `docker inspect` 可查看容器健康状态。
 
-## 安装包托管（CN 官方下载服务器）
+## 安装包托管（UncivCN 社区下载服务器）
 
 服务器内置安装包托管功能：把 UncivCN 的安装包（APK / MSI / 绿色版 zip / jar 等）上传到本服务器。**游戏内更新检查与安装包下载按玩家地区分流**：
 
