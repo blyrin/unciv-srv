@@ -97,7 +97,7 @@ test('管理员可以关闭和开启玩家审核状态', async () => {
   assert.equal(missingFields.status, 400)
 })
 
-test('管理员玩家列表支持状态、白名单、排序筛选与一键通过待审核', async () => {
+test('管理员玩家列表支持状态、白名单与排序筛选', async () => {
   seedPlayer(testPlayerID1)
   createPlayer(testPlayerID2, testPassword, '127.0.0.1', false)
   const cookie = await loginAsAdmin(server.app)
@@ -116,24 +116,6 @@ test('管理员玩家列表支持状态、白名单、排序筛选与一键通�
   // 非法筛选值回落默认，不应报错
   const invalid = await server.app.request('/api/players?status=nonsense&whitelist=nonsense&sort=nonsense', { headers })
   assert.equal((await invalid.json() as { total: number }).total, 2)
-
-  const approve = await server.app.request('/api/players/approve-pending', { method: 'POST', headers })
-  assert.equal(approve.status, 200)
-  assert.deepEqual(await approve.json(), { count: 1 })
-  assert.equal(getPlayerByID(testPlayerID2)?.approved, true)
-
-  const after = await server.app.request('/api/players?status=pending', { headers })
-  assert.equal((await after.json() as { total: number }).total, 0)
-})
-
-test('普通玩家不能调用一键通过待审核接口', async () => {
-  seedPlayer(testPlayerID1)
-  const playerCookie = await loginAsPlayer(server.app)
-  const response = await server.app.request('/api/players/approve-pending', {
-    method: 'POST',
-    headers: { Cookie: playerCookie },
-  })
-  assert.equal(response.status, 403)
 })
 
 test('管理员玩家接口返回预期错误状态', async () => {

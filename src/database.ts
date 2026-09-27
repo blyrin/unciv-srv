@@ -463,15 +463,6 @@ export function getPlayersPage(options: GetPlayersPageOptions): PageResult<Playe
 }
 
 /**
- * 一键通过所有待审核玩家，返回本次通过的数量。
- */
-export function approveAllPendingPlayers(): number {
-  return getDB()
-    .prepare('update players set approved = 1, updated_at = ? where approved = 0')
-    .run(Date.now()).changes
-}
-
-/**
  * 更新玩家白名单和备注。
  */
 export function updatePlayerInfo(playerId: string, whitelist: boolean, remark: string): void {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
 import {
-  acquireSimultaneousTurnLock, approveAllPendingPlayers, createGame, createPlayer, getDB, getAllStats, getGameByID, getGamesByPlayer,
+  acquireSimultaneousTurnLock, createGame, createPlayer, getDB, getAllStats, getGameByID, getGamesByPlayer,
   getLatestFileContent, getPlayerByID, getPlayersPage, rollbackGameToTurn, saveFileContent, saveFilePreview, updatePlayerInfo,
 } from '../src/database.js'
 import { isHashedPassword, verifyPassword } from '../src/password.js'
@@ -75,17 +75,6 @@ test('玩家列表支持按审核状态、白名单、关键词与排序筛选',
 
   // 对局数：只有 testPlayerID1 参与了对局
   assert.deepEqual(asc.items.map((item) => item.gameCount), [1, 0, 0])
-})
-
-test('一键通过待审核玩家只改未审核账号', () => {
-  seedPlayer(testPlayerID1)
-  createPlayer(testPlayerID2, testPassword, '127.0.0.1', false)
-  createPlayer(testPlayerID3, testPassword, '127.0.0.1', false)
-
-  assert.equal(approveAllPendingPlayers(), 2)
-  assert.equal(approveAllPendingPlayers(), 0)
-  assert.equal(getPlayerByID(testPlayerID2)?.approved, true)
-  assert.equal(getPlayerByID(testPlayerID3)?.approved, true)
 })
 
 test('游戏和最新存档查询使用项目表结构', () => {

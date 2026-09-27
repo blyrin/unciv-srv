@@ -23,7 +23,6 @@ import {
 } from './utils.js'
 import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersApproval, batchUpdatePlayersWhitelist,
-  approveAllPendingPlayers,
   clearArchivedGame, countGamesByPlayer, createGame, deleteGame, getRestoreRequests,
   acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
   getGamesPage, getLatestFileContent, getLatestFilePreview, getSimultaneousTurnOperations, getPlayerByID, getPlayerPassword, getPlayersPage,
@@ -372,13 +371,6 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     })
     result.items = result.items.map((player) => ({ ...player, password: undefined }))
     return jsonResponse(result)
-  })
-
-  // 一键通过所有待审核账号，避免管理员逐页勾选
-  app.post('/api/players/approve-pending', logger(), adminOnly(), () => {
-    const count = approveAllPendingPlayers()
-    console.info('管理员一键通过待审核玩家', { count })
-    return jsonResponse({ count })
   })
 
   app.put('/api/players/:playerId', logger(), adminOnly(), async (c) => {

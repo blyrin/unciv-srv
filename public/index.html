@@ -7,7 +7,19 @@
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
+    // 夜间模式：本地存过的选择优先，否则跟随系统；在样式生效前先打好 class，避免首屏闪一下
+    (function () {
+      let saved = null
+      try { saved = localStorage.getItem('unciv-panel-theme') } catch (e) { /* 隐私模式下可能不可用，忽略 */ }
+      const prefersDark = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches
+      const dark = saved ? saved === 'dark' : prefersDark
+      document.documentElement.classList.toggle('dark', dark)
+      document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+    })()
+  </script>
+  <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           colors: {
@@ -159,6 +171,132 @@
         animation: none;
       }
     }
+
+    /* ===== 夜间模式：html.dark + CSS 变量；只覆写后台控制台（.app-console），登录页本来就是暗色设计 ===== */
+    html.dark {
+      color-scheme: dark;
+      --glass-bg: rgba(30, 27, 26, 0.72);
+      --glass-border: rgba(255, 255, 255, 0.08);
+    }
+
+    html.dark body {
+      background-color: #0c0a09;
+      color: #e7e5e4;
+    }
+
+    html.dark .glass,
+    html.dark [class*="shadow-glass"] {
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+
+    /* 浅色玻璃面板 → 深色玻璃 */
+    html.dark .app-console .bg-white,
+    html.dark .app-console [class*="bg-white/"] {
+      background-color: rgba(41, 37, 36, 0.62);
+    }
+
+    html.dark .app-console [class*="bg-stone-100"],
+    html.dark .app-console [class*="bg-stone-200"] {
+      background-color: rgba(68, 64, 60, 0.45);
+    }
+
+    /* 品牌色与状态色的浅底 → 半透明深底 */
+    html.dark .app-console [class*="bg-brand-50"],
+    html.dark .app-console [class*="bg-brand-100"] {
+      background-color: rgba(249, 115, 22, 0.16);
+    }
+
+    html.dark .app-console [class*="bg-amber-50"],
+    html.dark .app-console [class*="bg-amber-100"] {
+      background-color: rgba(245, 158, 11, 0.18);
+    }
+
+    html.dark .app-console [class*="bg-red-50"],
+    html.dark .app-console [class*="bg-red-100"] {
+      background-color: rgba(239, 68, 68, 0.18);
+    }
+
+    html.dark .app-console [class*="bg-blue-50"],
+    html.dark .app-console [class*="bg-blue-100"] {
+      background-color: rgba(59, 130, 246, 0.18);
+    }
+
+    /* 文字：浅底深字 → 深底浅字 */
+    html.dark .app-console [class*="text-stone-8"],
+    html.dark .app-console [class*="text-stone-7"],
+    html.dark .app-console [class*="text-stone-6"] {
+      color: #e7e5e4;
+    }
+
+    html.dark .app-console [class*="text-stone-5"],
+    html.dark .app-console [class*="text-stone-4"] {
+      color: #a8a29e;
+    }
+
+    html.dark .app-console [class*="text-stone-300"] {
+      color: #78716c;
+    }
+
+    html.dark .app-console [class*="text-brand-6"],
+    html.dark .app-console [class*="text-brand-7"],
+    html.dark .app-console [class*="text-brand-8"] {
+      color: #fdba74;
+    }
+
+    html.dark .app-console [class*="text-amber-6"],
+    html.dark .app-console [class*="text-amber-7"],
+    html.dark .app-console [class*="text-amber-8"] {
+      color: #fcd34d;
+    }
+
+    html.dark .app-console [class*="text-red-6"],
+    html.dark .app-console [class*="text-red-7"] {
+      color: #fca5a5;
+    }
+
+    html.dark .app-console [class*="text-blue-6"],
+    html.dark .app-console [class*="text-blue-7"] {
+      color: #93c5fd;
+    }
+
+    /* 边框、分隔线与 ring */
+    html.dark .app-console [class*="border-white/"],
+    html.dark .app-console [class*="border-stone-2"],
+    html.dark .app-console [class*="border-stone-3"] {
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    html.dark .app-console [class*="divide-stone-"] > :not([hidden]) ~ :not([hidden]) {
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+
+    html.dark .app-console [class*="border-brand-200"] {
+      border-color: rgba(249, 115, 22, 0.35);
+    }
+
+    html.dark .app-console [class*="border-amber-200"] {
+      border-color: rgba(245, 158, 11, 0.35);
+    }
+
+    html.dark .app-console [class*="border-red-100"],
+    html.dark .app-console [class*="border-red-200"] {
+      border-color: rgba(239, 68, 68, 0.35);
+    }
+
+    html.dark .app-console [class*="ring-amber-200"] {
+      --tw-ring-color: rgba(245, 158, 11, 0.28);
+    }
+
+    /* 原生控件跟随深色 */
+    html.dark select option {
+      background-color: #1c1917;
+      color: #e7e5e4;
+    }
+
+    html.dark input[type="checkbox"] {
+      accent-color: var(--brand);
+    }
+
   </style>
 </head>
 <body class="bg-stone-100 text-stone-800 antialiased min-h-screen overflow-x-hidden">
@@ -198,7 +336,7 @@
        role="dialog"
        v-if="modal.show">
     <div
-      class="modal-panel glass bg-white/80 backdrop-blur-xl rounded-2xl border-white/30 shadow-glass-strong w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+      class="app-console modal-panel glass bg-white/80 backdrop-blur-xl rounded-2xl border-white/30 shadow-glass-strong w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
       <div class="p-3 border-b border-stone-200/50 flex justify-between items-center bg-white/50 backdrop-blur">
         <h3 class="font-bold text-base text-stone-700 truncate pr-2">{{ modal.title }}</h3>
         <button @click="closeModal"
@@ -368,7 +506,7 @@
   </div>
 
   <!-- 主应用 -->
-  <div class="flex-1 flex flex-col" v-else-if="view !== 'loading'">
+  <div class="app-console flex-1 flex flex-col" v-else-if="view !== 'loading'">
     <nav class="glass bg-white/60 backdrop-blur-xl border-b border-white/20 sticky top-0 z-30">
       <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2">
         <div class="flex space-x-0.5 sm:space-x-1 bg-stone-200/50 backdrop-blur p-0.5 sm:p-1 rounded-lg flex-shrink-0">
@@ -386,6 +524,21 @@
             <div class="w-2 h-2 rounded-full bg-brand-500"></div>
             {{ userInfo.name }}
           </div>
+          <button :title="isDark ? '切换到日间模式' : '切换到夜间模式'"
+                  :aria-label="isDark ? '切换到日间模式' : '切换到夜间模式'"
+                  @click="toggleDark"
+                  class="p-1.5 rounded-lg text-stone-500 hover:text-brand-600 hover:bg-stone-200/60 flex-shrink-0">
+            <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" stroke-width="2"
+                 viewBox="0 0 24 24" v-if="isDark">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+            </svg>
+            <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" stroke-width="2"
+                 viewBox="0 0 24 24" v-else>
+              <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+          </button>
           <button @click="openChangeMyPassword"
                   class="text-xs sm:text-sm text-blue-600 hover:text-blue-700 font-medium hover:bg-blue-50 px-2 sm:px-3 py-1 rounded"
                   v-if="!isAdmin">
@@ -496,12 +649,8 @@
             </div>
             <div class="flex flex-wrap items-center gap-2 sm:gap-3" v-if="pendingCount > 0">
               <span class="text-xs text-amber-800 bg-amber-50 border border-amber-200/60 px-2 py-1 rounded-lg">
-                有 {{ pendingCount }} 个账号等待审核
+                有 {{ pendingCount }} 个账号等待审核，可勾选后点「通过审核」，或先「全选本页」
               </span>
-              <button @click="approveAllPending"
-                      class="px-3 py-1.5 rounded text-xs font-medium border border-amber-600 bg-amber-500 text-white">
-                一键通过全部待审核
-              </button>
             </div>
             <div
               class="flex flex-wrap items-center gap-2 sm:gap-3 bg-brand-50/50 px-3 py-2 rounded-lg border border-brand-200/40 backdrop-blur"
@@ -783,7 +932,7 @@
   </div>
 
   <!-- 加载页 -->
-  <div class="fixed inset-0 bg-stone-100 flex items-center justify-center z-50" v-if="view === 'loading'">
+  <div class="app-console fixed inset-0 bg-stone-100 flex items-center justify-center z-50" v-if="view === 'loading'">
     <div class="text-brand-600 font-medium flex flex-col items-center gap-3">
       <span class="spinner" style="width:2rem;height:2rem;border-width:2.5px"></span>
       <span class="text-stone-500">正在连接服务器...</span>
@@ -848,7 +997,6 @@
       method: 'PATCH',
       body: JSON.stringify({ playerIds: ids, approved }),
     }),
-    approveAllPendingPlayers: () => API.request('/api/players/approve-pending', { method: 'POST' }),
     batchGames: (ids, wl) => API.request('/api/games/batch', {
       method: 'PATCH',
       body: JSON.stringify({ gameIds: ids, whitelist: wl }),
@@ -877,6 +1025,29 @@
       const loading = ref(false)
       const contentLoading = ref(false)
       const activeTab = ref('stats')
+      // --- 夜间模式 ---
+      // 首屏 class 由 <head> 里的内联脚本按「本地选择 > 系统偏好」打好，这里只接管之后的切换
+      const isDark = ref(document.documentElement.classList.contains('dark'))
+      const darkMedia = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-color-scheme: dark)') : null
+      const readTheme = () => {
+        try { return localStorage.getItem('unciv-panel-theme') } catch (e) { return null }
+      }
+      const applyDark = (dark) => {
+        isDark.value = dark
+        document.documentElement.classList.toggle('dark', dark)
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+      }
+      const toggleDark = () => {
+        const dark = !isDark.value
+        applyDark(dark)
+        try { localStorage.setItem('unciv-panel-theme', dark ? 'dark' : 'light') } catch (e) { /* 存不了就只在本次会话生效 */ }
+      }
+      // 用户没手动选过时跟随系统切换
+      if (darkMedia) {
+        darkMedia.addEventListener('change', (e) => {
+          if (!readTheme()) applyDark(e.matches)
+        })
+      }
       // 数据
       const stats = ref({})
       const players = ref([])
@@ -912,7 +1083,7 @@
       })
       const playerTotalPages = computed(() => Math.max(1, Math.ceil(playersTotal.value / playerPageSize.value)))
       const gameTotalPages = computed(() => Math.max(1, Math.ceil(gamesTotal.value / gamePageSize.value)))
-      /** 待审核账号数量，用于筛选按钮与「一键通过」 */
+      /** 待审核账号数量，用于筛选按钮与顶部提示 */
       const pendingCount = computed(() => Number(stats.value.pendingPlayerCount ?? 0))
       /** 玩家管理的筛选视图 */
       const playerViewOptions = computed(() => [
@@ -1229,18 +1400,6 @@
           loadTabData()
         } catch (e) { showToast(e.message, 'error') }
       }
-      /** 一键通过所有待审核账号，不用逐页勾选 */
-      const approveAllPending = async () => {
-        const count = pendingCount.value
-        if (!count) return
-        if (!confirm(`确定通过全部 ${count} 个待审核账号吗？通过后这些账号即可联机。`)) return
-        try {
-          const res = await API.approveAllPendingPlayers()
-          showToast(`已通过 ${res.count} 个待审核账号`)
-          selectedPlayers.value = []
-          loadTabData()
-        } catch (e) { showToast(e.message, 'error') }
-      }
       const openEditGame = (g) => openEdit('游戏', g.gameId, g, API.updateGame)
       const batchUpdateGames = async (wl) => {
         if (!selectedGames.value.length) return
@@ -1309,7 +1468,7 @@
         toasts, modal,
         handleLogin, formatDate, formatSize, resetFilters, setPlayerPage, setGamePage,
         setPlayerView, setPlayerSort, setPlayerPageSize, openPendingPlayers, formatWait, copyPlayerId,
-        selectPlayerPage, clearPlayerSelection, approveAllPending,
+        selectPlayerPage, clearPlayerSelection, toggleDark, isDark,
         openEditPlayer, viewPassword, openChangePlayerPassword, openChangeMyPassword, batchUpdatePlayers,
         batchUpdatePlayersApproval, setPlayerApproved,
         openEditGame, batchUpdateGames, batchDeleteGames,
