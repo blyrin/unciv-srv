@@ -22,18 +22,9 @@ services:
       # IP 只存网段（IPv4 /24、IPv6 /48）并在 30 天后自动清空，完全不存改 none
       IP_STORAGE: anonymized
       IP_RETENTION_DAYS: "30"
-      # 安装包托管目录（持久化卷）
-      DOWNLOAD_DIR: /data/unciv-dl
-      # 下载保护：并发 4、单连接 1MB/s、每 IP 每分钟 30 次、只保留最新版本
-      DOWNLOAD_MAX_CONCURRENT: "4"
-      DOWNLOAD_RATE_LIMIT_KBPS: "1024"
-      DOWNLOAD_IP_LIMIT_PER_MINUTE: "30"
-      DOWNLOAD_KEEP_VERSIONS: "1"
-      # 单个上传文件大小上限（MB）
-      DOWNLOAD_MAX_FILE_SIZE_MB: "512"
-      # 从 GitHub 同步安装包的仓库与代理镜像（大陆服务器直连 GitHub release 不通，走镜像）
+      # 安装包直链：版本清单与安装包所在的仓库、GitHub 镜像前缀（替换 https://github.com/）
       DOWNLOAD_GITHUB_REPO: AutumnPizazz/Unciv
-      DOWNLOAD_GITHUB_PROXY: https://gh-proxy.com/
+      DOWNLOAD_GITHUB_PROXY: https://mirror.ecrow.cn/github-release/
     # 访问日志含 IP 与 User-Agent，只保留有限体积（隐私政策承诺短期保留）
     logging:
       driver: json-file
