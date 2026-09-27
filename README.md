@@ -73,6 +73,8 @@ IP_RETENTION_DAYS=30
 - `REGISTER_MODE=approval` 或 `closed`：只服务确认过的玩家，避免对公众开放注册
 - `CHAT_ENABLED=false`：关闭即时通讯能力，只保留存档同步
 - `IP_STORAGE` / `IP_RETENTION_DAYS`：只记录网段并限制保留时间
+- 访问日志：请求日志含 IP 与 User-Agent，请自行配置日志轮转（`docker-compose.yml` 已限制为 10MB × 3，`docker run` 可用 `--log-opt max-size=10m --log-opt max-file=3`），不要长期堆积
+- 生产环境请使用 HTTPS（反向代理终止 TLS）并定期备份 `DB_PATH` 与 `DOWNLOAD_DIR`
 - 部署在境外主机时，请自行评估数据出境与当地法规要求
 
 ## 开发与测试

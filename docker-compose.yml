@@ -34,6 +34,12 @@ services:
       # 从 GitHub 同步安装包的仓库与代理镜像（大陆服务器直连 GitHub release 不通，走镜像）
       DOWNLOAD_GITHUB_REPO: AutumnPizazz/Unciv
       DOWNLOAD_GITHUB_PROXY: https://gh-proxy.com/
+    # 访问日志含 IP 与 User-Agent，只保留有限体积（隐私政策承诺短期保留）
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - unciv-srv-data:/data
     restart: unless-stopped
