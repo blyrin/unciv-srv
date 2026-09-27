@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
 import { createGame, getGameByID, getPlayerByID, saveFileContent, saveFilePreview } from '../src/database.js'
+import { verifyPassword } from '../src/password.js'
 import {
-  loginAsAdmin, loginAsPlayer, seedGameWithContent, seedPlayer, setupTestServer, testGameID1, testPassword,
+  basicAuth, loginAsAdmin, loginAsPlayer, seedGameWithContent, seedPlayer, setupTestServer, testGameID1, testPassword,
   testPlayerID1, testPlayerID2, type TestServer,
 } from './helpers/server.js'
 
@@ -44,7 +45,7 @@ test('管理员玩家接口覆盖列表、备注、密码和批量白名单', as
   assert.equal(getPlayerByID(testPlayerID1)?.remark, '备注')
 
   const password = await server.app.request(`/api/players/${testPlayerID1}/password`, { headers: { Cookie: cookie } })
-  assert.deepEqual(await password.json(), { password: testPassword })
+  assert.deepEqual(await password.json(), { password: null, hashed: true })
 
   const updatePassword = await server.app.request(`/api/players/${testPlayerID1}/password`, {
     method: 'PUT',
@@ -52,7 +53,7 @@ test('管理员玩家接口覆盖列表、备注、密码和批量白名单', as
     body: JSON.stringify({ password: 'newpass123' }),
   })
   assert.equal(updatePassword.status, 204)
-  assert.equal(getPlayerByID(testPlayerID1)?.password, 'newpass123')
+  assert.equal(verifyPassword('newpass123', getPlayerByID(testPlayerID1)?.password ?? ''), true)
 
   const batch = await server.app.request('/api/players/batch', {
     method: 'PATCH',
@@ -61,6 +62,39 @@ test('管理员玩家接口覆盖列表、备注、密码和批量白名单', as
   })
   assert.equal(batch.status, 204)
   assert.equal(getPlayerByID(testPlayerID2)?.whitelist, true)
+})
+
+test('管理员可以关闭和开启玩家审核状态', async () => {
+  seedPlayer(testPlayerID1)
+  seedPlayer(testPlayerID2)
+  const cookie = await loginAsAdmin(server.app)
+
+  const disable = await server.app.request(`/api/players/${testPlayerID1}`, {
+    method: 'PUT',
+    headers: { Cookie: cookie },
+    body: JSON.stringify({ whitelist: false, remark: '', approved: false }),
+  })
+  assert.equal(disable.status, 204)
+  assert.equal(getPlayerByID(testPlayerID1)?.approved, false)
+
+  const blocked = await server.app.request('/auth', { headers: { Authorization: basicAuth(testPlayerID1) } })
+  assert.equal(blocked.status, 403)
+
+  const batch = await server.app.request('/api/players/batch', {
+    method: 'PATCH',
+    headers: { Cookie: cookie },
+    body: JSON.stringify({ playerIds: [testPlayerID1, testPlayerID2], approved: true }),
+  })
+  assert.equal(batch.status, 204)
+  assert.equal(getPlayerByID(testPlayerID1)?.approved, true)
+  assert.equal(getPlayerByID(testPlayerID2)?.approved, true)
+
+  const missingFields = await server.app.request('/api/players/batch', {
+    method: 'PATCH',
+    headers: { Cookie: cookie },
+    body: JSON.stringify({ playerIds: [testPlayerID1] }),
+  })
+  assert.equal(missingFields.status, 400)
 })
 
 test('管理员玩家接口返回预期错误状态', async () => {
@@ -146,7 +180,7 @@ test('用户接口覆盖游戏、统计和修改密码', async () => {
     body: JSON.stringify({ oldPassword: testPassword, newPassword: 'newpass123' }),
   })
   assert.equal(changed.status, 204)
-  assert.equal(getPlayerByID(testPlayerID1)?.password, 'newpass123')
+  assert.equal(verifyPassword('newpass123', getPlayerByID(testPlayerID1)?.password ?? ''), true)
 })
 
 test('游戏权限接口覆盖创建者、非创建者、下载和回档错误', async () => {

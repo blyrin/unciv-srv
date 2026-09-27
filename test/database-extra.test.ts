@@ -2,11 +2,12 @@ import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
 import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersWhitelist, cleanupExpiredGames, cleanupOldContents,
-  cleanupOldPreviews, countGamesByPlayer, createGame, createPlayer, deleteGame, getAllTurnsForGame, getDB, getGameByID,
+  cleanupOldPreviews, clearExpiredIPs, countGamesByPlayer, createGame, createPlayer, deleteGame, getAllTurnsForGame, getDB, getGameByID,
   getGamesCreatedByPlayer, getGamesPage, getLatestFileContent, getLatestFilePreview, getPlayerByID, getPlayerPassword,
   getTurnByID, getTurnsMetadata, rollbackGameToTurn, runCleanup, saveFileContent, saveFilePreview, updateGameInfo,
   updateGamePlayers, updatePlayerInfo, updatePlayerLastActive, updatePlayerPassword,
 } from '../src/database.js'
+import { verifyPassword } from '../src/password.js'
 import {
   seedPlayer, setupTestServer, testGameID1, testPassword, testPlayerID1, testPlayerID2, type TestServer,
 } from './helpers/server.js'
@@ -34,7 +35,8 @@ test('玩家数据库操作覆盖重复、更新、搜索和批量', () => {
   assert.equal(timeTypes.updated_type, 'integer')
 
   updatePlayerPassword(testPlayerID1, 'newpass123', '10.0.0.1')
-  assert.equal(getPlayerPassword(testPlayerID1), 'newpass123')
+  assert.equal(verifyPassword('newpass123', getPlayerPassword(testPlayerID1)), true)
+  assert.equal(verifyPassword('newpass124', getPlayerPassword(testPlayerID1)), false)
   updatePlayerInfo(testPlayerID1, true, 'keyword-remark')
   updatePlayerLastActive(testPlayerID1, '10.0.0.2')
   const player = getPlayerByID(testPlayerID1)
@@ -159,6 +161,41 @@ test('清理任务删除过期游戏并只保留最新存档和预览', () => {
   runCleanup()
   assert.equal(getLatestFileContent(testGameID1)?.turns, 3)
   assert.equal(getAllTurnsForGame(testGameID1).length, 1)
+})
+
+test('过期 IP 按保留天数清理', () => {
+  seedPlayer(testPlayerID1)
+  createGame(testGameID1, [testPlayerID1])
+  saveFileContent(testGameID1, 1, testPlayerID1, '10.0.0.1', '{"turns":1}')
+  updatePlayerLastActive(testPlayerID1, '10.0.0.1')
+  const conn = getDB()
+  const old = Date.now() - 40 * 24 * 60 * 60 * 1000
+  conn.prepare('update players set created_at = ?, updated_at = ? where player_id = ?').run(old, old, testPlayerID1)
+  conn.prepare('update files_content set created_at = ? where game_id = ?').run(old, testGameID1)
+  assert.equal((conn.prepare('select created_ip from files_content where game_id = ?').get(testGameID1) as {
+    created_ip: string
+  }).created_ip, '10.0.0.1')
+  assert.equal(getPlayerByID(testPlayerID1)?.updateIp, '10.0.0.1')
+
+  assert.deepEqual(clearExpiredIPs(30), { players: 1, files: 1 })
+  assert.equal(getPlayerByID(testPlayerID1)?.createIp, undefined)
+  assert.equal(getPlayerByID(testPlayerID1)?.updateIp, undefined)
+  assert.equal((conn.prepare('select created_ip from files_content where game_id = ?').get(testGameID1) as {
+    created_ip: string | null
+  }).created_ip, null)
+  assert.deepEqual(clearExpiredIPs(0), { players: 0, files: 0 })
+})
+
+test('匿名化策略只把网段写入数据库', () => {
+  const masked = setupTestServer({ ipStorage: 'anonymized' })
+  try {
+    seedPlayer(testPlayerID1)
+    updatePlayerLastActive(testPlayerID1, '1.2.3.4')
+    assert.equal(getPlayerByID(testPlayerID1)?.createIp, '127.0.0.0')
+    assert.equal(getPlayerByID(testPlayerID1)?.updateIp, '1.2.3.0')
+  } finally {
+    masked.close()
+  }
 })
 
 test('批量删除空列表保持空操作', () => {

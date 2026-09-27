@@ -4,6 +4,7 @@ import {
   acquireSimultaneousTurnLock, createGame, getAllStats, getGameByID, getGamesByPlayer, getLatestFileContent, getPlayerByID, getPlayersPage,
   rollbackGameToTurn, saveFileContent, saveFilePreview,
 } from '../src/database.js'
+import { isHashedPassword, verifyPassword } from '../src/password.js'
 import { seedPlayer, setupTestServer, testGameID1, testPassword, testPlayerID1, type TestServer } from './helpers/server.js'
 
 let server: TestServer
@@ -27,8 +28,10 @@ test('同步回合结算锁对同一游戏回合提供互斥且支持幂等重�
 test('玩家和分页查询保持 JSON 字段形状', () => {
   seedPlayer()
   const player = getPlayerByID(testPlayerID1)
-  assert.equal(player?.password, testPassword)
+  assert.equal(isHashedPassword(player?.password ?? ''), true)
+  assert.equal(verifyPassword(testPassword, player?.password ?? ''), true)
   assert.equal(player?.whitelist, false)
+  assert.equal(player?.approved, true)
 
   const page = getPlayersPage('', 1, 20)
   assert.equal(page.total, 1)

@@ -28,7 +28,7 @@ export interface TestServer {
   close: () => void
 }
 
-export function setupTestServer(): TestServer {
+export function setupTestServer(overrides: Partial<Config> = {}): TestServer {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unciv-srv-vitest-'))
   const config: Config = {
     port: '0',
@@ -37,6 +37,10 @@ export function setupTestServer(): TestServer {
     adminPassword: 'admin123',
     maxAttempts: 5,
     lockTime: 5,
+    registerMode: 'open',
+    chatEnabled: true,
+    ipStorage: 'full',
+    ipRetentionDays: 0,
     downloadDir: path.join(dir, 'unciv-dl'),
     downloadMaxConcurrent: 4,
     downloadRateLimitKbps: 0,
@@ -45,6 +49,7 @@ export function setupTestServer(): TestServer {
     downloadKeepVersions: 1,
     downloadGithubRepo: 'AutumnPizazz/Unciv',
     downloadGithubProxy: 'https://gh-proxy.com/',
+    ...overrides,
   }
 
   resetSessions()
@@ -122,12 +127,12 @@ export async function loginAsPlayer(
   return cookie
 }
 
-export async function startHttpServer(app: TestApp): Promise<{
+export async function startHttpServer(testServer: TestServer): Promise<{
   url: string
   server: ServerType
 }> {
-  const server = serve({ fetch: app.fetch, port: 0 })
-  attachChatWebSocket(server)
+  const server = serve({ fetch: testServer.app.fetch, port: 0 })
+  attachChatWebSocket(server, testServer.config)
   await new Promise<void>((resolve) => {
     server.once('listening', () => resolve())
   })

@@ -3,11 +3,11 @@ import { afterEach, beforeEach, test } from 'vitest'
 import { once } from 'node:events'
 import type { IncomingMessage } from 'node:http'
 import WebSocket from 'ws'
-import { parseWebSocketAuth } from '../src/chat.js'
-import { createGame } from '../src/database.js'
+import { notifyGameUpdated, parseWebSocketAuth } from '../src/chat.js'
+import { createGame, createPlayer } from '../src/database.js'
 import {
-  basicAuth, buildGameData, seedPlayer, setupTestServer, startHttpServer, testGameID1, testPlayerID1, testPlayerID2,
-  testPlayerID3, type TestServer,
+  basicAuth, buildGameData, seedPlayer, setupTestServer, startHttpServer, testGameID1, testPassword, testPlayerID1,
+  testPlayerID2, testPlayerID3, type TestServer,
 } from './helpers/server.js'
 
 let server: TestServer
@@ -68,7 +68,7 @@ test('WebSocket Basic Auth 解析复用玩家校验', () => {
 test('WebSocket 订阅后广播聊天消息', async () => {
   seedPlayer(testPlayerID1)
   seedPlayer(testPlayerID2)
-  const http = await startHttpServer(server.app)
+  const http = await startHttpServer(server)
 
   const ws1 = await openSocket(http.url, basicAuth(testPlayerID1))
   const ws2 = await openSocket(http.url, basicAuth(testPlayerID2))
@@ -91,7 +91,7 @@ test('旧客户端未订阅时按游戏玩家广播', async () => {
   seedPlayer(testPlayerID1)
   seedPlayer(testPlayerID2)
   createGame(testGameID1, [testPlayerID1, testPlayerID2])
-  const http = await startHttpServer(server.app)
+  const http = await startHttpServer(server)
 
   const ws1 = await openSocket(http.url, basicAuth(testPlayerID1))
   const ws2 = await openSocket(http.url, basicAuth(testPlayerID2))
@@ -108,7 +108,7 @@ test('订阅者与旧客户端广播目标去重', async () => {
   seedPlayer(testPlayerID1)
   seedPlayer(testPlayerID2)
   createGame(testGameID1, [testPlayerID1, testPlayerID2, testPlayerID3])
-  const http = await startHttpServer(server.app)
+  const http = await startHttpServer(server)
 
   const ws1 = await openSocket(http.url, basicAuth(testPlayerID1))
   const ws2 = await openSocket(http.url, basicAuth(testPlayerID2))
@@ -126,9 +126,39 @@ test('订阅者与旧客户端广播目标去重', async () => {
   http.server.close()
 })
 
+test('待审核玩家无法建立 WebSocket 连接', () => {
+  createPlayer(testPlayerID3, testPassword, '127.0.0.1', false)
+  const request = { headers: { authorization: basicAuth(testPlayerID3) } } as IncomingMessage
+
+  assert.throws(() => parseWebSocketAuth(request), /账号待审核/)
+})
+
+test('关闭聊天后拒绝聊天消息但仍推送游戏更新', async () => {
+  const gated = setupTestServer({ chatEnabled: false })
+  try {
+    seedPlayer(testPlayerID1)
+    const http = await startHttpServer(gated)
+    const ws = await openSocket(http.url)
+    ws.send(JSON.stringify({ type: 'join', gameIds: [testGameID1] }))
+    assert.deepEqual(await readMessage(ws), { type: 'joinSuccess', gameIds: [testGameID1] })
+
+    ws.send(JSON.stringify({ type: 'chat', gameId: testGameID1, civName: 'Rome', message: 'hello' }))
+    assert.deepEqual(await readMessage(ws), { type: 'error', message: '聊天功能已关闭' })
+
+    const updateMessage = readMessage(ws)
+    notifyGameUpdated(testGameID1)
+    assert.deepEqual(await updateMessage, { type: 'gameUpdated', gameId: testGameID1 })
+
+    await closeSocket(ws)
+    http.server.close()
+  } finally {
+    gated.close()
+  }
+})
+
 test('PUT 存档后向订阅者发送 gameUpdated', async () => {
   seedPlayer(testPlayerID1)
-  const http = await startHttpServer(server.app)
+  const http = await startHttpServer(server)
   const ws = await openSocket(http.url)
 
   ws.send(JSON.stringify({ type: 'join', gameIds: [testGameID1] }))
@@ -152,7 +182,7 @@ test('PUT 存档后向订阅者发送 gameUpdated', async () => {
 
 test('WebSocket 拒绝缺失和错误认证', async () => {
   seedPlayer(testPlayerID1)
-  const http = await startHttpServer(server.app)
+  const http = await startHttpServer(server)
 
   try {
     const noAuth = new WebSocket(wsUrl(http.url))
@@ -169,7 +199,7 @@ test('WebSocket 拒绝缺失和错误认证', async () => {
 
 test('无效消息、未订阅聊天和 leave 返回预期错误', async () => {
   seedPlayer(testPlayerID1)
-  const http = await startHttpServer(server.app)
+  const http = await startHttpServer(server)
   const ws = await openSocket(http.url)
 
   ws.send('{')
@@ -196,7 +226,7 @@ test('无效消息、未订阅聊天和 leave 返回预期错误', async () => {
 
 test('未知消息、无频道 join 和未订阅在线状态会被忽略', async () => {
   seedPlayer(testPlayerID1)
-  const http = await startHttpServer(server.app)
+  const http = await startHttpServer(server)
   const ws = await openSocket(http.url, basicAuth(), {
     'X-Forwarded-For': '::ffff:127.0.0.2, 10.0.0.1',
     'User-Agent': 'Unciv/4.0',
@@ -214,7 +244,7 @@ test('未知消息、无频道 join 和未订阅在线状态会被忽略', async
 
 test('非聊天路径的 WebSocket 升级会被拒绝', async () => {
   seedPlayer(testPlayerID1)
-  const http = await startHttpServer(server.app)
+  const http = await startHttpServer(server)
   const ws = new WebSocket(wsUrl(http.url, '/not-chat'), {
     headers: { Authorization: basicAuth(), 'X-Real-IP': '127.0.0.9' },
   })
@@ -229,7 +259,7 @@ test('非聊天路径的 WebSocket 升级会被拒绝', async () => {
 test('在线状态消息只在订阅频道内转发', async () => {
   seedPlayer(testPlayerID1)
   seedPlayer(testPlayerID2)
-  const http = await startHttpServer(server.app)
+  const http = await startHttpServer(server)
   const ws1 = await openSocket(http.url, basicAuth(testPlayerID1))
   const ws2 = await openSocket(http.url, basicAuth(testPlayerID2))
 

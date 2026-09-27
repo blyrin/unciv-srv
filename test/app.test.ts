@@ -65,7 +65,7 @@ test('/auth 自动注册并返回 204', async () => {
 })
 
 test('HTTP 直连请求写入真实远端 IP', async () => {
-  const http = await startHttpServer(server.app)
+  const http = await startHttpServer(server)
   try {
     const response = await fetch(`${http.url}/auth`, {
       headers: { Authorization: basicAuth() },

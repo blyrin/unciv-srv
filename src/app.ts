@@ -3,10 +3,12 @@ import path from 'node:path'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import type { AppVariables, Config } from './types.js'
+import type { PlayerAuthResult } from './middleware.js'
 import {
-  adminOnly, basicAuthOnly, basicAuthWithRegister, logger, rateLimit, sessionAuth, validateGameIDMiddleware,
-  validatePlayer,
+  adminOnly, authenticatePlayer, basicAuthOnly, basicAuthWithRegister, logger, pendingApprovalMessage, rateLimit,
+  sessionAuth, validateGameIDMiddleware,
 } from './middleware.js'
+import { isHashedPassword, verifyPasswordCached } from './password.js'
 import type { RateLimiter } from './rate-limit.js'
 import {
   clearSessionCookieHeader, createSession, deleteSession, getSession, parseCookie, sessionCookieHeader,
@@ -19,11 +21,11 @@ import {
   readLimitedText, successResponse, textResponse,
 } from './utils.js'
 import {
-  batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersWhitelist, countGamesByPlayer, createGame, deleteGame,
+  batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersApproval, batchUpdatePlayersWhitelist, countGamesByPlayer, createGame, deleteGame,
   acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
   getGamesPage, getLatestFileContent, getLatestFilePreview, getSimultaneousTurnOperations, getPlayerByID, getPlayerPassword, getPlayersPage,
-  getTurnByID, getTurnsMetadata, isGameCreator, rollbackGameToTurn, saveFileContent, saveFilePreview, updateGameInfo,
-  updateGamePlayers, updatePlayerInfo, updatePlayerPassword, appendSimultaneousTurnOperations,
+  getTurnByID, getTurnsMetadata, isGameCreator, rollbackGameToTurn, saveFileContent, saveFilePreview, setPlayerApproved,
+  updateGameInfo, updateGamePlayers, updatePlayerInfo, updatePlayerPassword, appendSimultaneousTurnOperations,
 } from './database.js'
 import { notifyGameUpdated } from './chat.js'
 import { createDownloadsRoutes } from './downloads.js'
@@ -122,8 +124,8 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
 
   app.get('/isalive', logger(), () => new Response(healthCheckResponse, { status: 200 }))
 
-  app.get('/auth', logger(), basicAuthWithRegister(), () => successResponse())
-  app.put('/auth', logger(), basicAuthWithRegister(), async (c) => {
+  app.get('/auth', logger(), basicAuthWithRegister(config), () => successResponse())
+  app.put('/auth', logger(), basicAuthWithRegister(config), async (c) => {
     const playerId = c.get('playerId')
     const newPassword = await readLimitedText(c.req.raw, maxTextBodySize)
     if (newPassword.length < 6) {
@@ -257,8 +259,12 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
   app.get('/chat', logger(), (c) => {
     try {
       const credentials = parseBasicAuthCredentials(c.req.header('Authorization'))
-      if (validatePlayer(credentials.playerId, credentials.password)) {
+      const result = authenticatePlayer(credentials.playerId, credentials.password)
+      if (result.type === 'ok') {
         return new Response('Bad Request\n', { status: 400 })
+      }
+      if (result.type === 'pending') {
+        return new Response(`${pendingApprovalMessage}\n`, { status: 403 })
       }
     } catch {
     }
@@ -279,8 +285,14 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
       return response
     }
 
-    const player = getPlayerByID(username)
-    if (player && player.password === password) {
+    let playerAuth: PlayerAuthResult = { type: 'invalid' }
+    try {
+      playerAuth = authenticatePlayer(username, password)
+    } catch {
+      // 用户名不是合法的玩家ID格式时按认证失败处理
+    }
+
+    if (playerAuth.type === 'ok') {
       limiter.resetAttempts(ip)
       const sessionId = createSession(username, false)
       const response = jsonResponse({ playerId: username })
@@ -290,6 +302,9 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
 
     if (limiter.recordAttempt(ip)) {
       return errorResponse(429, '登录失败次数过多，请稍后再试')
+    }
+    if (playerAuth.type === 'pending') {
+      return errorResponse(403, pendingApprovalMessage)
     }
     return errorResponse(401, `用户名或密码错误，剩余尝试次数: ${limiter.getRemainingAttempts(ip)}`)
   })
@@ -339,8 +354,11 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     if (!playerId) {
       return errorResponse(400, '缺少玩家ID')
     }
-    const req = await readJSONBody<{ whitelist?: boolean; remark?: string }>(c)
+    const req = await readJSONBody<{ whitelist?: boolean; remark?: string; approved?: boolean }>(c)
     updatePlayerInfo(playerId, Boolean(req.whitelist), req.remark ?? '')
+    if (req.approved != null) {
+      setPlayerApproved(playerId, req.approved)
+    }
     return successResponse()
   })
 
@@ -353,7 +371,10 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     if (password === '') {
       return errorResponse(404, '玩家不存在')
     }
-    return jsonResponse({ password })
+    if (isHashedPassword(password)) {
+      return jsonResponse({ password: null, hashed: true })
+    }
+    return jsonResponse({ password, hashed: false })
   })
 
   app.put('/api/players/:playerId/password', logger(), adminOnly(), async (c) => {
@@ -370,11 +391,19 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
   })
 
   app.patch('/api/players/batch', logger(), adminOnly(), async (c) => {
-    const req = await readJSONBody<{ playerIds?: string[]; whitelist?: boolean }>(c)
+    const req = await readJSONBody<{ playerIds?: string[]; whitelist?: boolean; approved?: boolean }>(c)
     if (!req.playerIds || req.playerIds.length === 0) {
       return errorResponse(400, '未选择玩家')
     }
-    batchUpdatePlayersWhitelist(req.playerIds, Boolean(req.whitelist))
+    if (req.whitelist == null && req.approved == null) {
+      return errorResponse(400, '缺少要更新的字段')
+    }
+    if (req.whitelist != null) {
+      batchUpdatePlayersWhitelist(req.playerIds, req.whitelist)
+    }
+    if (req.approved != null) {
+      batchUpdatePlayersApproval(req.playerIds, req.approved)
+    }
     return successResponse()
   })
 
@@ -432,7 +461,8 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     if (!req.newPassword || req.newPassword.length < 6) {
       return errorResponse(400, '新密码至少6位')
     }
-    if (getPlayerPassword(userId) !== req.oldPassword) {
+    const stored = getPlayerPassword(userId)
+    if (stored === '' || !verifyPasswordCached(userId, req.oldPassword ?? '', stored)) {
       return errorResponse(400, '旧密码错误')
     }
     updatePlayerPassword(userId, req.newPassword, getClientIP(c))

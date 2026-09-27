@@ -4,11 +4,22 @@ import type { RawData } from 'ws'
 import { WebSocket, WebSocketServer } from 'ws'
 import type { ServerType } from '@hono/node-server'
 import { getGameByID } from './database.js'
-import { validatePlayer } from './middleware.js'
+import { authenticatePlayer, pendingApprovalMessage } from './middleware.js'
+import type { Config } from './types.js'
 import {
-  decodeHeaderValue, getBaseGameID, isPreviewID, maxWebSocketFrameSize, normalizeClientIP, parseBasicAuthCredentials,
-  validateGameID,
+  decodeHeaderValue, getBaseGameID, HttpError, isPreviewID, maxWebSocketFrameSize, normalizeClientIP,
+  parseBasicAuthCredentials, validateGameID,
 } from './utils.js'
+
+/**
+ * 聊天功能是否开启，由 attachChatWebSocket 依据配置设置。
+ */
+let chatEnabled = true
+
+/**
+ * 聊天功能关闭时的提示信息。
+ */
+export const chatDisabledMessage = '聊天功能已关闭'
 
 export type MessageType =
   | 'join'
@@ -452,6 +463,15 @@ function handleMessage(peer: Peer, data: RawData): void {
       handleLeave(peer, msg)
       break
     case 'chat':
+      if (!chatEnabled) {
+        console.info('WebSocket 拒绝聊天消息', {
+          playerId: peer.playerId,
+          ip: peer.ip,
+          reason: '聊天功能已关闭',
+        })
+        sendError(peer, chatDisabledMessage)
+        break
+      }
       handleChat(peer, msg)
       break
     case 'onlineQuery':
@@ -476,16 +496,21 @@ function handleMessage(peer: Peer, data: RawData): void {
  */
 export function parseWebSocketAuth(request: IncomingMessage): string {
   const credentials = parseBasicAuthCredentials(request.headers.authorization)
-  if (!validatePlayer(credentials.playerId, credentials.password)) {
-    throw new Error('认证失败')
+  const result = authenticatePlayer(credentials.playerId, credentials.password)
+  if (result.type === 'pending') {
+    throw new HttpError(403, pendingApprovalMessage)
   }
-  return credentials.playerId
+  if (result.type !== 'ok') {
+    throw new HttpError(401, '认证失败')
+  }
+  return result.playerId
 }
 
 /**
  * 将聊天 WebSocket 绑定到 HTTP server。
  */
-export function attachChatWebSocket(server: ServerType): void {
+export function attachChatWebSocket(server: ServerType, config: Config): void {
+  chatEnabled = config.chatEnabled
   const wss = new WebSocketServer({ noServer: true, maxPayload: maxWebSocketFrameSize })
 
   server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -513,9 +538,11 @@ export function attachChatWebSocket(server: ServerType): void {
         ua,
         reason: error instanceof Error ? error.message : '认证失败',
       })
-      const body = '认证失败\n'
+      const status = error instanceof HttpError ? error.status : 401
+      const body = `${error instanceof Error ? error.message : '认证失败'}\n`
       socket.write(
-        `HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+        `HTTP/1.1 ${status} ${status === 403 ? 'Forbidden' : 'Unauthorized'}\r\n`
+        + `Content-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
       )
       socket.destroy()
       return

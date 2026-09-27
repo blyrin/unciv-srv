@@ -3,6 +3,7 @@ import { afterEach, beforeEach, test } from 'vitest'
 import {
   closeDatabase, createGame, getLatestFilePreview, getPlayerByID, getTurnsMetadata, saveFileContent,
 } from '../src/database.js'
+import { verifyPassword } from '../src/password.js'
 import { encodeFile, maxBodySize, maxTextBodySize } from '../src/utils.js'
 import {
   basicAuth, buildGameData, loginAsAdmin, loginAsPlayer, seedPlayer, setupTestServer, testGameID1, testGameID2,
@@ -47,12 +48,66 @@ test('/auth 覆盖认证错误和修改密码', async () => {
     body: 'newpass123',
   })
   assert.equal(changed.status, 204)
-  assert.equal(getPlayerByID(testPlayerID1)?.password, 'newpass123')
+  assert.equal(verifyPassword('newpass123', getPlayerByID(testPlayerID1)?.password ?? ''), true)
 
   const wrongPassword = await server.app.request('/auth', {
     headers: { Authorization: basicAuth(testPlayerID1, testPassword) },
   })
   assert.equal(wrongPassword.status, 401)
+})
+
+test('/auth 在审核模式下等待管理员开通', async () => {
+  const gated = setupTestServer({ registerMode: 'approval' })
+  try {
+    const playerId = '00000000-0000-0000-0000-00000000000a'
+    const register = await gated.app.request('/auth', {
+      headers: { Authorization: basicAuth(playerId, testPassword) },
+    })
+    assert.equal(register.status, 403)
+    assert.deepEqual(await register.json(), { type: 'error', message: '账号待审核，请联系管理员开通' })
+    assert.equal(getPlayerByID(playerId)?.approved, false)
+
+    const blocked = await gated.app.request(`/files/${testGameID1}`, {
+      headers: { Authorization: basicAuth(playerId, testPassword), 'User-Agent': 'Unciv' },
+    })
+    assert.equal(blocked.status, 403)
+
+    const login = await gated.app.request('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({ username: playerId, password: testPassword }),
+    })
+    assert.equal(login.status, 403)
+
+    const cookie = await loginAsAdmin(gated.app)
+    const approve = await gated.app.request(`/api/players/${playerId}`, {
+      method: 'PUT',
+      headers: { Cookie: cookie },
+      body: JSON.stringify({ whitelist: false, remark: '', approved: true }),
+    })
+    assert.equal(approve.status, 204)
+
+    const allowed = await gated.app.request('/auth', {
+      headers: { Authorization: basicAuth(playerId, testPassword) },
+    })
+    assert.equal(allowed.status, 204)
+  } finally {
+    gated.close()
+  }
+})
+
+test('/auth 在关闭注册后不创建新账号', async () => {
+  const gated = setupTestServer({ registerMode: 'closed' })
+  try {
+    const playerId = '00000000-0000-0000-0000-00000000000b'
+    const register = await gated.app.request('/auth', {
+      headers: { Authorization: basicAuth(playerId, testPassword) },
+    })
+    assert.equal(register.status, 401)
+    assert.deepEqual(await register.json(), { type: 'error', message: '玩家不存在，本服务器不开放自助注册' })
+    assert.equal(getPlayerByID(playerId), null)
+  } finally {
+    gated.close()
+  }
 })
 
 test('/files 覆盖上传错误、既有游戏权限和预览存档', async () => {

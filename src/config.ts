@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import { projectRoot, resolveRepoPath } from './paths.js'
+import { defaultIPStorageMode } from './privacy.js'
 import type { Config } from './types.js'
 
 /**
@@ -15,6 +16,39 @@ function getEnv(key: string, defaultValue: string): string {
 function getEnvAsInt(key: string, defaultValue: number): number {
   const parsed = Number.parseInt(process.env[key] ?? '', 10)
   return Number.isFinite(parsed) ? parsed : defaultValue
+}
+
+/**
+ * 读取布尔环境变量，未设置时返回默认值，取值非法时直接报错。
+ */
+function getEnvAsBool(key: string, defaultValue: boolean): boolean {
+  const value = (process.env[key] ?? '').trim().toLowerCase()
+  if (value === '') {
+    return defaultValue
+  }
+  if (['1', 'true', 'yes', 'on'].includes(value)) {
+    return true
+  }
+  if (['0', 'false', 'no', 'off'].includes(value)) {
+    return false
+  }
+  throw new Error(`环境变量 ${key} 只能是 true/false，当前值：${value}`)
+}
+
+/**
+ * 读取枚举环境变量，未设置时返回默认值，取值非法时直接报错。
+ */
+function getEnvAsEnum<T extends string>(key: string, allowed: readonly T[], defaultValue: T): T {
+  const value = (process.env[key] ?? '').trim().toLowerCase()
+  if (value === '') {
+    return defaultValue
+  }
+  for (const item of allowed) {
+    if (item === value) {
+      return item
+    }
+  }
+  throw new Error(`环境变量 ${key} 只能是 ${allowed.join('/')}，当前值：${value}`)
 }
 
 /**
@@ -57,6 +91,10 @@ export function loadConfig(): Config {
     adminPassword: getEnv('ADMIN_PASSWORD', 'admin123'),
     maxAttempts: getEnvAsInt('MAX_ATTEMPTS', 5),
     lockTime: getEnvAsInt('LOCK_TIME', 5),
+    registerMode: getEnvAsEnum('REGISTER_MODE', ['open', 'approval', 'closed'] as const, 'open'),
+    chatEnabled: getEnvAsBool('CHAT_ENABLED', true),
+    ipStorage: getEnvAsEnum('IP_STORAGE', ['full', 'anonymized', 'none'] as const, defaultIPStorageMode),
+    ipRetentionDays: getEnvAsInt('IP_RETENTION_DAYS', 30),
     downloadDir: resolveRepoPath(getEnv('DOWNLOAD_DIR', 'data/unciv-dl')),
     downloadMaxConcurrent: getEnvAsInt('DOWNLOAD_MAX_CONCURRENT', 4),
     downloadRateLimitKbps: getEnvAsInt('DOWNLOAD_RATE_LIMIT_KBPS', 1024),

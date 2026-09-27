@@ -5,6 +5,8 @@ import type {
   Config, FileData, Game, GameWithTurns, PageResult, Player, RollbackResult, Stats, TurnMetadata,
 } from './types.js'
 import { projectRoot } from './paths.js'
+import { hashPassword, isHashedPassword } from './password.js'
+import { getIPRetentionDays, ipForStorage, setIPRetentionDays, setIPStorageMode } from './privacy.js'
 
 type FileTable = 'files_content' | 'files_preview'
 const dayMs = 24 * 60 * 60 * 1000
@@ -48,6 +50,14 @@ export function initDatabase(config: Config): void {
   db.pragma('mmap_size = 2147483648')
 
   runMigrations()
+
+  setIPStorageMode(config.ipStorage)
+  setIPRetentionDays(config.ipRetentionDays)
+  const migrated = migratePlayerPasswords()
+  if (migrated > 0) {
+    console.info(`已把 ${migrated} 个账号的明文密码升级为哈希存储`)
+  }
+  clearExpiredIPs()
 }
 
 /**
@@ -198,6 +208,7 @@ function rowToPlayer(row: Row): Player {
     createdAt: valueTime(row.created_at),
     updatedAt: valueTime(row.updated_at),
     whitelist: rowBool(row.whitelist),
+    approved: row.approved == null ? true : rowBool(row.approved),
     remark: valueText(row.remark),
     createIp: optionalText(row.create_ip),
     updateIp: optionalText(row.update_ip),
@@ -255,6 +266,7 @@ export function getPlayerByID(playerId: string): Player | null {
              created_at,
              updated_at,
              whitelist,
+             approved,
              remark,
              create_ip,
              update_ip
@@ -267,20 +279,21 @@ export function getPlayerByID(playerId: string): Player | null {
 }
 
 /**
- * 创建新玩家。
+ * 创建新玩家，密码以哈希形式入库。
  */
-export function createPlayer(playerId: string, password: string, ip: string): void {
+export function createPlayer(playerId: string, password: string, ip: string, approved = true): void {
   const now = Date.now()
+  const storageIp = ipForStorage(ip)
   getDB()
     .prepare(`
-      insert into players (player_id, password, created_at, updated_at, create_ip, update_ip)
-      values (?, ?, ?, ?, ?, ?)
+      insert into players (player_id, password, created_at, updated_at, whitelist, approved, remark, create_ip, update_ip)
+      values (?, ?, ?, ?, 0, ?, '', ?, ?)
     `)
-    .run(playerId, password, now, now, ip, ip)
+    .run(playerId, hashPassword(password), now, now, approved ? 1 : 0, storageIp, storageIp)
 }
 
 /**
- * 更新玩家密码。
+ * 更新玩家密码（哈希存储）。
  */
 export function updatePlayerPassword(playerId: string, password: string, ip: string): void {
   getDB()
@@ -291,7 +304,7 @@ export function updatePlayerPassword(playerId: string, password: string, ip: str
           update_ip  = ?
       where player_id = ?
     `)
-    .run(password, Date.now(), ip, playerId)
+    .run(hashPassword(password), Date.now(), ipForStorage(ip), playerId)
 }
 
 /**
@@ -305,7 +318,83 @@ export function updatePlayerLastActive(playerId: string, ip: string): void {
           update_ip  = ?
       where player_id = ?
     `)
-    .run(Date.now(), ip, playerId)
+    .run(Date.now(), ipForStorage(ip), playerId)
+}
+
+/**
+ * 更新玩家审核状态。
+ */
+export function setPlayerApproved(playerId: string, approved: boolean): void {
+  getDB()
+    .prepare(`
+      update players
+      set approved   = ?,
+          updated_at = ?
+      where player_id = ?
+    `)
+    .run(approved ? 1 : 0, Date.now(), playerId)
+}
+
+/**
+ * 批量更新玩家审核状态。
+ */
+export function batchUpdatePlayersApproval(playerIds: string[], approved: boolean): void {
+  if (!playerIds.length) {
+    return
+  }
+  getDB()
+    .prepare(`update players
+              set approved   = ?,
+                  updated_at = ?
+              where player_id in (${buildInClause(playerIds)})`)
+    .run(approved ? 1 : 0, Date.now(), ...playerIds)
+}
+
+/**
+ * 把旧库中的明文密码原地替换为哈希，返回迁移数量。
+ */
+export function migratePlayerPasswords(): number {
+  const conn = getDB()
+  const rows = conn.prepare('select player_id, password from players').all() as Row[]
+  const update = conn.prepare('update players set password = ? where player_id = ?')
+  let migrated = 0
+  const migrate = conn.transaction(() => {
+    for (const row of rows) {
+      const stored = valueText(row.password)
+      if (stored === '' || isHashedPassword(stored)) {
+        continue
+      }
+      update.run(hashPassword(stored), valueText(row.player_id))
+      migrated += 1
+    }
+  })
+  migrate()
+  return migrated
+}
+
+/**
+ * 清空超过保留期的历史 IP，返回受影响的玩家数与存档数。
+ */
+export function clearExpiredIPs(retentionDays = getIPRetentionDays()): { players: number; files: number } {
+  if (retentionDays <= 0) {
+    return { players: 0, files: 0 }
+  }
+  const conn = getDB()
+  const cutoff = Date.now() - retentionDays * dayMs
+  const players = conn.prepare(`
+    update players
+    set create_ip = case when created_at < ? then null else create_ip end,
+        update_ip = case when updated_at < ? then null else update_ip end
+    where (create_ip is not null and created_at < ?)
+       or (update_ip is not null and updated_at < ?)
+  `).run(cutoff, cutoff, cutoff, cutoff).changes
+  const content = conn.prepare(`
+    update files_content set created_ip = null where created_ip is not null and created_at < ?
+  `).run(cutoff).changes
+  const preview = conn.prepare(`
+    update files_preview set created_ip = null where created_ip is not null and created_at < ?
+  `).run(cutoff).changes
+  return { players, files: content + preview }
 }
 
 /**
@@ -331,6 +420,7 @@ export function getPlayersPage(keyword: string, page: number, pageSize: number):
              created_at,
              updated_at,
              whitelist,
+             approved,
              remark,
              create_ip,
              update_ip
@@ -607,7 +697,7 @@ function saveFileData(table: FileTable, gameId: string, turns: number, playerId:
       insert into ${table} (game_id, turns, created_player, created_ip, created_at, data)
       values (?, ?, ?, ?, ?, ?)
     `)
-    .run(gameId, turns, playerId, ip, Date.now(), data)
+    .run(gameId, turns, playerId, ipForStorage(ip), Date.now(), data)
 }
 
 /**
@@ -840,6 +930,7 @@ export function getAllStats(): Stats {
     .prepare(`
       with player_stats as ( select count(*)                                                                 as player_count,
                                     coalesce(sum(case when whitelist = 1 then 1 else 0 end), 0)              as whitelist_player_count,
+                                    coalesce(sum(case when approved = 0 then 1 else 0 end), 0)               as pending_player_count,
                                     coalesce(sum(case when created_at >= ? then 1 else 0 end),
                                              0)                                                              as today_new_players
                              from players ),
@@ -867,6 +958,7 @@ export function getAllStats(): Stats {
                            from ( select max(turns) as max_turns from files_content group by game_id ) )
       select p.player_count,
              p.whitelist_player_count,
+             p.pending_player_count,
              g.game_count,
              g.whitelist_game_count,
              p.today_new_players,
@@ -888,6 +980,7 @@ export function getAllStats(): Stats {
 
   return {
     playerCount: Number(row.player_count ?? 0),
+    pendingPlayerCount: Number(row.pending_player_count ?? 0),
     whitelistPlayerCount: Number(row.whitelist_player_count ?? 0),
     gameCount: Number(row.game_count ?? 0),
     whitelistGameCount: Number(row.whitelist_game_count ?? 0),
@@ -963,8 +1056,9 @@ export function runCleanup(): void {
   const games = cleanupExpiredGames()
   const previews = cleanupOldPreviews()
   const contents = cleanupOldContents()
+  const ips = clearExpiredIPs()
   const conn = getDB()
   conn.exec('ANALYZE')
   conn.exec('VACUUM')
-  console.info('数据清理任务完成', { games, previews, contents })
+  console.info('数据清理任务完成', { games, previews, contents, ips })
 }

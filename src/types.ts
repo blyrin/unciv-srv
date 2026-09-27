@@ -1,3 +1,9 @@
+/** 注册模式：open=任何人可自助注册；approval=自助注册后需管理员审核；closed=只能由管理员开通账号 */
+export type RegisterMode = 'open' | 'approval' | 'closed'
+
+/** 客户端 IP 存储策略：full=完整存储；anonymized=匿名化（IPv4 保留 /24、IPv6 保留 /48）；none=不存储 */
+export type IPStorageMode = 'full' | 'anonymized' | 'none'
+
 export interface Config {
   port: string
   dbPath: string
@@ -5,6 +11,14 @@ export interface Config {
   adminPassword: string
   maxAttempts: number
   lockTime: number
+  /** 注册模式（面向公众的服务建议 approval 或 closed） */
+  registerMode: RegisterMode
+  /** 是否允许玩家之间的聊天（关闭后仅保留游戏更新推送、在线状态与同步回合信号） */
+  chatEnabled: boolean
+  /** 客户端 IP 存储策略（最小化原则下不建议 full） */
+  ipStorage: IPStorageMode
+  /** IP 保留天数：超期清空玩家与存档上记录的历史 IP，0 表示不清理 */
+  ipRetentionDays: number
   /** 安装包托管根目录（每次发布版本建一个子目录，形如 <dir>/<版本tag>/<文件名>） */
   downloadDir: string
   /** 同时进行的安装包下载连接数上限（防止带宽被打满） */
@@ -29,6 +43,8 @@ export interface Player {
   createdAt: number
   updatedAt: number
   whitelist: boolean
+  /** 账号是否已通过审核（approval 模式新注册的账号为 false，无法使用任何联机接口） */
+  approved: boolean
   remark: string
   createIp?: string
   updateIp?: string
@@ -79,6 +95,7 @@ export interface RollbackResult {
 
 export interface Stats {
   playerCount: number
+  pendingPlayerCount: number
   whitelistPlayerCount: number
   gameCount: number
   whitelistGameCount: number

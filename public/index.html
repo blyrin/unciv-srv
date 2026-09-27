@@ -215,6 +215,11 @@
                    v-model="modal.data.whitelist">
             <span class="font-medium">{{ modal.data.whitelistLabel }}</span>
           </label>
+          <label class="flex items-center space-x-2" v-if="modal.data.showApproval">
+            <input class="rounded text-brand-600 focus:ring-brand-500 w-5 h-5" type="checkbox"
+                   v-model="modal.data.approved">
+            <span class="font-medium">允许联机（关闭后该玩家的联机请求一律拒绝）</span>
+          </label>
           <div>
             <label class="block text-sm font-medium text-stone-700 mb-1">备注</label>
             <textarea
@@ -407,6 +412,9 @@
           <stat-card :value="stats.playerCount"
                      icon='<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>'
                      label="玩家总数"></stat-card>
+          <stat-card :value="stats.pendingPlayerCount" color="text-amber-600"
+                     icon='<svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>'
+                     label="待审核玩家" v-if="stats.pendingPlayerCount > 0"></stat-card>
           <stat-card :value="stats.whitelistPlayerCount" color="text-brand-600"
                      icon='<svg class="w-6 h-6 text-brand-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>'
                      label="白名单玩家"></stat-card>
@@ -473,6 +481,14 @@
                       class="px-3 py-1.5 rounded text-xs font-medium bg-white text-red-600 border border-red-200">
                 取消白名单
               </button>
+              <button @click="batchUpdatePlayersApproval(true)"
+                      class="px-3 py-1.5 rounded text-xs font-medium border border-amber-600 bg-amber-500 text-white">
+                通过审核
+              </button>
+              <button @click="batchUpdatePlayersApproval(false)"
+                      class="px-3 py-1.5 rounded text-xs font-medium bg-white text-amber-600 border border-amber-200">
+                取消通过
+              </button>
             </div>
           </div>
 
@@ -500,6 +516,8 @@
                       :class="['px-2 py-1 rounded-full text-xs font-medium text-nowrap', p.whitelist ? 'bg-brand-100/80 text-brand-700' : 'bg-stone-100 text-stone-500']">
                         {{ p.whitelist ? '白名单' : '普通' }}
                     </span>
+                    <span class="px-2 py-1 rounded-full text-xs font-medium text-nowrap bg-amber-100 text-amber-700"
+                          v-if="p.approved === false">待审核</span>
                   </td>
                   <td class="p-3 sm:p-4 text-stone-500 truncate max-w-[150px] hidden sm:table-cell">{{ p.remark || '-'
                     }}
@@ -511,6 +529,10 @@
                   <td class="p-3 sm:p-4 text-right space-x-1 sm:space-x-2 whitespace-nowrap">
                     <button @click="openEditPlayer(p)" class="text-brand-600 hover:underline text-xs sm:text-sm">
                       编辑
+                    </button>
+                    <button @click="setPlayerApproved(p.playerId, true)"
+                            class="text-amber-600 hover:underline text-xs sm:text-sm" v-if="p.approved === false">
+                      通过
                     </button>
                     <button @click="viewPassword(p.playerId)"
                             class="text-stone-500 hover:text-stone-800 text-xs sm:text-sm">密码
@@ -845,6 +867,10 @@
       method: 'PATCH',
       body: JSON.stringify({ playerIds: ids, whitelist: wl }),
     }),
+    batchPlayersApproval: (ids, approved) => API.request('/api/players/batch', {
+      method: 'PATCH',
+      body: JSON.stringify({ playerIds: ids, approved }),
+    }),
     batchGames: (ids, wl) => API.request('/api/games/batch', {
       method: 'PATCH',
       body: JSON.stringify({ gameIds: ids, whitelist: wl }),
@@ -1146,9 +1172,19 @@
       const openEdit = (type, id, data, updateFn) => {
         modal.title = `编辑${type}: ${id}`
         modal.type = 'edit'
-        modal.data = { whitelist: data.whitelist, remark: data.remark || '', whitelistLabel: `白名单${type}` }
+        modal.data = {
+          whitelist: data.whitelist,
+          remark: data.remark || '',
+          whitelistLabel: `白名单${type}`,
+          showApproval: data.approved !== undefined,
+          approved: data.approved !== false,
+        }
         modal.onConfirm = async () => {
-          await updateFn(id, { whitelist: modal.data.whitelist, remark: modal.data.remark })
+          const payload = { whitelist: modal.data.whitelist, remark: modal.data.remark }
+          if (modal.data.showApproval) {
+            payload.approved = modal.data.approved
+          }
+          await updateFn(id, payload)
           showToast('更新成功')
           loadTabData()
         }
@@ -1162,7 +1198,11 @@
           const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
           modal.title = '查看密码'
           modal.type = 'html'
-          modal.content = `<div class="bg-stone-100 p-4 rounded text-center font-mono select-all text-xl tracking-wider">${esc(res.password)}</div>`
+          if (res.password === null || res.password === undefined) {
+            modal.content = `<div class="bg-stone-100 p-4 rounded text-center text-stone-600">密码已加密存储，无法查看。如需帮助玩家重置，请使用「改密」。</div>`
+          } else {
+            modal.content = `<div class="bg-stone-100 p-4 rounded text-center font-mono select-all text-xl tracking-wider">${esc(res.password)}</div>`
+          }
           modal.show = true
         } catch (e) { showToast(e.message, 'error') }
       }
@@ -1196,6 +1236,23 @@
           showToast('密码修改成功')
         }
         modal.show = true
+      }
+      const setPlayerApproved = async (playerId, approved) => {
+        try {
+          await API.updatePlayer(playerId, { approved })
+          showToast(approved ? '已通过审核' : '已取消通过')
+          loadTabData()
+        } catch (e) { showToast(e.message, 'error') }
+      }
+      const batchUpdatePlayersApproval = async (approved) => {
+        if (!selectedPlayers.value.length) return
+        if (!confirm(`确定更新 ${selectedPlayers.value.length} 个玩家的审核状态吗？`)) return
+        try {
+          await API.batchPlayersApproval(selectedPlayers.value, approved)
+          showToast('批量操作成功')
+          selectedPlayers.value = []
+          loadTabData()
+        } catch (e) { showToast(e.message, 'error') }
       }
       const batchUpdatePlayers = async (wl) => {
         if (!selectedPlayers.value.length) return
@@ -1276,6 +1333,7 @@
         handleLogin, formatDate, formatSize, resetFilters, setPlayerPage, setGamePage,
         onUploadFileChange, uploadInstaller, deleteInstaller, syncFromGithub,
         openEditPlayer, viewPassword, openChangePlayerPassword, openChangeMyPassword, batchUpdatePlayers,
+        batchUpdatePlayersApproval, setPlayerApproved,
         openEditGame, batchUpdateGames, batchDeleteGames,
         viewHistory, downloadGame, rollbackGame, deleteUserGame,
         closeModal, confirmModal,

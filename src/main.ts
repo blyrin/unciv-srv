@@ -26,7 +26,7 @@ function main(): void {
     () => console.info(`服务器启动, 端口: ${port}`),
   )
 
-  attachChatWebSocket(server)
+  attachChatWebSocket(server, config)
 
   const shutdown = () => {
     console.info('正在关闭服务器...')
