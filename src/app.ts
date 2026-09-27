@@ -15,7 +15,8 @@ import {
 import { projectRoot } from './paths.js'
 import {
   createZip, decodeGameFile, encodeFile, errorResponse, fileResponse, getClientIP, getPlayerIDsFromParsedGameData,
-  HttpError, jsonResponse, parseBasicAuthCredentials, readLimitedText, successResponse, textResponse,
+  HttpError, jsonResponse, maxJsonBodySize, maxTextBodySize, maxTurnOperationsSize, parseBasicAuthCredentials,
+  readLimitedText, successResponse, textResponse,
 } from './utils.js'
 import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersWhitelist, countGamesByPlayer, createGame, deleteGame,
@@ -46,8 +47,15 @@ function parsePagination(c: Context<Env>): { page: number; pageSize: number; key
  * 解析 JSON 请求体。
  */
 async function readJSONBody<T>(c: Context<Env>): Promise<T> {
+  let text: string
   try {
-    return await c.req.json<T>()
+    text = await readLimitedText(c.req.raw, maxJsonBodySize)
+  } catch (error) {
+    if (error instanceof HttpError) throw error
+    throw new HttpError(400, '无效的请求格式')
+  }
+  try {
+    return JSON.parse(text) as T
   } catch {
     throw new HttpError(400, '无效的请求格式')
   }
@@ -117,7 +125,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
   app.get('/auth', logger(), basicAuthWithRegister(), () => successResponse())
   app.put('/auth', logger(), basicAuthWithRegister(), async (c) => {
     const playerId = c.get('playerId')
-    const newPassword = await c.req.text()
+    const newPassword = await readLimitedText(c.req.raw, maxTextBodySize)
     if (newPassword.length < 6) {
       return errorResponse(400, '密码至少6位')
     }
@@ -138,7 +146,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     const gameId = c.get('gameId')
     const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
     if (accessError) return accessError
-    const body = (await c.req.text()).split(':', 2)
+    const body = (await readLimitedText(c.req.raw, maxTextBodySize)).split(':', 2)
     const turn = Number.parseInt(body[0] ?? '', 10)
     const owner = body[1] ?? ''
     if (!Number.isInteger(turn) || turn < 0 || owner !== c.get('playerId')) return errorResponse(400, '锁参数无效')
@@ -160,8 +168,9 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     if (accessError) return accessError
     let incoming: unknown
     try {
-      incoming = JSON.parse(await c.req.text())
-    } catch {
+      incoming = JSON.parse(await readLimitedText(c.req.raw, maxTurnOperationsSize))
+    } catch (error) {
+      if (error instanceof HttpError) throw error
       return errorResponse(400, '操作数据格式无效')
     }
     if (!Array.isArray(incoming)) return errorResponse(400, '操作数据格式无效')
@@ -178,7 +187,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     const gameId = c.get('gameId')
     const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
     if (accessError) return accessError
-    const body = (await c.req.text()).split(':', 2)
+    const body = (await readLimitedText(c.req.raw, maxTextBodySize)).split(':', 2)
     const turn = Number.parseInt(body[0] ?? '', 10)
     const owner = body[1] ?? ''
     if (Number.isInteger(turn) && owner === c.get('playerId')) releaseSimultaneousTurnLock(gameId, turn, owner)
@@ -193,7 +202,8 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     let body: string
     try {
       body = await readLimitedText(c.req.raw)
-    } catch {
+    } catch (error) {
+      if (error instanceof HttpError) throw error
       return errorResponse(400, '读取请求体失败')
     }
     if (!body) {

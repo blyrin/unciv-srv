@@ -3,7 +3,7 @@ import { afterEach, beforeEach, test } from 'vitest'
 import {
   closeDatabase, createGame, getLatestFilePreview, getPlayerByID, getTurnsMetadata, saveFileContent,
 } from '../src/database.js'
-import { encodeFile } from '../src/utils.js'
+import { encodeFile, maxBodySize, maxTextBodySize } from '../src/utils.js'
 import {
   basicAuth, buildGameData, loginAsAdmin, loginAsPlayer, seedPlayer, setupTestServer, testGameID1, testGameID2,
   testPassword, testPlayerID1, testPlayerID2, testPlayerID3, type TestServer,
@@ -33,6 +33,13 @@ test('/auth 覆盖认证错误和修改密码', async () => {
     body: 'short',
   })
   assert.equal(short.status, 400)
+
+  const tooLarge = await server.app.request('/auth', {
+    method: 'PUT',
+    headers: { Authorization: basicAuth() },
+    body: 'x'.repeat(maxTextBodySize + 1),
+  })
+  assert.equal(tooLarge.status, 413)
 
   const changed = await server.app.request('/auth', {
     method: 'PUT',
@@ -66,6 +73,13 @@ test('/files 覆盖上传错误、既有游戏权限和预览存档', async () =
     body: buildGameData(testGameID1, 1, [testPlayerID1]),
   })
   assert.equal(invalidGameId.status, 400)
+
+  const tooLarge = await server.app.request(gameFile, {
+    method: 'PUT',
+    headers: uncivHeaders,
+    body: 'x'.repeat(maxBodySize + 1),
+  })
+  assert.equal(tooLarge.status, 413)
 
   const empty = await server.app.request(gameFile, {
     method: 'PUT',

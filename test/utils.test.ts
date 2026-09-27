@@ -3,7 +3,7 @@ import { test } from 'vitest'
 import { unzipSync } from 'fflate'
 import {
   createZip, decodeFile, decodeHeaderValue, encodeFile, errorResponse, fileResponse, generateRandomStr, getBaseGameID,
-  getClientIP, getPlayerIDsFromGameData, isPreviewID, jsonResponse, parseBasicAuthCredentials, parseGameData,
+  getClientIP, getPlayerIDsFromGameData, HttpError, isPreviewID, jsonResponse, parseBasicAuthCredentials, parseGameData,
   readLimitedText, successResponse, textResponse, validateGameID, validatePlayerID,
 } from '../src/utils.js'
 import { basicAuth, testGameID1, testPassword, testPlayerID1 } from './helpers/server.js'
@@ -131,6 +131,6 @@ test('受限请求体读取覆盖空体、成功和超限', async () => {
   assert.equal(await readLimitedText(new Request('http://localhost', { method: 'POST', body: 'hello' }), 10), 'hello')
   await assert.rejects(
     readLimitedText(new Request('http://localhost', { method: 'POST', body: 'hello' }), 4),
-    /读取请求体失败/,
+    (error: unknown) => error instanceof HttpError && error.status === 413 && error.message === '请求体过大',
   )
 })

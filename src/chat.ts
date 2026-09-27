@@ -6,7 +6,8 @@ import type { ServerType } from '@hono/node-server'
 import { getGameByID } from './database.js'
 import { validatePlayer } from './middleware.js'
 import {
-  decodeHeaderValue, getBaseGameID, isPreviewID, normalizeClientIP, parseBasicAuthCredentials, validateGameID,
+  decodeHeaderValue, getBaseGameID, isPreviewID, maxWebSocketFrameSize, normalizeClientIP, parseBasicAuthCredentials,
+  validateGameID,
 } from './utils.js'
 
 export type MessageType =
@@ -485,7 +486,7 @@ export function parseWebSocketAuth(request: IncomingMessage): string {
  * 将聊天 WebSocket 绑定到 HTTP server。
  */
 export function attachChatWebSocket(server: ServerType): void {
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 512 * 1024 })
+  const wss = new WebSocketServer({ noServer: true, maxPayload: maxWebSocketFrameSize })
 
   server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(request.url ?? '/', 'http://localhost')

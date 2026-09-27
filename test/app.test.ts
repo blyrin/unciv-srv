@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
 import { createGame, getLatestFileContent, getPlayerByID, getSimultaneousTurnOperations } from '../src/database.js'
-import { decodeFile, encodeFile } from '../src/utils.js'
+import { decodeFile, encodeFile, maxTurnOperationsSize } from '../src/utils.js'
 import {
   basicAuth, buildGameData, loginAsPlayer, seedGameWithContent, seedPlayer, setupTestServer, startHttpServer,
   testGameID1, testPassword, testPlayerID1, testPlayerID2, type TestServer,
@@ -39,6 +39,16 @@ test('同步回合玩家并发提交操作不会互相覆盖且接受省略的�
     body: JSON.stringify([{ playerId: testPlayerID2, type: 'done' }]),
   })
   assert.equal(spoofed.status, 400)
+})
+
+test('超大的同步回合操作提交返回 413', async () => {
+  seedPlayer(testPlayerID1)
+  createGame(testGameID1, [testPlayerID1])
+  const response = await server.app.request(`/simultaneous-turn-operations/${testGameID1}`, {
+    method: 'POST', headers: { Authorization: basicAuth(testPlayerID1), 'User-Agent': 'Unciv' },
+    body: 'x'.repeat(maxTurnOperationsSize + 1),
+  })
+  assert.equal(response.status, 413)
 })
 
 test('/isalive 返回健康检查内容', async () => {

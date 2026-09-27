@@ -5,7 +5,16 @@ import type { Context } from 'hono'
 
 export const gameIdRegex = /^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}(_Preview)?$/
 export const playerIdRegex = /^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}$/
-export const maxBodySize = 10 * 1024 * 1024
+/** 存档上传上限，与上游 UncivServer.maxGameFileSizeBytes 保持一致。 */
+export const maxBodySize = 32 * 1024 * 1024
+/** 普通 JSON 接口（登录、管理后台）的请求体上限。 */
+export const maxJsonBodySize = 1024 * 1024
+/** 同步回合操作批量提交的请求体上限。 */
+export const maxTurnOperationsSize = 4 * 1024 * 1024
+/** 纯文本小接口（密码、回合锁）的请求体上限。 */
+export const maxTextBodySize = 1024
+/** WebSocket 单帧上限，与上游 UncivServer.maxWebSocketFrameSizeBytes 保持一致。 */
+export const maxWebSocketFrameSize = 64 * 1024
 
 const randomCharset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 
@@ -200,7 +209,7 @@ export async function readLimitedText(request: Request, maxBytes = maxBodySize):
     }
     total += value.byteLength
     if (total > maxBytes) {
-      throw new HttpError(400, '读取请求体失败')
+      throw new HttpError(413, '请求体过大')
     }
     chunks.push(value)
   }
