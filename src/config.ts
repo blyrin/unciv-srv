@@ -95,13 +95,10 @@ export function loadConfig(): Config {
     chatEnabled: getEnvAsBool('CHAT_ENABLED', true),
     ipStorage: getEnvAsEnum('IP_STORAGE', ['full', 'anonymized', 'none'] as const, defaultIPStorageMode),
     ipRetentionDays: getEnvAsInt('IP_RETENTION_DAYS', 30),
-    downloadDir: resolveRepoPath(getEnv('DOWNLOAD_DIR', 'data/unciv-dl')),
-    downloadMaxConcurrent: getEnvAsInt('DOWNLOAD_MAX_CONCURRENT', 4),
-    downloadRateLimitKbps: getEnvAsInt('DOWNLOAD_RATE_LIMIT_KBPS', 1024),
-    downloadMaxFileSizeMb: getEnvAsInt('DOWNLOAD_MAX_FILE_SIZE_MB', 512),
-    downloadIpLimitPerMinute: getEnvAsInt('DOWNLOAD_IP_LIMIT_PER_MINUTE', 30),
-    downloadKeepVersions: getEnvAsInt('DOWNLOAD_KEEP_VERSIONS', 1),
+    archiveEnabled: getEnvAsBool('ARCHIVE_ENABLED', true),
+    archiveDir: resolveRepoPath(getEnv('ARCHIVE_DIR', 'data/archive')),
+    archiveMaxBytes: getEnvAsInt('ARCHIVE_MAX_MB', 1024) * 1024 * 1024,
     downloadGithubRepo: getEnv('DOWNLOAD_GITHUB_REPO', 'AutumnPizazz/Unciv'),
-    downloadGithubProxy: getEnv('DOWNLOAD_GITHUB_PROXY', 'https://gh-proxy.com/'),
+    downloadGithubProxy: getEnv('DOWNLOAD_GITHUB_PROXY', 'https://mirror.ecrow.cn/github-release/'),
   }
 }

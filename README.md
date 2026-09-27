@@ -63,6 +63,9 @@ IP_RETENTION_DAYS=30
 | `CHAT_ENABLED` | `true` | 设为 `false` 后聊天消息被拒绝，但订阅、房间加入、同步回合信号与「存档已更新」推送仍正常工作 |
 | `IP_STORAGE` | `anonymized` | `full` 存完整 IP；`anonymized` 只存网段（IPv4 抹掉主机位、IPv6 只存前 3 组）；`none` 完全不写入 IP |
 | `IP_RETENTION_DAYS` | `30` | 超过该天数的 IP 由定时清理任务自动清空，`0` 表示不清理 |
+| `ARCHIVE_ENABLED` | `true` | 定时清理时，若存档数据总量超过 `ARCHIVE_MAX_MB`，就把最久未使用的非白名单对局归档；设为 `false` 则不做容量归档 |
+| `ARCHIVE_MAX_MB` | `1024` | 存档数据总量上限（MB，按存档正文与预览的字节数统计）；超过后从最久未使用的对局开始归档，直到降到上限以内 |
+| `ARCHIVE_DIR` | `data/archive` | 归档目录，每次归档写一个 `unciv-archive-<时间戳>Z.jsonl`（每行一局）；建议放在挂载卷（如 `/data/archive`）里，便于宿主机脚本加密上传到网盘 |
 
 > 密码一律以 scrypt 哈希（每个账号独立随机盐）存储，无法还原；升级旧库时启动日志会提示已把明文密码升级为哈希。管理后台不再提供「查看密码」，只能为玩家重置密码。
 >
@@ -76,8 +79,39 @@ IP_RETENTION_DAYS=30
 - `CHAT_ENABLED=false`：关闭即时通讯能力，只保留存档同步
 - `IP_STORAGE` / `IP_RETENTION_DAYS`：只记录网段并限制保留时间
 - 访问日志：请求日志含 IP 与 User-Agent，请自行配置日志轮转（`docker-compose.yml` 已限制为 10MB × 3，`docker run` 可用 `--log-opt max-size=10m --log-opt max-file=3`），不要长期堆积
-- 生产环境请使用 HTTPS（反向代理终止 TLS）并定期备份 `DB_PATH` 与 `DOWNLOAD_DIR`
+- 生产环境请使用 HTTPS（反向代理终止 TLS）并定期备份 `DB_PATH`
 - 部署在境外主机时，请自行评估数据出境与当地法规要求
+
+### 冷存档归档
+
+每天凌晨 4:00 的清理任务会把**最久未使用且未加入白名单**的对局归档到本地归档目录，而不是直接删除。触发条件是**存档数据总量**：所有对局的存档正文与预览字节数之和超过 `ARCHIVE_MAX_MB`（默认 1GB）后，按 `updated_at` 从旧到新依次归档，直到总量降到上限以内。
+
+1. 每次归档写一个 `<ARCHIVE_DIR>/unciv-archive-<UTC 时间戳>Z.jsonl`（每行一局，含玩家、创建/更新时间、回合数、存档正文与预览），先写临时文件再改名；
+2. 全部写入成功后，才在一个事务里删除数据库记录，并在 `archived_games` 表里留下记录（因此玩家请求已归档对局时能收到「正在恢复」的提示，而不是「对局不存在」）；
+3. 宿主机脚本负责把归档文件交给加密归档工具（bvault 自己会做 `tar.zstd.gpg` 与分块上传，例如 `bvault put <归档文件> --to /workspace/unciv-archive --async`），上传校验成功后删除本地副本，因此服务器上只保留尚未上传的归档。
+
+手动触发一次清理与归档（不必等到凌晨 4:00）：
+
+```bash
+docker compose exec unciv-srv node --input-type=module -e "
+import { loadEnvFile, loadConfig } from './dist/config.js'
+import { initDatabase, runCleanup, closeDatabase } from './dist/database.js'
+loadEnvFile(); const config = loadConfig(); initDatabase(config)
+runCleanup(config.archiveEnabled, config.archiveDir, config.archiveMaxBytes)
+closeDatabase()"
+```
+
+玩家在游戏里打开（或刷新）已归档的对局时，服务端返回 `503` 与说明文本，客户端会提示「该对局已被冷归档……请稍后重试」，同时登记一条恢复请求（定时刷新的预览请求不会登记）。管理后台的 `GET /api/restore-requests` 可以看到待恢复列表，`DELETE /api/restore-requests/<对局ID>` 表示放弃恢复。
+
+恢复归档（对局 ID 保持不变）：
+
+```bash
+# 先从网盘取回归档：bvault get <item-id> --out <目录>（文件名与归档时一致）
+# 再把取回的文件放进容器能访问的目录，例如 /root/unciv-srv/data/restore/<归档文件>
+docker compose run --rm unciv-srv node dist/main.js --restore-archive /data/restore/<归档文件> [对局ID]
+```
+
+不带对局 ID 时恢复归档文件里的全部对局，带对局 ID 时只恢复该局。恢复后对局重新出现在数据库里（对局 ID 保持不变），玩家可以直接继续；管理后台也可以把它加入白名单以免被再次归档。
 
 ## 开发与测试
 
@@ -147,73 +181,32 @@ docker run -d --name unciv-srv \
 
 镜像含健康检查，依赖 `/isalive` 端点，`docker compose ps` 或 `docker inspect` 可查看容器健康状态。
 
-## 安装包托管（UncivCN 社区下载服务器）
+## 安装包直链（UncivCN 社区下载服务器）
 
-服务器内置安装包托管功能：把 UncivCN 的安装包（APK / MSI / 绿色版 zip / jar 等）上传到本服务器。**游戏内更新检查与安装包下载按玩家地区分流**：
+服务器**不再托管安装包文件**：安装包仍发布在 GitHub Release，社区下载服务器只做两件事——给大陆玩家一个可达的版本清单，并把 `/dl/...` 直链 302 跳到 GitHub（经镜像前缀）。**游戏内更新检查与安装包下载按玩家地区分流**：
 
 - 首次启动游戏会弹窗询问所在地区（也可在「选项 - 高级 - 玩家地区」修改）
-- 选择「中国大陆」的玩家：更新检查（`GET /api/downloads/latest.json`）与安装包下载（`<服务器>/dl/<版本号>/<文件名>`）固定走本服务器（github.com 在大陆被墙）
+- 选择「中国大陆」的玩家：更新检查（`GET /api/downloads/latest.json`，转发 GitHub `releases/latest`，带 2 分钟进程内缓存，拉取失败时退回上一次缓存）拿到 GitHub 形式的资产清单；下载 `<服务器>/dl/<版本号>/<文件名>` 时服务器 302 到 `DOWNLOAD_GITHUB_PROXY` + GitHub 地址（github.com 在大陆被墙）
 - 选择「中国大陆以外」的玩家：与模组下载一样，走玩家在「选项 - 高级 - 下载源」里设置的源（GitHub 官方 / 镜像 / 自定义）
 
 模组下载不受影响，始终走玩家设置的下载源。
 
-### 目录结构
+> 为什么不再托管：安装包由镜像直接分发给玩家，省下服务器带宽与磁盘；`/dl/` 保留是为了兼容旧客户端（它们的更新检查结果里带的是本服务器的 `/dl/` 链接，客户端会跟随 302）。
 
-```
-<DOWNLOAD_DIR>/           # 默认 /data/unciv-dl（容器）或 data/unciv-dl（本地）
-└── 4.21.10.1/            # 版本 tag 目录
-    ├── UncivCN-4.21.10.1.Apk
-    ├── UncivCN-4.21.10.1.msi
-    └── ...
-```
-
-上传新版本后自动清理旧版本目录，只保留最新 `DOWNLOAD_KEEP_VERSIONS` 个版本（默认 1），节约存储空间。
-
-### 管理接口（管理员认证）
-
-认证方式二选一：Web 后台登录会话（浏览器 cookie），或管理员 Basic Auth（CI 等无 cookie 场景）：
+### 接口
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /api/downloads/latest.json` | 检查更新：返回最新版本与资产清单（公开，无需认证） |
-| `POST /api/downloads/sync?tag=<版本号>` | 从 GitHub（经 `DOWNLOAD_GITHUB_PROXY` 镜像）拉取安装包；tag 留空 = 最新版（管理员认证，同步完成后自动清理旧版本） |
-| `POST /api/downloads/upload?tag=<版本号>&filename=<文件名>` | 上传安装包（请求体为文件原始字节，流式写入） |
-| `GET /api/downloads` | 列出已托管文件 |
-| `DELETE /api/downloads/<版本号>/<文件名>` | 删除指定文件 |
-| `GET /dl/<版本号>/<文件名>` | 下载安装包（无鉴权，受下载保护限制） |
+| `GET /api/downloads/latest.json` | 检查更新：转发 GitHub `releases/latest`（公开，无需认证；过滤 `linuxFilesForJar` / `unciv-lua-api` 等辅助文件） |
+| `GET /dl/<版本号>/<文件名>` | 安装包直链：302 到 `<DOWNLOAD_GITHUB_PROXY><owner>/<repo>/releases/download/<版本号>/<文件名>`（无鉴权） |
 
-同步示例（CI / 命令行，tag 留空拉取最新版）：
-
-```bash
-curl -u "admin:你的管理员密码" -X POST \
-  "http://服务器地址/api/downloads/sync?tag=4.21.10.1"
-```
-
-Web 管理后台「安装包托管」页签提供上传、**从 GitHub 同步**、查看、下载与删除。
-
-> 为什么从 GitHub 同步走镜像：大陆服务器直连 github.com 的 release 大文件（release-assets.githubusercontent.com）几乎不通，经 `DOWNLOAD_GITHUB_PROXY`（默认 gh-proxy.com）可达约 400KB/s；GitHub Actions 跨国上传到大陆服务器更慢（约 2Mbps），因此 CI 改为只触发本接口，由服务器自行拉取。
-
-### 下载保护
-
-- 全局并发连接数限制（`DOWNLOAD_MAX_CONCURRENT`，默认 4）——防止带宽被打满
-- 单连接限速（`DOWNLOAD_RATE_LIMIT_KBPS`，默认 1024 即 1MB/s，0 表示不限速）——防止单用户占满带宽
-- 每 IP 每分钟请求数限制（`DOWNLOAD_IP_LIMIT_PER_MINUTE`，默认 30）——防刷流量
-- 版本号/文件名校验 + 路径穿越防护
-- 支持 `Range` 断点续传
-
-### 环境变量（安装包托管）
+### 环境变量（安装包直链）
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DOWNLOAD_DIR` | `data/unciv-dl` | 托管根目录（容器内建议 `/data/unciv-dl` 并挂卷） |
-| `DOWNLOAD_MAX_CONCURRENT` | `4` | 同时下载连接数上限 |
-| `DOWNLOAD_RATE_LIMIT_KBPS` | `1024` | 单连接限速 KB/s，0 不限速 |
-| `DOWNLOAD_IP_LIMIT_PER_MINUTE` | `30` | 每 IP 每分钟下载请求上限 |
-| `DOWNLOAD_KEEP_VERSIONS` | `1` | 保留的最新版本数，旧版本自动清理 |
-| `DOWNLOAD_MAX_FILE_SIZE_MB` | `512` | 单个上传文件大小上限（MB） |
-| `DOWNLOAD_GITHUB_REPO` | `AutumnPizazz/Unciv` | 从 GitHub 同步安装包的仓库（owner/repo） |
-| `DOWNLOAD_GITHUB_PROXY` | `https://gh-proxy.com/` | 同步时的 GitHub 代理/镜像前缀（留空 = 直连） |
+| `DOWNLOAD_GITHUB_REPO` | `AutumnPizazz/Unciv` | 版本清单与安装包所在的 GitHub 仓库（owner/repo） |
+| `DOWNLOAD_GITHUB_PROXY` | `https://mirror.ecrow.cn/github-release/` | GitHub 镜像前缀，替换 `https://github.com/`（留空 = 直连） |
 
-### CI 自动同步
+### CI 校验
 
-`buildAndDeploy.yml` 在 release 发布后调用 `POST /api/downloads/sync?tag=<版本号>` 触发服务器自行从 GitHub（经镜像）拉取安装包。仓库需配置 Secrets：`CN_DL_SERVER`（如 `http://sp.unciv.cn:30123`）、`CN_DL_USER` / `CN_DL_PASS`（与 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 一致）。未配置时同步自动跳过。
+`buildAndDeploy.yml` 在 release 发布后轮询 `GET /api/downloads/latest.json`，确认 `tag_name` 已切到本次版本，并跟随 `/dl/<版本号>/UncivCN-<版本号>.Apk` 的跳转校验安装包可下载。仓库需配置 Secret：`CN_DL_SERVER`（如 `https://unciv.civgo.top:30123`）。未配置时该 job 自动跳过。

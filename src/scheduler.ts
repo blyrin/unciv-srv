@@ -1,5 +1,6 @@
 import { cleanupExpiredSessions } from './session.js'
 import { runCleanup } from './database.js'
+import type { Config } from './types.js'
 
 export interface Scheduler {
   stop: () => void
@@ -29,14 +30,14 @@ function millisUntilNextFourAM(now = new Date()): number {
 /**
  * 启动数据和会话清理任务。
  */
-export function startScheduler(): Scheduler {
+export function startScheduler(config: Config): Scheduler {
   let cleanupTimer: NodeJS.Timeout
   let sessionTimer: NodeJS.Timeout
 
   const scheduleCleanup = () => {
     cleanupTimer = setTimeout(() => {
       try {
-        runCleanup()
+        runCleanup(config.archiveEnabled, config.archiveDir, config.archiveMaxBytes)
       } catch (error) {
         console.error('数据清理任务失败', error)
       }

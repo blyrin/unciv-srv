@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, test, vi } from 'vitest'
+import type { Config } from '../src/types.js'
 
 vi.mock('../src/database.js', () => ({
   runCleanup: vi.fn(),
@@ -18,6 +19,7 @@ const cleanupExpiredSessionsMock = vi.mocked(cleanupExpiredSessions)
 const oneSecondMs = 1000
 const oneHourMs = 60 * 60 * 1000
 const oneDayMs = 24 * oneHourMs
+const testConfig = { archiveEnabled: true, archiveDir: '/tmp/unciv-srv-archive-test' } as Config
 
 afterEach(() => {
   runCleanupMock.mockReset()
@@ -28,7 +30,7 @@ test('调度器按下一整点和凌晨四点执行并可停止', () => {
   vi.useFakeTimers()
   vi.setSystemTime(new Date(2026, 0, 1, 3, 59, 50))
 
-  const scheduler = startScheduler()
+  const scheduler = startScheduler(testConfig)
   vi.advanceTimersByTime(10 * oneSecondMs)
 
   assert.equal(cleanupExpiredSessionsMock.mock.calls.length, 1)
@@ -47,7 +49,7 @@ test('数据清理失败不会停止后续调度', () => {
     throw new Error('cleanup failed')
   })
 
-  const scheduler = startScheduler()
+  const scheduler = startScheduler(testConfig)
   vi.advanceTimersByTime(oneSecondMs)
   vi.advanceTimersByTime(oneDayMs)
 

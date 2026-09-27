@@ -5,8 +5,8 @@ import { Hono } from 'hono'
 import type { AppVariables, Config } from './types.js'
 import type { PlayerAuthResult } from './middleware.js'
 import {
-  adminOnly, authenticatePlayer, basicAuthOnly, basicAuthWithRegister, logger, pendingApprovalMessage, rateLimit,
-  sessionAuth, validateGameIDMiddleware,
+  adminOnly, authenticatePlayer, basicAuthOnly, basicAuthWithRegister, coldArchiveNotice, logger,
+  pendingApprovalMessage, rateLimit, sessionAuth, validateGameIDMiddleware,
 } from './middleware.js'
 import { isHashedPassword, verifyPasswordCached } from './password.js'
 import type { RateLimiter } from './rate-limit.js'
@@ -16,12 +16,13 @@ import {
 } from './session.js'
 import { projectRoot } from './paths.js'
 import {
-  createZip, decodeGameFile, encodeFile, errorResponse, fileResponse, getClientIP, getPlayerIDsFromParsedGameData,
-  HttpError, jsonResponse, maxJsonBodySize, maxTextBodySize, maxTurnOperationsSize, parseBasicAuthCredentials,
-  readLimitedText, successResponse, textResponse,
+  createZip, decodeGameFile, encodeFile, errorResponse, fileResponse, getBaseGameID, getClientIP,
+  getPlayerIDsFromParsedGameData, HttpError, jsonResponse, maxJsonBodySize, maxTextBodySize, maxTurnOperationsSize,
+  parseBasicAuthCredentials, readLimitedText, successResponse, textResponse,
 } from './utils.js'
 import {
-  batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersApproval, batchUpdatePlayersWhitelist, countGamesByPlayer, createGame, deleteGame,
+  batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersApproval, batchUpdatePlayersWhitelist,
+  clearArchivedGame, countGamesByPlayer, createGame, deleteGame, getRestoreRequests,
   acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
   getGamesPage, getLatestFileContent, getLatestFilePreview, getSimultaneousTurnOperations, getPlayerByID, getPlayerPassword, getPlayersPage,
   getTurnByID, getTurnsMetadata, isGameCreator, rollbackGameToTurn, saveFileContent, saveFilePreview, setPlayerApproved,
@@ -119,7 +120,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     return errorResponse(500, '服务器错误')
   })
 
-  // 安装包托管（/dl 下载 + /api/downloads 管理），下载保护见 downloads.ts
+  // 安装包直链与版本清单（/dl 跳转 + /api/downloads/latest.json），详见 downloads.ts
   app.route('/', createDownloadsRoutes(config))
 
   app.get('/isalive', logger(), () => new Response(healthCheckResponse, { status: 200 }))
@@ -135,7 +136,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     return successResponse()
   })
 
-  app.get('/files/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), (c) => {
+  app.get('/files/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), (c) => {
     const gameId = c.get('gameId')
     const file = c.get('isPreview') ? getLatestFilePreview(gameId) : getLatestFileContent(gameId)
     if (!file) {
@@ -144,7 +145,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     return textResponse(encodeFile(file.data))
   })
 
-  app.post('/simultaneous-turn-lock/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), async (c) => {
+  app.post('/simultaneous-turn-lock/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), async (c) => {
     const gameId = c.get('gameId')
     const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
     if (accessError) return accessError
@@ -156,7 +157,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     return new Response(null, { status: acquired ? 201 : 409 })
   })
 
-  app.get('/simultaneous-turn-operations/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), (c) => {
+  app.get('/simultaneous-turn-operations/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), (c) => {
     const gameId = c.get('gameId')
     const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
     if (accessError) return accessError
@@ -164,7 +165,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     return data == null ? errorResponse(404, '找不到同步回合操作') : textResponse(data)
   })
 
-  app.post('/simultaneous-turn-operations/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), async (c) => {
+  app.post('/simultaneous-turn-operations/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), async (c) => {
     const gameId = c.get('gameId')
     const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
     if (accessError) return accessError
@@ -185,7 +186,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     return new Response(null, { status: 200 })
   })
 
-  app.delete('/simultaneous-turn-lock/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), async (c) => {
+  app.delete('/simultaneous-turn-lock/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), async (c) => {
     const gameId = c.get('gameId')
     const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
     if (accessError) return accessError
@@ -196,7 +197,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     return successResponse()
   })
 
-  app.put('/files/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), async (c) => {
+  app.put('/files/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), async (c) => {
     const playerId = c.get('playerId')
     const gameId = c.get('gameId')
     const ip = getClientIP(c)
@@ -359,6 +360,19 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     if (req.approved != null) {
       setPlayerApproved(playerId, req.approved)
     }
+    return successResponse()
+  })
+
+  app.get('/api/restore-requests', logger(), sessionAuth(), adminOnly(), () => {
+    return jsonResponse({ requests: getRestoreRequests() })
+  })
+
+  app.delete('/api/restore-requests/:gameId', logger(), sessionAuth(), adminOnly(), (c) => {
+    const gameId = c.req.param('gameId')
+    if (!gameId) {
+      return errorResponse(400, '缺少对局ID')
+    }
+    clearArchivedGame(getBaseGameID(gameId))
     return successResponse()
   })
 

@@ -19,21 +19,15 @@ export interface Config {
   ipStorage: IPStorageMode
   /** IP 保留天数：超期清空玩家与存档上记录的历史 IP，0 表示不清理 */
   ipRetentionDays: number
-  /** 安装包托管根目录（每次发布版本建一个子目录，形如 <dir>/<版本tag>/<文件名>） */
-  downloadDir: string
-  /** 同时进行的安装包下载连接数上限（防止带宽被打满） */
-  downloadMaxConcurrent: number
-  /** 单连接下载限速（KB/s，0 表示不限速） */
-  downloadRateLimitKbps: number
-  /** 单个上传文件大小上限（MB） */
-  downloadMaxFileSizeMb: number
-  /** 每 IP 每分钟最大下载请求数（防刷） */
-  downloadIpLimitPerMinute: number
-  /** 保留的安装包版本数（上传新版本后自动清理更旧的版本目录，节约存储） */
-  downloadKeepVersions: number
-  /** 从 GitHub 同步安装包时使用的仓库（owner/repo） */
+  /** 是否在存档总量超过阈值时归档冷存档（关闭则不做容量归档，数据库可能持续增长） */
+  archiveEnabled: boolean
+  /** 冷存档归档目录：每次归档生成一个 JSON Lines 文件（每行一局），由宿主机脚本负责加密上传到网盘 */
+  archiveDir: string
+  /** 存档数据总量上限（字节）：超过后按最久未使用的顺序归档非白名单对局 */
+  archiveMaxBytes: number
+  /** 安装包与版本清单所在的 GitHub 仓库（owner/repo） */
   downloadGithubRepo: string
-  /** 同步时用的 GitHub 代理/镜像前缀（空 = 直连，大陆服务器建议 gh-proxy 等镜像） */
+  /** 安装包下载用的 GitHub 镜像前缀，替换 `https://github.com/`（空 = 直连） */
   downloadGithubProxy: string
 }
 

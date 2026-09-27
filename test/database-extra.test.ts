@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
 import {
-  batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersWhitelist, cleanupExpiredGames, cleanupOldContents,
+  batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersWhitelist, cleanupEmptyGames, cleanupOldContents,
   cleanupOldPreviews, clearExpiredIPs, countGamesByPlayer, createGame, createPlayer, deleteGame, getAllTurnsForGame, getDB, getGameByID,
   getGamesCreatedByPlayer, getGamesPage, getLatestFileContent, getLatestFilePreview, getPlayerByID, getPlayerPassword,
   getTurnByID, getTurnsMetadata, rollbackGameToTurn, runCleanup, saveFileContent, saveFilePreview, updateGameInfo,
@@ -131,7 +131,7 @@ test('回档使用最早匹配预览，同时间记录按 ID 判断', () => {
   assert.deepEqual(result, { deletedTurns: 2, deletedPreviews: 2, currentTurns: 1 })
 })
 
-test('清理任务删除过期游戏并只保留最新存档和预览', () => {
+test('清理任务删除空对局并只保留最新存档和预览', () => {
   seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
   const conn = getDB()
@@ -143,7 +143,8 @@ test('清理任务删除过期游戏并只保留最新存档和预览', () => {
         updated_at = ?
     where game_id = ?
   `).run(expiredTime, expiredTime, testGameID1)
-  assert.equal(cleanupExpiredGames(), 1)
+  // 没有正式存档的空对局（创建超过一天）会被直接清理，不生成归档文件
+  assert.equal(cleanupEmptyGames(), 1)
   assert.equal(getGameByID(testGameID1), null)
 
   createGame(testGameID1, [testPlayerID1])
@@ -158,7 +159,7 @@ test('清理任务删除过期游戏并只保留最新存档和预览', () => {
 
   saveFileContent(testGameID1, 3, testPlayerID1, '127.0.0.1', '{"turns":3}')
   saveFilePreview(testGameID1, 3, testPlayerID1, '127.0.0.1', '{"preview":3}')
-  runCleanup()
+  runCleanup(server.config.archiveEnabled, server.config.archiveDir, server.config.archiveMaxBytes)
   assert.equal(getLatestFileContent(testGameID1)?.turns, 3)
   assert.equal(getAllTurnsForGame(testGameID1).length, 1)
 })

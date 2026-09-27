@@ -1,6 +1,8 @@
 import type { Context, MiddlewareHandler } from 'hono'
 import type { AppVariables, Config, RegisterMode } from './types.js'
-import { createPlayer, getPlayerByID, updatePlayerLastActive } from './database.js'
+import {
+  createPlayer, getArchivedGameRecord, getPlayerByID, requestArchivedGameRestore, updatePlayerLastActive,
+} from './database.js'
 import { verifyPasswordCached } from './password.js'
 import { ipForLog } from './privacy.js'
 import { clearSessionCookieHeader, getSession, parseCookie, sessionCookieName } from './session.js'
@@ -31,6 +33,47 @@ export function logger(): MiddlewareHandler<Env> {
         ua: decodeHeaderValue(c.req.header('User-Agent') ?? ''),
       })
     }
+  }
+}
+
+/**
+ * 冷存档提示：对局被归档后数据库里已经没有记录，如果按普通的不存在处理，
+ * 客户端只会显示「File could not be found on the multiplayer server」。
+ * 这里回 503 与纯文本说明（客户端会把纯文本原样当作错误消息展示给玩家），
+ * 并登记一次恢复请求；预览请求（客户端定时刷新会用到）不登记，避免产生大量请求。
+ */
+export function coldArchiveNotice(): MiddlewareHandler<Env> {
+  return async (c, next) => {
+    const rawGameId = c.req.param('gameId')
+    if (rawGameId == null || rawGameId === '') {
+      await next()
+      return
+    }
+    const gameId = getBaseGameID(rawGameId)
+    const archived = getArchivedGameRecord(gameId)
+    if (archived == null) {
+      await next()
+      return
+    }
+    if (!isPreviewID(rawGameId)) {
+      requestArchivedGameRestore(gameId, c.get('playerId'))
+    }
+    const detail = archived.archiveFile === ''
+      ? '该对局没有保存过存档内容，无法恢复。'
+      : '存档保存在加密网盘中，管理员取回后即可继续游戏，通常需要几分钟到半小时。'
+    const detailEn = archived.archiveFile === ''
+      ? 'This game never had a save file uploaded, so it cannot be restored.'
+      : 'The save file is in encrypted cloud storage; an admin has to restore it, which usually takes minutes to half an hour.'
+    return c.text(
+      `该对局已被冷归档（服务器存档总量超过上限后，按最久未使用的顺序归档）。\n` +
+      `${detail}\n` +
+      `请稍后重试；如果长时间没有恢复，请在社区群提醒管理员。\n` +
+      `[EN] This game was cold-archived (oldest saves are archived when the server runs out of space).\n` +
+      `${detailEn}\n` +
+      `Please retry later, and remind the admins in the community group if it stays unavailable.`,
+      503,
+      { 'Retry-After': '600' },
+    )
   }
 }
 

@@ -41,14 +41,11 @@ export function setupTestServer(overrides: Partial<Config> = {}): TestServer {
     chatEnabled: true,
     ipStorage: 'full',
     ipRetentionDays: 0,
-    downloadDir: path.join(dir, 'unciv-dl'),
-    downloadMaxConcurrent: 4,
-    downloadRateLimitKbps: 0,
-    downloadMaxFileSizeMb: 512,
-    downloadIpLimitPerMinute: 30,
-    downloadKeepVersions: 1,
+    archiveEnabled: true,
+    archiveDir: path.join(dir, 'archive'),
+    archiveMaxBytes: 1024 * 1024 * 1024,
     downloadGithubRepo: 'AutumnPizazz/Unciv',
-    downloadGithubProxy: 'https://gh-proxy.com/',
+    downloadGithubProxy: 'https://mirror.ecrow.cn/github-release/',
     ...overrides,
   }
 

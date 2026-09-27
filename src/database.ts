@@ -4,7 +4,7 @@ import BetterSqlite3 from 'better-sqlite3'
 import type {
   Config, FileData, Game, GameWithTurns, PageResult, Player, RollbackResult, Stats, TurnMetadata,
 } from './types.js'
-import { projectRoot } from './paths.js'
+import { projectRoot, resolveRepoPath } from './paths.js'
 import { hashPassword, isHashedPassword } from './password.js'
 import { getIPRetentionDays, ipForStorage, setIPRetentionDays, setIPStorageMode } from './privacy.js'
 
@@ -180,22 +180,6 @@ function buildInClause(items: unknown[]): string {
 function utcStartOfTodayMs(now: number): number {
   const date = new Date(now)
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
-}
-
-/**
- * 返回按 UTC 日历回退指定月份后的毫秒时间戳。
- */
-function utcMonthsAgoMs(months: number, now: number): number {
-  const date = new Date(now)
-  return Date.UTC(
-    date.getUTCFullYear(),
-    date.getUTCMonth() - months,
-    date.getUTCDate(),
-    date.getUTCHours(),
-    date.getUTCMinutes(),
-    date.getUTCSeconds(),
-    date.getUTCMilliseconds(),
-  )
 }
 
 /**
@@ -1000,20 +984,319 @@ export function getAllStats(): Stats {
 }
 
 /**
- * 清理过期且非白名单的游戏。
+ * 清理从未保存过正式存档的空对局（创建超过一天仍没有 files_content 记录）。
+ * 这类对局没有可以归档的存档内容，直接删除记录：不写归档文件，也不留恢复墓碑。
  */
-export function cleanupExpiredGames(): number {
+export function cleanupEmptyGames(): number {
   const now = Date.now()
   const result = getDB()
     .prepare(`
       delete
       from files
-      where whitelist = 0
-        and (updated_at < ? or
-             (updated_at = created_at and created_at < ?))
+      where not exists (select 1 from files_content c where c.game_id = files.game_id)
+        and created_at < ?
     `)
-    .run(utcMonthsAgoMs(3, now), now - dayMs)
+    .run(now - dayMs)
   return result.changes
+}
+
+/**
+ * 当前存档数据总量（正式存档与预览的正文字节数之和），归档阈值以它为准。
+ */
+export function getArchiveUsage(): number {
+  const row = getDB()
+    .prepare(`
+      select (select coalesce(sum(length(data)), 0) from files_content) +
+             (select coalesce(sum(length(data)), 0) from files_preview) as total_bytes
+    `)
+    .get() as Row | undefined
+  return Number(row?.total_bytes ?? 0)
+}
+
+/** 归档文件格式版本 */
+const archiveVersion = 1
+
+/** 每局归档记录的内容（JSON Lines 文件里的一行） */
+export interface ArchivedGame {
+  version: number
+  gameId: string
+  players: string[]
+  whitelist: boolean
+  remark: string
+  createdAt: number
+  updatedAt: number
+  turns: number
+  contentPlayer: string
+  contentCreatedAt: number
+  data: string
+  previewTurns: number | null
+  previewData: string | null
+}
+
+export interface ArchiveResult {
+  games: number
+  bytes: number
+}
+
+/** 归档文件名前缀，完整形如 unciv-archive-20260927-200000Z.jsonl */
+export const archiveFileNamePrefix = 'unciv-archive-'
+
+/** 归档文件名中的时间戳用 UTC，避免容器时区与本地时间混淆 */
+function archiveFileName(date = new Date()): string {
+  const pad = (value: number) => `${value}`.padStart(2, '0')
+  const stamp =
+    `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}` +
+    `-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`
+  return `${archiveFileNamePrefix}${stamp}Z.jsonl`
+}
+
+/** 把一局对局组装成归档记录，没有正式存档的空对局返回 null */
+function buildArchivedGame(gameId: string): ArchivedGame | null {
+  const game = getGameByID(gameId)
+  const content = getLatestFileContent(gameId)
+  if (game == null || content == null) return null
+  const preview = getLatestFilePreview(gameId)
+  return {
+    version: archiveVersion,
+    gameId: game.gameId,
+    players: game.players,
+    whitelist: game.whitelist,
+    remark: game.remark,
+    createdAt: game.createdAt,
+    updatedAt: game.updatedAt,
+    turns: content.turns,
+    contentPlayer: content.createdPlayer,
+    contentCreatedAt: content.createdAt,
+    data: content.data,
+    previewTurns: preview?.turns ?? null,
+    previewData: preview?.data ?? null,
+  }
+}
+
+/**
+ * 存档数据总量超过 maxBytes 时，按最久未使用（updated_at 最小）的顺序归档非白名单对局，
+ * 直到总量回到阈值以内。归档写成一个 JSON Lines 文件（每行一局，文件本身不压缩，
+ * 交给加密归档工具 bvault 的 tar.zstd.gpg 处理）：全部写入成功后再在一个事务里
+ * 删除数据库记录并留下恢复墓碑，任何一局写入失败都会中止本次归档，不删除任何记录。
+ */
+export function archiveColdGames(archiveDir: string, maxBytes: number): ArchiveResult {
+  const usedBytes = getArchiveUsage()
+  if (maxBytes <= 0 || usedBytes <= maxBytes) {
+    return { games: 0, bytes: 0 }
+  }
+
+  const conn = getDB()
+  const candidates = conn
+    .prepare(`
+      select f.game_id as game_id,
+             coalesce((select sum(length(c.data)) from files_content c where c.game_id = f.game_id), 0) +
+             coalesce((select sum(length(p.data)) from files_preview p where p.game_id = f.game_id), 0) as bytes
+      from files f
+      where f.whitelist = 0
+      order by f.updated_at asc, f.created_at asc
+    `)
+    .all() as { game_id: string; bytes: number }[]
+
+  let remaining = usedBytes
+  const selected: string[] = []
+  for (const row of candidates) {
+    if (remaining <= maxBytes) break
+    if (row.bytes <= 0) continue
+    selected.push(row.game_id)
+    remaining -= row.bytes
+  }
+
+  if (selected.length === 0) {
+    console.info('存档总量超过阈值，但没有可归档的非白名单对局', { usedBytes, maxBytes })
+    return { games: 0, bytes: 0 }
+  }
+
+  fs.mkdirSync(archiveDir, { recursive: true })
+  const file = path.join(archiveDir, archiveFileName())
+  const tempFile = `${file}.tmp`
+  let bytes = 0
+
+  const handle = fs.openSync(tempFile, 'w')
+  try {
+    for (const gameId of selected) {
+      const archived = buildArchivedGame(gameId)
+      if (archived == null) continue
+      const line = `${JSON.stringify(archived)}\n`
+      fs.writeSync(handle, line)
+      bytes += Buffer.byteLength(line)
+    }
+    fs.fsyncSync(handle)
+  } catch (error) {
+    fs.closeSync(handle)
+    fs.rmSync(tempFile, { force: true })
+    throw error
+  }
+  fs.closeSync(handle)
+
+  if (bytes === 0) {
+    // 没有可归档的存档内容时不留空文件
+    fs.rmSync(tempFile, { force: true })
+  } else {
+    fs.renameSync(tempFile, file)
+  }
+
+  const archiveFile = bytes === 0 ? '' : path.basename(file)
+  const archivedAt = Date.now()
+  const remove = conn.prepare('delete from files where game_id = ?')
+  const remember = conn.prepare(`
+    insert into archived_games (game_id, archive_file, archived_at, restore_requested_at, requested_by)
+    values (?, ?, ?, null, '')
+    on conflict(game_id) do update set archive_file         = excluded.archive_file,
+                                       archived_at          = excluded.archived_at,
+                                       restore_requested_at = null,
+                                       requested_by         = ''
+  `)
+  conn.transaction(() => {
+    for (const gameId of selected) {
+      remove.run(gameId)
+      remember.run(gameId, archiveFile, archivedAt)
+    }
+  })()
+
+  return { games: selected.length, bytes }
+}
+
+/** 冷归档墓碑：对局被归档后留下的记录，用于区分「不存在」与「已冷归档」并登记恢复请求 */
+export interface ArchivedGameRecord {
+  gameId: string
+  /** 归档文件名（不含目录），空字符串表示该对局没有保存过任何存档内容 */
+  archiveFile: string
+  archivedAt: number
+  /** 玩家请求恢复的时间，null 表示没人请求过 */
+  restoreRequestedAt: number | null
+  /** 最近一次请求恢复的玩家 */
+  requestedBy: string
+}
+
+function rowToArchivedGameRecord(row: Row): ArchivedGameRecord {
+  return {
+    gameId: valueText(row.game_id),
+    archiveFile: valueText(row.archive_file),
+    archivedAt: valueTime(row.archived_at),
+    restoreRequestedAt: row.restore_requested_at == null ? null : valueTime(row.restore_requested_at),
+    requestedBy: valueText(row.requested_by),
+  }
+}
+
+/** 查询某个对局是否已被冷归档 */
+export function getArchivedGameRecord(gameId: string): ArchivedGameRecord | null {
+  const row = getDB()
+    .prepare(`
+      select game_id, archive_file, archived_at, restore_requested_at, requested_by
+      from archived_games
+      where game_id = ?
+    `)
+    .get(gameId) as Row | undefined
+  return row == null ? null : rowToArchivedGameRecord(row)
+}
+
+/**
+ * 玩家访问已冷归档的对局时登记一次恢复请求：
+ * 保留最早的请求时间（管理员能看到玩家等了多久），请求者记为最近一次访问的玩家。
+ */
+export function requestArchivedGameRestore(gameId: string, playerId: string): void {
+  getDB()
+    .prepare(`
+      update archived_games
+      set restore_requested_at = coalesce(restore_requested_at, ?),
+          requested_by         = ?
+      where game_id = ?
+    `)
+    .run(Date.now(), playerId, gameId)
+}
+
+/** 管理员：待恢复的冷存档列表（按请求时间从早到晚） */
+export function getRestoreRequests(): ArchivedGameRecord[] {
+  const rows = getDB()
+    .prepare(`
+      select game_id, archive_file, archived_at, restore_requested_at, requested_by
+      from archived_games
+      where restore_requested_at is not null
+      order by restore_requested_at asc
+    `)
+    .all() as Row[]
+  return rows.map(rowToArchivedGameRecord)
+}
+
+/** 管理员：放弃恢复某局冷存档（删除墓碑，之后玩家再访问会被当作普通的不存在对局） */
+export function clearArchivedGame(gameId: string): number {
+  return getDB().prepare('delete from archived_games where game_id = ?').run(gameId).changes
+}
+
+/**
+ * 从归档文件恢复对局，保留原对局 ID、存档回合与时间戳；
+ * gameId 为空时恢复文件里的全部对局，否则只恢复指定对局。
+ */
+export function restoreArchivedGames(file: string, gameId?: string): ArchivedGame[] {
+  const archivedGames: ArchivedGame[] = []
+  const content = fs.readFileSync(file, 'utf8')
+  for (const line of content.split('\n')) {
+    if (line.trim() === '') continue
+    let archived: ArchivedGame
+    try {
+      archived = JSON.parse(line) as ArchivedGame
+    } catch {
+      throw new Error(`归档文件格式不受支持：${file}`)
+    }
+    if (archived.version !== archiveVersion || !archived.gameId || typeof archived.data !== 'string') {
+      throw new Error(`归档文件格式不受支持：${file}`)
+    }
+    if (gameId != null && archived.gameId !== gameId) continue
+    archivedGames.push(archived)
+  }
+
+  if (archivedGames.length === 0) {
+    throw new Error(gameId == null ? `归档文件里没有对局：${file}` : `归档文件里没有对局 ${gameId}：${file}`)
+  }
+
+  const conn = getDB()
+  conn.transaction(() => {
+    for (const archived of archivedGames) {
+      conn
+        .prepare(`
+          insert into files (game_id, players, created_at, updated_at, whitelist, remark)
+          values (?, ?, ?, ?, ?, ?)
+          on conflict(game_id) do update set players    = excluded.players,
+                                             updated_at = excluded.updated_at,
+                                             whitelist  = excluded.whitelist,
+                                             remark     = excluded.remark
+        `)
+        .run(
+          archived.gameId,
+          JSON.stringify(archived.players),
+          archived.createdAt,
+          archived.updatedAt,
+          archived.whitelist ? 1 : 0,
+          archived.remark,
+        )
+
+      conn.prepare('delete from files_content where game_id = ?').run(archived.gameId)
+      conn
+        .prepare('insert into files_content (game_id, turns, created_player, created_at, data) values (?, ?, ?, ?, ?)')
+        .run(archived.gameId, archived.turns, archived.contentPlayer, archived.contentCreatedAt, archived.data)
+
+      conn.prepare('delete from files_preview where game_id = ?').run(archived.gameId)
+      if (archived.previewData != null) {
+        conn
+          .prepare('insert into files_preview (game_id, turns, created_player, created_at, data) values (?, ?, ?, ?, ?)')
+          .run(
+            archived.gameId,
+            archived.previewTurns ?? archived.turns,
+            archived.contentPlayer,
+            archived.contentCreatedAt,
+            archived.previewData,
+          )
+      }
+      conn.prepare('delete from archived_games where game_id = ?').run(archived.gameId)
+    }
+  })()
+
+  return archivedGames
 }
 
 /**
@@ -1052,15 +1335,37 @@ export function cleanupOldContents(): number {
 }
 
 /**
- * 执行全部数据清理任务。
+ * 执行全部数据清理任务：
+ * 1. 删除从未保存过存档的空对局；
+ * 2. 每个对局只保留最新一条存档与预览；
+ * 3. 存档数据总量超过 maxBytes 时，按最久未使用的顺序归档冷存档（先归档再删记录）；
+ * 4. 清理超过保留期的 IP 记录。
+ * archiveEnabled 为 false 时跳过容量归档（数据库可能持续增长，不建议关闭）。
  */
-export function runCleanup(): void {
-  const games = cleanupExpiredGames()
+export function runCleanup(
+  archiveEnabled: boolean,
+  archiveDir: string,
+  maxBytes: number,
+): void {
+  const emptyGames = cleanupEmptyGames()
   const previews = cleanupOldPreviews()
   const contents = cleanupOldContents()
+  let archived: ArchiveResult = { games: 0, bytes: 0 }
+  if (archiveEnabled) {
+    archived = archiveColdGames(resolveRepoPath(archiveDir), maxBytes)
+  } else {
+    console.warn('冷存档归档已关闭，本次不做容量归档')
+  }
   const ips = clearExpiredIPs()
   const conn = getDB()
   conn.exec('ANALYZE')
   conn.exec('VACUUM')
-  console.info('数据清理任务完成', { games, previews, contents, ips })
+  console.info('数据清理任务完成', {
+    emptyGames,
+    archivedGames: archived.games,
+    archivedBytes: archived.bytes,
+    previews,
+    contents,
+    ips,
+  })
 }
