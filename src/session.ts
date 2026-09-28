@@ -61,6 +61,20 @@ export function cleanupExpiredSessions(): void {
 }
 
 /**
+ * 统计当前未过期的会话数量，供监控指标使用。
+ */
+export function getSessionCount(): number {
+  const now = Date.now()
+  let count = 0
+  for (const session of sessions.values()) {
+    if (now <= session.expiresAt) {
+      count++
+    }
+  }
+  return count
+}
+
+/**
  * 清空会话，供测试隔离使用。
  */
 export function resetSessions(): void {

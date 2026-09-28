@@ -5,6 +5,7 @@ import { WebSocket, WebSocketServer } from 'ws'
 import type { ServerType } from '@hono/node-server'
 import { getGameByID } from './database.js'
 import { authenticatePlayer, pendingApprovalMessage } from './middleware.js'
+import { recordChatMessage } from './metrics.js'
 import type { Config } from './types.js'
 import {
   decodeHeaderValue, getBaseGameID, HttpError, isPreviewID, maxWebSocketFrameSize, normalizeClientIP,
@@ -380,6 +381,7 @@ function handleChat(peer: Peer, msg: GenericMessage): void {
     return
   }
   const targets = publishToPeers(targetPeers, response)
+  recordChatMessage()
   console.info('WebSocket 转发聊天消息', {
     playerId: peer.playerId,
     ip: peer.ip,

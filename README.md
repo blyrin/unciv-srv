@@ -121,6 +121,14 @@ docker compose run --rm unciv-srv node dist/main.js --restore-archive /data/rest
 
 不带对局 ID 时恢复归档文件里的全部对局，带对局 ID 时只恢复该局。恢复后对局重新出现在数据库里（对局 ID 保持不变），玩家可以直接继续；管理后台也可以把它加入白名单以免被再次归档。
 
+## 可观测性
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /metrics` | Prometheus 文本格式（`text/plain; version=0.0.4`），无需认证。暴露进程运行时长、常驻内存、V8 堆用量，以及 `unciv_http_requests_total`、`unciv_active_sessions`、`unciv_chat_messages_total` 计数器（自进程启动起累计） |
+| `GET /ready` | 就绪探针：执行 `SELECT 1` 探测数据库，可用返回 `200 {"ready":true}`，异常返回 `503 {"ready":false}` |
+| `GET /isalive` | 存活探针，恒返回 `200 {"authVersion":1,"chatVersion":1}`（Docker 健康检查使用） |
+
 ## 开发与测试
 
 ```bash
@@ -129,6 +137,11 @@ pnpm install
 
 # 开发运行
 pnpm dev
+
+# 代码检查 / 自动修复 / 格式化
+pnpm lint
+pnpm lint:fix
+pnpm format
 
 # 类型检查
 pnpm typecheck

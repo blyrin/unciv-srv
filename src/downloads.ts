@@ -76,7 +76,7 @@ export function createDownloadsRoutes(config: Config): Hono<Env> {
   })
 
   // ---- 检查更新：转发 GitHub latest release 的版本清单（公开，供游戏内更新检查） ----
-  app.get('/api/downloads/latest.json', async (c) => {
+  app.get('/api/downloads/latest.json', async () => {
     if (!cachedRelease || Date.now() - cachedAt > releaseCacheMs) {
       try {
         cachedRelease = await fetchGithubLatestRelease(config.downloadGithubRepo)

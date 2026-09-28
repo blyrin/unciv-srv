@@ -10,6 +10,7 @@ import {
   pendingApprovalMessage, rateLimit, sessionAuth, validateGameIDMiddleware,
 } from './middleware.js'
 import { isHashedPassword, verifyPasswordCached } from './password.js'
+import { recordHttpRequest, renderMetrics } from './metrics.js'
 import type { RateLimiter } from './rate-limit.js'
 import {
   clearSessionCookieHeader, createSession, deleteSession, getSession, parseCookie, sessionCookieHeader,
@@ -25,8 +26,8 @@ import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersApproval, batchUpdatePlayersWhitelist,
   clearArchivedGame, countGamesByPlayer, createGame, deleteGame, getRestoreRequests,
   acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
-  getGamesPage, getLatestFileContent, getLatestFilePreview, getSimultaneousTurnOperations, getPlayerByID, getPlayerPassword, getPlayersPage,
-  getTurnByID, getTurnsMetadata, isGameCreator, rollbackGameToTurn, saveFileContent, saveFilePreview, setPlayerApproved,
+  getGamesPage, getLatestFileContent, getLatestFilePreview, getSimultaneousTurnOperations, getPlayerPassword, getPlayersPage,
+  getTurnByID, getTurnsMetadata, isDatabaseHealthy, isGameCreator, rollbackGameToTurn, saveFileContent, saveFilePreview, setPlayerApproved,
   updateGameInfo, updateGamePlayers, updatePlayerInfo, updatePlayerPassword, appendSimultaneousTurnOperations,
 } from './database.js'
 import { notifyGameUpdated } from './chat.js'
@@ -136,10 +137,28 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     return errorResponse(500, '服务器错误')
   })
 
+  // 全局请求计数，供 /metrics 暴露 unciv_http_requests_total
+  app.use('*', async (_c, next) => {
+    recordHttpRequest()
+    await next()
+  })
+
   // 安装包直链与版本清单（/dl 跳转 + /api/downloads/latest.json），详见 downloads.ts
   app.route('/', createDownloadsRoutes(config))
 
   app.get('/isalive', logger(), () => new Response(healthCheckResponse, { status: 200 }))
+
+  // Prometheus 文本格式指标（无外部依赖）
+  app.get('/metrics', logger(), () => new Response(renderMetrics(), {
+    status: 200,
+    headers: { 'Content-Type': 'text/plain; version=0.0.4' },
+  }))
+
+  // 就绪探针：数据库可用返回 200，否则 503
+  app.get('/ready', logger(), () => {
+    const healthy = isDatabaseHealthy()
+    return jsonResponse({ ready: healthy }, healthy ? 200 : 503)
+  })
 
   app.get('/auth', logger(), basicAuthWithRegister(config), () => successResponse())
   app.put('/auth', logger(), basicAuthWithRegister(config), async (c) => {

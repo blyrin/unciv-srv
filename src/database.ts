@@ -72,6 +72,39 @@ export function closeDatabase(): void {
   db = null
 }
 
+interface MigrationFile {
+  version: number
+  name: string
+  upSql: string
+  downSql: string | null
+}
+
+/**
+ * 读取 migrations 目录下的所有迁移，按版本升序排列。
+ * 每个迁移的 down SQL 可选，缺失时置为 null。
+ */
+function readMigrationFiles(): MigrationFile[] {
+  const migrationsDir = path.join(projectRoot, 'migrations')
+  const migrations = fs
+    .readdirSync(migrationsDir)
+    .filter((name) => name.endsWith('.up.sql'))
+    .map((upName) => {
+      const [versionText, ...rest] = upName.split('_')
+      const name = rest.join('_').replace(/\.up\.sql$/, '')
+      const downName = `${versionText}_${name}.down.sql`
+      const downPath = path.join(migrationsDir, downName)
+      return {
+        version: Number.parseInt(versionText, 10),
+        name,
+        upSql: fs.readFileSync(path.join(migrationsDir, upName), 'utf8'),
+        downSql: fs.existsSync(downPath) ? fs.readFileSync(downPath, 'utf8') : null,
+      }
+    })
+    .filter((migration) => Number.isFinite(migration.version))
+    .sort((a, b) => a.version - b.version)
+  return migrations
+}
+
 /**
  * 执行尚未应用的 SQL 迁移。
  */
@@ -97,20 +130,7 @@ export function runMigrations(): void {
   const applied = new Set<number>(
     conn.prepare('select version from schema_migrations').all().map((row) => Number((row as Row).version)),
   )
-  const migrationsDir = path.join(projectRoot, 'migrations')
-  const migrations = fs
-    .readdirSync(migrationsDir)
-    .filter((name) => name.endsWith('.up.sql'))
-    .map((name) => {
-      const [versionText, ...rest] = name.split('_')
-      return {
-        version: Number.parseInt(versionText, 10),
-        name: rest.join('_').replace(/\.up\.sql$/, ''),
-        sql: fs.readFileSync(path.join(migrationsDir, name), 'utf8'),
-      }
-    })
-    .filter((migration) => Number.isFinite(migration.version))
-    .sort((a, b) => a.version - b.version)
+  const migrations = readMigrationFiles()
 
   const applyMigration = conn.transaction((version: number, name: string, sql: string) => {
     conn.exec(sql)
@@ -120,8 +140,54 @@ export function runMigrations(): void {
   for (const migration of migrations) {
     if (!applied.has(migration.version)) {
       console.info('执行迁移', { version: migration.version, name: migration.name })
-      applyMigration(migration.version, migration.name, migration.sql)
+      applyMigration(migration.version, migration.name, migration.upSql)
     }
+  }
+}
+
+export interface MigrationRollbackResult {
+  version: number
+  name: string
+}
+
+/**
+ * 回滚最后一个已应用的迁移：执行对应的 .down.sql 并删除版本记录。
+ * 没有已应用的迁移时返回 null；缺少 .down.sql 时抛错。
+ */
+export function rollbackLastMigration(): MigrationRollbackResult | null {
+  const conn = getDB()
+  const row = conn
+    .prepare('select version, name from schema_migrations order by version desc limit 1')
+    .get() as Row | undefined
+  if (!row) {
+    return null
+  }
+
+  const version = Number(row.version)
+  const name = String(row.name)
+  const migration = readMigrationFiles().find((item) => item.version === version)
+  if (!migration || migration.downSql == null) {
+    throw new Error(`迁移 ${version} 缺少对应的 .down.sql 文件，无法回滚`)
+  }
+
+  const rollback = conn.transaction(() => {
+    conn.exec(migration.downSql as string)
+    conn.prepare('delete from schema_migrations where version = ?').run(version)
+  })
+  rollback()
+  console.info('回滚迁移', { version, name })
+  return { version, name }
+}
+
+/**
+ * 轻量健康检查：执行 `select 1`，供 /ready 就绪探针使用。
+ */
+export function isDatabaseHealthy(): boolean {
+  try {
+    getDB().prepare('select 1').get()
+    return true
+  } catch {
+    return false
   }
 }
 
