@@ -809,12 +809,18 @@ export function saveFileContent(gameId: string, turns: number, playerId: string,
   saveFileData('files_content', gameId, turns, playerId, ip, data)
 }
 export function acquireSimultaneousTurnLock(gameId: string, turn: number, owner: string, now = Date.now()): boolean {
+  // A lock is identified by game_id (primary key), so a lock leaked by a crashed client
+  // would otherwise block every later turn forever: the old `where` clause only allowed a
+  // takeover when the stored turn matched the requested one, and the 2-minute staleness
+  // window only applied within the same turn. Allow an older turn's lock to always be
+  // replaced, and keep same-turn mutual exclusion (same owner re-entry or 2-minute timeout).
   const result = getDB().prepare(`
     insert into simultaneous_turn_locks (game_id, turn, owner, acquired_at)
     values (?, ?, ?, ?)
     on conflict(game_id) do update set turn = excluded.turn, owner = excluded.owner, acquired_at = excluded.acquired_at
-    where simultaneous_turn_locks.turn = excluded.turn
-      and (simultaneous_turn_locks.owner = excluded.owner or simultaneous_turn_locks.acquired_at < ?)
+    where simultaneous_turn_locks.turn < excluded.turn
+      or (simultaneous_turn_locks.turn = excluded.turn
+          and (simultaneous_turn_locks.owner = excluded.owner or simultaneous_turn_locks.acquired_at < ?))
   `).run(gameId, turn, owner, now, now - 120_000)
   return result.changes > 0
 }

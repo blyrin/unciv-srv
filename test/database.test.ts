@@ -27,6 +27,19 @@ test('同步回合结算锁对同一游戏回合提供互斥且支持幂等重�
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 3, testPlayerID1), true)
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 3, 'other-player'), false)
 })
+
+test('上一回合遗留的结算锁不会永久阻塞后续回合', () => {
+  seedPlayer()
+  createGame(testGameID1, [testPlayerID1])
+  const now = Date.now()
+
+  // 玩家在第 3 回合获取锁后崩溃，锁未释放也未过期
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 3, testPlayerID1, now), true)
+  // 第 4 回合必须能够接管上一回合的锁，否则该局永久卡死
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 4, testPlayerID1, now), true)
+  // 同一回合内仍然互斥
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 4, 'other-player', now), false)
+})
 test('玩家和分页查询保持 JSON 字段形状', () => {
   seedPlayer()
   const player = getPlayerByID(testPlayerID1)
