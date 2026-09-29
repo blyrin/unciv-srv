@@ -995,10 +995,20 @@ export function appendSimultaneousTurnOperations(
       }
     }
     const keepFromTurn = Math.max(0, maxTurn - simultaneousTurnOperationsRetention)
-    const retained = merged.filter((operation) => operation.turn >= keepFromTurn)
-    // 硬上限：按回合裁剪后仍超过总量上限时拒绝本次追加，事务回滚，已有数据保持原样。
-    if (retained.length > maxSimultaneousTurnOperations) {
-      throw new SimultaneousTurnOperationLimitError('同步回合操作数量超过上限')
+    let retained = merged.filter((operation) => operation.turn >= keepFromTurn)
+    // 硬上限：优先丢弃最旧的回合，而不是拒绝本次追加。若直接抛错，老对局一旦触顶就再也无法提交，
+    // 结算会永久卡死；旧回合的效果早已并入存档，丢弃它们是安全的。只有最新回合自身超限才拒绝。
+    while (retained.length > maxSimultaneousTurnOperations) {
+      let oldestTurn = maxTurn
+      for (const operation of retained) {
+        if (operation.turn < oldestTurn) {
+          oldestTurn = operation.turn
+        }
+      }
+      if (oldestTurn >= maxTurn) {
+        throw new SimultaneousTurnOperationLimitError('同步回合操作数量超过上限')
+      }
+      retained = retained.filter((operation) => operation.turn > oldestTurn)
     }
     db.prepare(`
       insert into simultaneous_turn_operations (game_id, data, updated_at)

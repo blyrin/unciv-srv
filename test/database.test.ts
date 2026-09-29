@@ -164,6 +164,26 @@ test('单局操作总量达到上限后拒绝追加，且不影响已有数据',
   assert.equal(read().length, maxSimultaneousTurnOperations)
 })
 
+test('单局操作总量超限时优先丢弃最旧回合，而不是拒绝提交', () => {
+  seedPlayer()
+  createGame(testGameID1, [testPlayerID1])
+  const makeOperations = (turn: number, from: number, count: number) => Array.from({ length: count }, (_, index) => ({
+    turn, sequence: from + index, type: 'move', playerId: testPlayerID1,
+  }))
+  const read = () => JSON.parse(getSimultaneousTurnOperations(testGameID1) ?? '[]') as Array<{ turn: number }>
+
+  const half = Math.floor(maxSimultaneousTurnOperations / 2)
+  appendSimultaneousTurnOperations(testGameID1, testPlayerID1, makeOperations(5, 0, half))
+  assert.equal(read().length, half)
+
+  // 新回合的操作让总量超过上限：最旧的第 5 回合应被整回合丢弃，新回合的操作仍然写入
+  const second = maxSimultaneousTurnOperations - half + 1
+  appendSimultaneousTurnOperations(testGameID1, testPlayerID1, makeOperations(10, 0, second))
+  const retained = read()
+  assert.equal(retained.length, second)
+  assert.equal(retained.every((operation) => operation.turn === 10), true)
+})
+
 test('玩家和分页查询保持 JSON 字段形状', () => {
   seedPlayer()
   const player = getPlayerByID(testPlayerID1)
