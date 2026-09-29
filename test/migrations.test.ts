@@ -26,22 +26,23 @@ function migrationCount(): number {
 }
 
 test('回滚最后一个迁移后可以重新前滚应用', () => {
-  assert.equal(hasTable('archived_games'), true)
+  assert.equal(hasTable('simultaneous_turn_reservations'), true)
 
   const result = rollbackLastMigration()
 
-  assert.deepEqual(result, { version: 5, name: 'archived_games' })
-  assert.equal(hasTable('archived_games'), false)
-  assert.equal(migrationCount(), 4)
+  assert.deepEqual(result, { version: 6, name: 'simultaneous_turn_reservations' })
+  assert.equal(hasTable('simultaneous_turn_reservations'), false)
+  assert.equal(migrationCount(), 5)
 
   runMigrations()
 
-  assert.equal(hasTable('archived_games'), true)
-  assert.equal(migrationCount(), 5)
+  assert.equal(hasTable('simultaneous_turn_reservations'), true)
+  assert.equal(migrationCount(), 6)
 })
 
 test('可以按逆序回滚全部迁移，回滚完返回 null', () => {
   const expected = [
+    { version: 6, name: 'simultaneous_turn_reservations' },
     { version: 5, name: 'archived_games' },
     { version: 4, name: 'player_approval' },
     { version: 3, name: 'simultaneous_turn_operations' },

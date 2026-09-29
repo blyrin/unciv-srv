@@ -26,6 +26,7 @@ import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersApproval, batchUpdatePlayersWhitelist,
   clearArchivedGame, countGamesByPlayer, createGame, deleteGame, getRestoreRequests,
   acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, renewSimultaneousTurnLock, SimultaneousTurnOperationLimitError, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
+  listSimultaneousTurnReservations, maxSimultaneousTurnReservationKeyLength, maxSimultaneousTurnReservationKeys, reserveSimultaneousTurnKeys,
   getGamesPage, getLatestFileContent, getLatestFilePreview, getSimultaneousTurnOperations, getPlayerPassword, getPlayersPage, maxSimultaneousTurn,
   getTurnByID, getTurnsMetadata, isDatabaseHealthy, isGameCreator, rollbackGameToTurn, saveFileContent, saveFilePreview, setPlayerApproved,
   updateGameInfo, updateGamePlayers, updatePlayerInfo, updatePlayerPassword, appendSimultaneousTurnOperations,
@@ -246,6 +247,32 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     const owner = body[1] ?? ''
     if (Number.isInteger(turn) && owner === c.get('playerId')) releaseSimultaneousTurnLock(gameId, turn, owner)
     return successResponse()
+  })
+
+  // 预占：客户端在执行动作之前申请占用目标对象，先到者得。
+  // 请求体为"回合 + 逐行的占用键"（键形如 tile:3,-2 / unit:42，本身含 `:`，所以用换行分隔）。
+  app.post('/simultaneous-turn-reservations/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), async (c) => {
+    const gameId = c.get('gameId')
+    const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
+    if (accessError) return accessError
+    const body = await readLimitedText(c.req.raw, maxTextBodySize)
+    const lines = body.split('\n').map((line) => line.trim()).filter((line) => line.length > 0)
+    const turn = Number.parseInt(lines[0] ?? '', 10)
+    const keys = lines.slice(1)
+    if (!Number.isInteger(turn) || turn < 0 || turn > maxSimultaneousTurn) return errorResponse(400, '占用参数无效')
+    if (keys.length === 0 || keys.length > maxSimultaneousTurnReservationKeys) return errorResponse(400, '占用参数无效')
+    if (keys.some((key) => key.length > maxSimultaneousTurnReservationKeyLength)) return errorResponse(400, '占用参数无效')
+    const conflicts = reserveSimultaneousTurnKeys(gameId, turn, c.get('playerId'), keys)
+    return jsonResponse({ granted: conflicts.length === 0, conflicts }, conflicts.length === 0 ? 200 : 409)
+  })
+
+  app.get('/simultaneous-turn-reservations/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), (c) => {
+    const gameId = c.get('gameId')
+    const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
+    if (accessError) return accessError
+    const turn = Number.parseInt(c.req.query('turn') ?? '', 10)
+    if (!Number.isInteger(turn) || turn < 0 || turn > maxSimultaneousTurn) return errorResponse(400, '占用参数无效')
+    return jsonResponse({ reservations: listSimultaneousTurnReservations(gameId, turn) })
   })
 
   app.put('/files/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), async (c) => {

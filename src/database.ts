@@ -855,6 +855,7 @@ export function acquireSimultaneousTurnLock(gameId: string, turn: number, owner:
   if (result.changes > 0) {
     // 取锁是"该回合正在结算"的权威信号：比它早超过保留窗口的回合必然已经结算，可以安全清理。
     pruneSimultaneousTurnOperations(db, gameId, turn - simultaneousTurnOperationsRetention)
+    pruneSimultaneousTurnReservations(db, gameId, turn - simultaneousTurnOperationsRetention)
   }
   return result.changes > 0
 }
@@ -879,6 +880,86 @@ export function renewSimultaneousTurnLock(gameId: string, turn: number, owner: s
     where game_id = ? and turn = ? and owner = ?
   `).run(now, gameId, turn, owner)
   return result.changes > 0
+}
+
+/**
+ * 一次动作最多可以预定多少个对象。
+ * 一个动作只会占用少数几个对象（自己单位 + 目标地块/目标单位），上限用于阻止客户端一次预定整张地图。
+ */
+export const maxSimultaneousTurnReservationKeys = 16
+
+/**
+ * 单个占用键的长度上限。键形如 `tile:3,-2`、`unit:42`、`city:...`。
+ */
+export const maxSimultaneousTurnReservationKeyLength = 64
+
+export interface SimultaneousTurnReservation {
+  key: string
+  owner: string
+}
+
+/**
+ * 原子地为 owner 预定一组对象：要么全部拿到，要么一个都不拿。
+ * 返回已被其他玩家预定的对象，返回空数组表示预定成功。
+ *
+ * 占用按回合生效：同一回合内先到者得，回合推进时由 acquireSimultaneousTurnLock 顺带清理，
+ * 因此掉线玩家占用的对象最多卡到该回合结算（结算已有超时托管兜底），不会永久死锁。
+ * 同一玩家重复预定自己的对象是幂等的，用于同一个单位连续移动。
+ */
+export function reserveSimultaneousTurnKeys(
+  gameId: string, turn: number, owner: string, keys: string[], now = Date.now(),
+): SimultaneousTurnReservation[] {
+  const db = getDB()
+  return db.transaction(() => {
+    // 读-判-写必须在同一个 immediate 事务里，否则两个客户端可以同时通过冲突检查、双双拿到同一块地。
+    const conflicts = selectReservationConflicts(db, gameId, turn, owner, keys)
+    if (conflicts.length > 0) {
+      return conflicts
+    }
+    const insert = db.prepare(`
+      insert into simultaneous_turn_reservations (game_id, turn, key, owner, acquired_at)
+      values (?, ?, ?, ?, ?)
+      on conflict(game_id, turn, key) do nothing
+    `)
+    for (const key of keys) {
+      insert.run(gameId, turn, key, owner, now)
+    }
+    return []
+  }).immediate()
+}
+
+function selectReservationConflicts(
+  db: BetterSqlite3.Database, gameId: string, turn: number, owner: string, keys: string[],
+): SimultaneousTurnReservation[] {
+  if (keys.length === 0) {
+    return []
+  }
+  const placeholders = keys.map(() => '?').join(', ')
+  return db.prepare(`
+    select key, owner from simultaneous_turn_reservations
+    where game_id = ? and turn = ? and owner <> ? and key in (${placeholders})
+    order by key
+  `).all(gameId, turn, owner, ...keys) as SimultaneousTurnReservation[]
+}
+
+/**
+ * 某回合已被预定的对象。
+ * 预占必须对其他玩家可见才有意义（否则玩家看不到"那里已经有人了"，照样会撞车）。
+ */
+export function listSimultaneousTurnReservations(gameId: string, turn: number): SimultaneousTurnReservation[] {
+  return getDB().prepare(`
+    select key, owner from simultaneous_turn_reservations
+    where game_id = ? and turn = ? order by key
+  `).all(gameId, turn) as SimultaneousTurnReservation[]
+}
+
+/**
+ * 清理已结算回合的占用：与操作日志共用保留窗口，取锁说明更早的回合必然已经结算完毕。
+ */
+function pruneSimultaneousTurnReservations(
+  db: BetterSqlite3.Database, gameId: string, keepFromTurn: number,
+): void {
+  db.prepare('delete from simultaneous_turn_reservations where game_id = ? and turn < ?').run(gameId, keepFromTurn)
 }
 
 /**
