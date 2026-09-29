@@ -821,6 +821,19 @@ export const maxSimultaneousTurn = 10_000_000
  */
 export const simultaneousTurnOperationsRetention = 6
 
+/**
+ * 单局同步回合操作总量上限。
+ * 4MB 请求体只能约束单次提交，无法阻止操作长期累积；
+ * 超过此上限说明按回合裁剪未生效或客户端行为异常，直接拒绝本次追加，而不是静默丢弃不相关的历史操作。
+ */
+export const maxSimultaneousTurnOperations = 4096
+
+/**
+ * 同步回合操作数量达到上限时抛出。
+ * 与"单条数据非法"区分开，路由层据此返回明确的 4xx 而不是笼统的"操作数据无效"。
+ */
+export class SimultaneousTurnOperationLimitError extends Error {}
+
 export function acquireSimultaneousTurnLock(gameId: string, turn: number, owner: string, now = Date.now()): boolean {
   // A lock is identified by game_id (primary key), so a lock leaked by a crashed client
   // would otherwise block every later turn forever: the old `where` clause only allowed a
@@ -850,6 +863,22 @@ export function releaseSimultaneousTurnLock(gameId: string, turn: number, owner:
   getDB().prepare(`
     delete from simultaneous_turn_locks where game_id = ? and turn = ? and owner = ?
   `).run(gameId, turn, owner)
+}
+
+/**
+ * 续期结算锁：仅持有者本人（同 game_id + turn + owner）可以把过期时间往后顺延。
+ * 结算正常但耗时超过 120 秒时，由客户端周期调用，避免结算中途被其他玩家接管。
+ * 续期不授予锁：锁不存在、已被其他玩家接管或参数非法时返回 false，调用方应重新取锁。
+ */
+export function renewSimultaneousTurnLock(gameId: string, turn: number, owner: string, now = Date.now()): boolean {
+  if (!Number.isInteger(turn) || turn < 0 || turn > maxSimultaneousTurn) {
+    return false
+  }
+  const result = getDB().prepare(`
+    update simultaneous_turn_locks set acquired_at = ?
+    where game_id = ? and turn = ? and owner = ?
+  `).run(now, gameId, turn, owner)
+  return result.changes > 0
 }
 
 /**
@@ -967,6 +996,10 @@ export function appendSimultaneousTurnOperations(
     }
     const keepFromTurn = Math.max(0, maxTurn - simultaneousTurnOperationsRetention)
     const retained = merged.filter((operation) => operation.turn >= keepFromTurn)
+    // 硬上限：按回合裁剪后仍超过总量上限时拒绝本次追加，事务回滚，已有数据保持原样。
+    if (retained.length > maxSimultaneousTurnOperations) {
+      throw new SimultaneousTurnOperationLimitError('同步回合操作数量超过上限')
+    }
     db.prepare(`
       insert into simultaneous_turn_operations (game_id, data, updated_at)
       values (?, ?, ?)

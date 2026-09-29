@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
-import { createGame, getLatestFileContent, getPlayerByID, getSimultaneousTurnOperations } from '../src/database.js'
+import { createGame, getLatestFileContent, getPlayerByID, getSimultaneousTurnOperations, maxSimultaneousTurnOperations } from '../src/database.js'
 import { decodeFile, encodeFile, maxTurnOperationsSize } from '../src/utils.js'
 import {
   basicAuth, buildGameData, loginAsPlayer, seedGameWithContent, seedPlayer, setupTestServer, startHttpServer,
@@ -49,6 +49,51 @@ test('超大的同步回合操作提交返回 413', async () => {
     body: 'x'.repeat(maxTurnOperationsSize + 1),
   })
   assert.equal(response.status, 413)
+})
+
+test('结算锁续期路由只接受持有者本人', async () => {
+  seedPlayer(testPlayerID1)
+  seedPlayer(testPlayerID2)
+  createGame(testGameID1, [testPlayerID1, testPlayerID2])
+  const headers = (playerId: string) => ({ Authorization: basicAuth(playerId), 'User-Agent': 'Unciv' })
+  const acquire = await server.app.request(`/simultaneous-turn-lock/${testGameID1}`, {
+    method: 'POST', headers: headers(testPlayerID1), body: `3:${testPlayerID1}`,
+  })
+  assert.equal(acquire.status, 201)
+
+  const renew = await server.app.request(`/simultaneous-turn-lock/${testGameID1}/renew`, {
+    method: 'POST', headers: headers(testPlayerID1), body: `3:${testPlayerID1}`,
+  })
+  assert.equal(renew.status, 204)
+
+  // 冒用他人 owner 无法绕过参数校验
+  const spoofed = await server.app.request(`/simultaneous-turn-lock/${testGameID1}/renew`, {
+    method: 'POST', headers: headers(testPlayerID1), body: `3:${testPlayerID2}`,
+  })
+  assert.equal(spoofed.status, 400)
+
+  // 锁已被更高回合接管后，旧回合续期返回 409，客户端需重新取锁
+  await server.app.request(`/simultaneous-turn-lock/${testGameID1}`, {
+    method: 'POST', headers: headers(testPlayerID1), body: `4:${testPlayerID1}`,
+  })
+  const stale = await server.app.request(`/simultaneous-turn-lock/${testGameID1}/renew`, {
+    method: 'POST', headers: headers(testPlayerID1), body: `3:${testPlayerID1}`,
+  })
+  assert.equal(stale.status, 409)
+})
+
+test('同步回合操作超过单局上限返回 400 且不写入', async () => {
+  seedPlayer(testPlayerID1)
+  createGame(testGameID1, [testPlayerID1])
+  const headers = { Authorization: basicAuth(testPlayerID1), 'User-Agent': 'Unciv' }
+  const operations = Array.from({ length: maxSimultaneousTurnOperations + 1 }, (_, sequence) => ({
+    turn: 0, sequence, type: 'move', playerId: testPlayerID1,
+  }))
+  const response = await server.app.request(`/simultaneous-turn-operations/${testGameID1}`, {
+    method: 'POST', headers, body: JSON.stringify(operations),
+  })
+  assert.equal(response.status, 400)
+  assert.equal(getSimultaneousTurnOperations(testGameID1), null)
 })
 
 test('/isalive 返回健康检查内容', async () => {

@@ -25,7 +25,7 @@ import {
 import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersApproval, batchUpdatePlayersWhitelist,
   clearArchivedGame, countGamesByPlayer, createGame, deleteGame, getRestoreRequests,
-  acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
+  acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, renewSimultaneousTurnLock, SimultaneousTurnOperationLimitError, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
   getGamesPage, getLatestFileContent, getLatestFilePreview, getSimultaneousTurnOperations, getPlayerPassword, getPlayersPage, maxSimultaneousTurn,
   getTurnByID, getTurnsMetadata, isDatabaseHealthy, isGameCreator, rollbackGameToTurn, saveFileContent, saveFilePreview, setPlayerApproved,
   updateGameInfo, updateGamePlayers, updatePlayerInfo, updatePlayerPassword, appendSimultaneousTurnOperations,
@@ -192,6 +192,19 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     return new Response(null, { status: acquired ? 201 : 409 })
   })
 
+  app.post('/simultaneous-turn-lock/:gameId/renew', logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), async (c) => {
+    const gameId = c.get('gameId')
+    const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
+    if (accessError) return accessError
+    const body = (await readLimitedText(c.req.raw, maxTextBodySize)).split(':', 2)
+    const turn = Number.parseInt(body[0] ?? '', 10)
+    const owner = body[1] ?? ''
+    if (!Number.isInteger(turn) || turn < 0 || turn > maxSimultaneousTurn || owner !== c.get('playerId')) return errorResponse(400, '锁参数无效')
+    const renewed = renewSimultaneousTurnLock(gameId, turn, owner)
+    // 续期失败说明锁已被接管或已过期，与取锁竞争失败一致返回 409，客户端应重新取锁。
+    return renewed ? successResponse() : new Response(null, { status: 409 })
+  })
+
   app.get('/simultaneous-turn-operations/:gameId', logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), (c) => {
     const gameId = c.get('gameId')
     const accessError = checkGamePlayerAccess(c, gameId, '你不是该游戏的玩家')
@@ -215,6 +228,9 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     try {
       appendSimultaneousTurnOperations(gameId, c.get('playerId'), incoming)
     } catch (error) {
+      if (error instanceof SimultaneousTurnOperationLimitError) {
+        return errorResponse(400, '同步回合操作数量超过上限')
+      }
       console.error('合并同步回合操作失败', { gameId, playerId: c.get('playerId') }, error)
       return errorResponse(400, '操作数据无效')
     }

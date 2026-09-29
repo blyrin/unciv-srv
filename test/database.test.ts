@@ -3,7 +3,8 @@ import { afterEach, beforeEach, test } from 'vitest'
 import {
   acquireSimultaneousTurnLock, appendSimultaneousTurnOperations, createGame, createPlayer, getDB, getAllStats,
   getGameByID, getGamesByPlayer, getLatestFileContent, getPlayerByID, getPlayersPage, getSimultaneousTurnOperations,
-  maxSimultaneousTurn, releaseSimultaneousTurnLock, rollbackGameToTurn, saveFileContent, saveFilePreview,
+  maxSimultaneousTurn, releaseSimultaneousTurnLock, renewSimultaneousTurnLock, rollbackGameToTurn, saveFileContent, saveFilePreview,
+  maxSimultaneousTurnOperations, SimultaneousTurnOperationLimitError,
   simultaneousTurnOperationsRetention, updatePlayerInfo,
 } from '../src/database.js'
 import { isHashedPassword, verifyPassword } from '../src/password.js'
@@ -108,6 +109,59 @@ test('结算锁拒绝超出上限的回合号', () => {
 
   assert.equal(acquireSimultaneousTurnLock(testGameID1, maxSimultaneousTurn + 1, testPlayerID1), false)
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 5, testPlayerID1), true)
+})
+
+test('结算锁只能由持有者续期，续期后过期时间被延长', () => {
+  seedPlayer()
+  createGame(testGameID1, [testPlayerID1])
+  const now = Date.now()
+
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 7, testPlayerID1, now), true)
+  // 锁存在但持有者不匹配时续期失败，且不会改变过期时间
+  assert.equal(renewSimultaneousTurnLock(testGameID1, 7, testPlayerID2, now + 60_000), false)
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 7, testPlayerID2, now + 119_000), false)
+
+  // 持有者在过期前续期，把过期点从 now+120s 推到 now+180s+120s
+  assert.equal(renewSimultaneousTurnLock(testGameID1, 7, testPlayerID1, now + 60_000), true)
+  // 按原过期点（now+120s）本可以接管的其他玩家，此刻仍然拿不到锁
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 7, testPlayerID2, now + 150_000), false)
+  // 续期后的过期点（now+180s）之后，接管语义保持不变：其他玩家仍可接手
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 7, testPlayerID2, now + 180_001), true)
+})
+
+test('续期失败时锁已过期，其他玩家仍可接管', () => {
+  seedPlayer()
+  createGame(testGameID1, [testPlayerID1])
+  const now = Date.now()
+
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 8, testPlayerID1, now), true)
+  // 超过 120 秒既未续期也未释放后，其他玩家接管
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 8, testPlayerID2, now + 120_001), true)
+  // 原持有者此时续期应失败（锁已易主），且无法因此抢回锁
+  assert.equal(renewSimultaneousTurnLock(testGameID1, 8, testPlayerID1, now + 121_000), false)
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 8, testPlayerID1, now + 121_000), false)
+})
+
+test('单局操作总量达到上限后拒绝追加，且不影响已有数据', () => {
+  seedPlayer()
+  createGame(testGameID1, [testPlayerID1])
+  const makeOperations = (from: number, count: number) => Array.from({ length: count }, (_, index) => ({
+    turn: 0, sequence: from + index, type: 'move', playerId: testPlayerID1,
+  }))
+  const read = () => JSON.parse(getSimultaneousTurnOperations(testGameID1) ?? '[]') as unknown[]
+
+  // 恰好达到上限的提交允许通过
+  appendSimultaneousTurnOperations(testGameID1, testPlayerID1, makeOperations(0, maxSimultaneousTurnOperations))
+  assert.equal(read().length, maxSimultaneousTurnOperations)
+
+  // 再多一条就会超限，必须抛错并回滚，已有数据元素数量保持不变
+  assert.throws(
+    () => appendSimultaneousTurnOperations(
+      testGameID1, testPlayerID1, [{ turn: 0, sequence: maxSimultaneousTurnOperations, type: 'move', playerId: testPlayerID1 }],
+    ),
+    (error: unknown) => error instanceof SimultaneousTurnOperationLimitError,
+  )
+  assert.equal(read().length, maxSimultaneousTurnOperations)
 })
 
 test('玩家和分页查询保持 JSON 字段形状', () => {
