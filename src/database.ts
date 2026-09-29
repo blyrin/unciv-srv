@@ -808,13 +808,30 @@ export function getLatestFileContent(gameId: string): FileData | null {
 export function saveFileContent(gameId: string, turns: number, playerId: string, ip: string, data: string): void {
   saveFileData('files_content', gameId, turns, playerId, ip, data)
 }
+/**
+ * 同步回合的合法回合号上限。
+ * 只是防止客户端用荒谬的大回合号把锁行"抄到未来"、从而长期霸占锁，不影响正常对局。
+ */
+export const maxSimultaneousTurn = 10_000_000
+
+/**
+ * 同步回合操作按回合保留的窗口：只保留最近 N 个不同回合的操作。
+ * 取锁意味着"某个客户端正在结算 turn"，因此 turn - N 之前的回合必然已经结算完毕，
+ * 丢弃它们的操作不会影响仍在提交这些回合的客户端（它们落后不足 N 回合）。
+ */
+export const simultaneousTurnOperationsRetention = 6
+
 export function acquireSimultaneousTurnLock(gameId: string, turn: number, owner: string, now = Date.now()): boolean {
   // A lock is identified by game_id (primary key), so a lock leaked by a crashed client
   // would otherwise block every later turn forever: the old `where` clause only allowed a
   // takeover when the stored turn matched the requested one, and the 2-minute staleness
   // window only applied within the same turn. Allow an older turn's lock to always be
   // replaced, and keep same-turn mutual exclusion (same owner re-entry or 2-minute timeout).
-  const result = getDB().prepare(`
+  if (!Number.isInteger(turn) || turn < 0 || turn > maxSimultaneousTurn) {
+    return false
+  }
+  const db = getDB()
+  const result = db.prepare(`
     insert into simultaneous_turn_locks (game_id, turn, owner, acquired_at)
     values (?, ?, ?, ?)
     on conflict(game_id) do update set turn = excluded.turn, owner = excluded.owner, acquired_at = excluded.acquired_at
@@ -822,6 +839,10 @@ export function acquireSimultaneousTurnLock(gameId: string, turn: number, owner:
       or (simultaneous_turn_locks.turn = excluded.turn
           and (simultaneous_turn_locks.owner = excluded.owner or simultaneous_turn_locks.acquired_at < ?))
   `).run(gameId, turn, owner, now, now - 120_000)
+  if (result.changes > 0) {
+    // 取锁是"该回合正在结算"的权威信号：比它早超过保留窗口的回合必然已经结算，可以安全清理。
+    pruneSimultaneousTurnOperations(db, gameId, turn - simultaneousTurnOperationsRetention)
+  }
   return result.changes > 0
 }
 
@@ -831,27 +852,84 @@ export function releaseSimultaneousTurnLock(gameId: string, turn: number, owner:
   `).run(gameId, turn, owner)
 }
 
+/**
+ * 同步回合操作项：校验并补全 turn/sequence 后的结构。
+ */
+type SimultaneousTurnOperation = Record<string, unknown> & {
+  turn: number
+  sequence: number
+  playerId: string
+  type: string
+}
 
 /**
- * 获取最新预览存档。
+ * 校验单个同步回合操作项并补全默认字段。
+ * expectedPlayerId 为空时（读取库里已有数据）不校验归属。
  */
+function normalizeSimultaneousTurnOperation(operation: unknown, expectedPlayerId?: string): SimultaneousTurnOperation {
+  if (!operation || typeof operation !== 'object' || Array.isArray(operation)) throw new Error('操作数据项无效')
+  const item = operation as Record<string, unknown>
+  const turn = item.turn ?? 0
+  const sequence = item.sequence ?? 0
+  if (!Number.isInteger(turn) || Number(turn) < 0 || Number(turn) > maxSimultaneousTurn) throw new Error('操作回合无效')
+  if (!Number.isInteger(sequence) || Number(sequence) < 0) throw new Error('操作序号无效')
+  if (typeof item.playerId !== 'string' || !item.playerId) throw new Error('操作玩家无效')
+  if (expectedPlayerId && item.playerId !== expectedPlayerId) throw new Error('不能提交其他玩家的操作')
+  if (typeof item.type !== 'string' || !item.type) throw new Error('操作类型无效')
+  return { ...item, turn: Number(turn), sequence: Number(sequence), playerId: item.playerId, type: item.type }
+}
+
+/**
+ * 丢弃回合号低于 keepFromTurn 的操作。
+ * 只按回合作界，保证已结算回合的操作不会无限堆积。
+ */
+function pruneSimultaneousTurnOperations(
+  db: BetterSqlite3.Database, gameId: string, keepFromTurn: number,
+): void {
+  // immediate 事务：与 append 的读-改-写串行化，避免并发提交的操作被裁剪写回时覆盖丢失。
+  db.transaction(() => {
+  const row = db.prepare('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
+  if (!row) {
+    return
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(valueText(row.data))
+  } catch {
+    // 数据损坏时直接丢弃，避免永久阻塞后续写入
+    db.prepare('delete from simultaneous_turn_operations where game_id = ?').run(gameId)
+    return
+  }
+  if (!Array.isArray(parsed)) {
+    db.prepare('delete from simultaneous_turn_operations where game_id = ?').run(gameId)
+    return
+  }
+  const kept: unknown[] = []
+  const dropped: unknown[] = []
+  for (const operation of parsed) {
+    const turn = (operation as Record<string, unknown> | null)?.turn
+    if (Number.isInteger(turn) && Number(turn) >= keepFromTurn) {
+      kept.push(operation)
+    } else {
+      dropped.push(operation)
+    }
+  }
+  if (dropped.length === 0) {
+    return
+  }
+  db.prepare(`
+    insert into simultaneous_turn_operations (game_id, data, updated_at)
+    values (?, ?, ?)
+    on conflict(game_id) do update set data = excluded.data, updated_at = excluded.updated_at
+  `).run(gameId, JSON.stringify(kept), Date.now())
+  }).immediate()
+}
+
 export function appendSimultaneousTurnOperations(
   gameId: string, playerId: string, incoming: unknown[],
 ): void {
-  const normalize = (operation: unknown, expectedPlayerId?: string): Record<string, unknown> => {
-    if (!operation || typeof operation !== 'object') throw new Error('操作数据项无效')
-    const item = operation as Record<string, unknown>
-    const turn = item.turn ?? 0
-    const sequence = item.sequence ?? 0
-    if (!Number.isInteger(turn) || Number(turn) < 0) throw new Error('操作回合无效')
-    if (!Number.isInteger(sequence) || Number(sequence) < 0) throw new Error('操作序号无效')
-    if (typeof item.playerId !== 'string' || !item.playerId) throw new Error('操作玩家无效')
-    if (expectedPlayerId && item.playerId !== expectedPlayerId) throw new Error('不能提交其他玩家的操作')
-    if (typeof item.type !== 'string' || !item.type) throw new Error('操作类型无效')
-    return { ...item, turn, sequence }
-  }
-
   const db = getDB()
+  // immediate 事务：读-改-写必须整体串行化，否则多个连接/进程并发提交时会互相覆盖（丢操作）。
   const transaction = db.transaction(() => {
     const row = db.prepare('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
     let existing: unknown[] = []
@@ -860,24 +938,42 @@ export function appendSimultaneousTurnOperations(
       if (!Array.isArray(parsed)) throw new Error('操作数据不是数组')
       existing = parsed
     }
-    const operations = [
-      ...existing.map((operation) => normalize(operation)),
-      ...incoming.map((operation) => normalize(operation, playerId)),
-    ]
+    const operations: SimultaneousTurnOperation[] = []
+    for (const operation of existing) {
+      try {
+        // 库里已有数据只做宽松校验：单条坏数据不应让整个游戏永久无法提交
+        operations.push(normalizeSimultaneousTurnOperation(operation))
+      } catch {
+        // 忽略损坏的历史操作项
+      }
+    }
+    for (const operation of incoming) {
+      operations.push(normalizeSimultaneousTurnOperation(operation, playerId))
+    }
+    // 幂等合并：同一 (turn, playerId, sequence) 只保留一份，重复提交"done"标记不会让列表增长
     const seen = new Set<string>()
     const merged = operations.filter((operation) => {
-      const key = `${String(operation.turn)}:${String(operation.playerId)}:${String(operation.sequence)}`
+      const key = `${operation.turn}:${operation.playerId}:${operation.sequence}`
       if (seen.has(key)) return false
       seen.add(key)
       return true
     })
+    // 明确按回合裁剪已结算回合的操作，保留最近 N 个回合
+    let maxTurn = 0
+    for (const operation of merged) {
+      if (operation.turn > maxTurn) {
+        maxTurn = operation.turn
+      }
+    }
+    const keepFromTurn = Math.max(0, maxTurn - simultaneousTurnOperationsRetention)
+    const retained = merged.filter((operation) => operation.turn >= keepFromTurn)
     db.prepare(`
       insert into simultaneous_turn_operations (game_id, data, updated_at)
       values (?, ?, ?)
       on conflict(game_id) do update set data = excluded.data, updated_at = excluded.updated_at
-    `).run(gameId, JSON.stringify(merged), Date.now())
+    `).run(gameId, JSON.stringify(retained), Date.now())
   })
-  transaction()
+  transaction.immediate()
 }
 
 export function getSimultaneousTurnOperations(gameId: string): string | null {

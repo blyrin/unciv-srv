@@ -26,7 +26,7 @@ import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersApproval, batchUpdatePlayersWhitelist,
   clearArchivedGame, countGamesByPlayer, createGame, deleteGame, getRestoreRequests,
   acquireSimultaneousTurnLock, releaseSimultaneousTurnLock, errRollbackPreviewNotFound, getAllStats, getAllTurnsForGame, getGameByID, getGamesByPlayer, getGamesCreatedByPlayer,
-  getGamesPage, getLatestFileContent, getLatestFilePreview, getSimultaneousTurnOperations, getPlayerPassword, getPlayersPage,
+  getGamesPage, getLatestFileContent, getLatestFilePreview, getSimultaneousTurnOperations, getPlayerPassword, getPlayersPage, maxSimultaneousTurn,
   getTurnByID, getTurnsMetadata, isDatabaseHealthy, isGameCreator, rollbackGameToTurn, saveFileContent, saveFilePreview, setPlayerApproved,
   updateGameInfo, updateGamePlayers, updatePlayerInfo, updatePlayerPassword, appendSimultaneousTurnOperations,
 } from './database.js'
@@ -187,7 +187,7 @@ export function createApp(config: Config, limiter: RateLimiter): Hono<Env> {
     const body = (await readLimitedText(c.req.raw, maxTextBodySize)).split(':', 2)
     const turn = Number.parseInt(body[0] ?? '', 10)
     const owner = body[1] ?? ''
-    if (!Number.isInteger(turn) || turn < 0 || owner !== c.get('playerId')) return errorResponse(400, '锁参数无效')
+    if (!Number.isInteger(turn) || turn < 0 || turn > maxSimultaneousTurn || owner !== c.get('playerId')) return errorResponse(400, '锁参数无效')
     const acquired = acquireSimultaneousTurnLock(gameId, turn, owner)
     return new Response(null, { status: acquired ? 201 : 409 })
   })

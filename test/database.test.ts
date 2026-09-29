@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
 import {
-  acquireSimultaneousTurnLock, createGame, createPlayer, getDB, getAllStats, getGameByID, getGamesByPlayer,
-  getLatestFileContent, getPlayerByID, getPlayersPage, rollbackGameToTurn, saveFileContent, saveFilePreview, updatePlayerInfo,
+  acquireSimultaneousTurnLock, appendSimultaneousTurnOperations, createGame, createPlayer, getDB, getAllStats,
+  getGameByID, getGamesByPlayer, getLatestFileContent, getPlayerByID, getPlayersPage, getSimultaneousTurnOperations,
+  maxSimultaneousTurn, releaseSimultaneousTurnLock, rollbackGameToTurn, saveFileContent, saveFilePreview,
+  simultaneousTurnOperationsRetention, updatePlayerInfo,
 } from '../src/database.js'
 import { isHashedPassword, verifyPassword } from '../src/password.js'
 import {
@@ -40,6 +42,74 @@ test('上一回合遗留的结算锁不会永久阻塞后续回合', () => {
   // 同一回合内仍然互斥
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 4, 'other-player', now), false)
 })
+test('锁释放只允许持有者本人，释放后其他玩家可以接管', () => {
+  seedPlayer()
+  createGame(testGameID1, [testPlayerID1])
+
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 5, testPlayerID1), true)
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 5, testPlayerID2), false)
+
+  // 非持有者释放是空操作
+  releaseSimultaneousTurnLock(testGameID1, 5, testPlayerID2)
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 5, testPlayerID2), false)
+
+  releaseSimultaneousTurnLock(testGameID1, 5, testPlayerID1)
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 5, testPlayerID2), true)
+})
+
+test('已结算回合的操作按回合窗口裁剪，不会无限堆积', () => {
+  seedPlayer()
+  createGame(testGameID1, [testPlayerID1])
+  const append = (turn: number, sequence = 0) => appendSimultaneousTurnOperations(
+    testGameID1, testPlayerID1, [{ turn, sequence, type: 'move', playerId: testPlayerID1 }],
+  )
+  const read = () => JSON.parse(getSimultaneousTurnOperations(testGameID1) ?? '[]') as Array<{
+    turn: number, sequence: number, playerId: string
+  }>
+
+  const totalTurns = simultaneousTurnOperationsRetention + 5
+  for (let turn = 0; turn <= totalTurns; turn++) {
+    append(turn)
+  }
+
+  const saved = read()
+  assert.equal(saved.length, simultaneousTurnOperationsRetention + 1)
+  assert.equal(saved[0]?.turn, totalTurns - simultaneousTurnOperationsRetention)
+  assert.equal(saved.at(-1)?.turn, totalTurns)
+
+  // 取锁意味着更早的回合已经结算，锁路径也会清掉窗口之外的操作
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, totalTurns + 3, testPlayerID1), true)
+  for (const operation of read()) {
+    assert.ok(operation.turn >= totalTurns + 3 - simultaneousTurnOperationsRetention)
+  }
+})
+
+test('同一玩家重复提交同一操作是幂等的', () => {
+  seedPlayer()
+  createGame(testGameID1, [testPlayerID1])
+  const marker = { turn: 4, sequence: 1, type: 'done', playerId: testPlayerID1 }
+  const read = () => JSON.parse(getSimultaneousTurnOperations(testGameID1) ?? '[]') as Array<{
+    turn: number, sequence: number, playerId: string
+  }>
+
+  appendSimultaneousTurnOperations(testGameID1, testPlayerID1, [marker])
+  assert.equal(read().length, 1)
+
+  appendSimultaneousTurnOperations(testGameID1, testPlayerID1, [marker])
+  assert.equal(read().length, 1)
+
+  appendSimultaneousTurnOperations(testGameID1, testPlayerID1, [marker, marker])
+  assert.equal(read().length, 1)
+})
+
+test('结算锁拒绝超出上限的回合号', () => {
+  seedPlayer()
+  createGame(testGameID1, [testPlayerID1])
+
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, maxSimultaneousTurn + 1, testPlayerID1), false)
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 5, testPlayerID1), true)
+})
+
 test('玩家和分页查询保持 JSON 字段形状', () => {
   seedPlayer()
   const player = getPlayerByID(testPlayerID1)
