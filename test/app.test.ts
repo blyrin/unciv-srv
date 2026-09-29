@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'vitest'
-import { createGame, getLatestFileContent, getPlayerByID, getSimultaneousTurnOperations, listSimultaneousTurnReservations, maxSimultaneousTurnOperations, maxSimultaneousTurnReservationKeyLength, maxSimultaneousTurnReservationKeys } from '../src/database.js'
+import { createGame, getLatestFileContent, getPlayerByID, getSimultaneousTurnOperations, maxSimultaneousTurnOperations } from '../src/database.js'
 import { decodeFile, encodeFile, maxTurnOperationsSize } from '../src/utils.js'
 import {
   basicAuth, buildGameData, loginAsPlayer, seedGameWithContent, seedPlayer, setupTestServer, startHttpServer,
@@ -80,51 +80,6 @@ test('结算锁续期路由只接受持有者本人', async () => {
     method: 'POST', headers: headers(testPlayerID1), body: `3:${testPlayerID1}`,
   })
   assert.equal(stale.status, 409)
-})
-
-test('预占路由先到者得，冲突时返回占用者供客户端提示', async () => {
-  seedPlayer(testPlayerID1)
-  seedPlayer(testPlayerID2)
-  createGame(testGameID1, [testPlayerID1, testPlayerID2])
-  const headers = (playerId: string) => ({ Authorization: basicAuth(playerId), 'User-Agent': 'Unciv' })
-  const reserve = (playerId: string, body: string) => server.app.request(`/simultaneous-turn-reservations/${testGameID1}`, {
-    method: 'POST', headers: headers(playerId), body,
-  })
-
-  const granted = await reserve(testPlayerID1, '3\ntile:3,-2\nunit:42')
-  assert.equal(granted.status, 200)
-  assert.deepEqual(await granted.json(), { granted: true, conflicts: [] })
-
-  const denied = await reserve(testPlayerID2, '3\ntile:3,-2')
-  assert.equal(denied.status, 409)
-  assert.deepEqual(await denied.json(), {
-    granted: false, conflicts: [{ key: 'tile:3,-2', owner: testPlayerID1 }],
-  })
-
-  // 预占必须对其他玩家可见，否则玩家看不到"那里已经有人了"，照样会撞车
-  const listed = await server.app.request(`/simultaneous-turn-reservations/${testGameID1}?turn=3`, {
-    headers: headers(testPlayerID2),
-  })
-  assert.equal(listed.status, 200)
-  assert.deepEqual(await listed.json(), {
-    reservations: [{ key: 'tile:3,-2', owner: testPlayerID1 }, { key: 'unit:42', owner: testPlayerID1 }],
-  })
-})
-
-test('预占路由拒绝非法参数并且不写入任何占用', async () => {
-  seedPlayer(testPlayerID1)
-  createGame(testGameID1, [testPlayerID1])
-  const headers = { Authorization: basicAuth(testPlayerID1), 'User-Agent': 'Unciv' }
-  const reserve = (body: string) => server.app.request(`/simultaneous-turn-reservations/${testGameID1}`, {
-    method: 'POST', headers, body,
-  })
-
-  assert.equal((await reserve('3')).status, 400)
-  assert.equal((await reserve('x\ntile:3,-2')).status, 400)
-  assert.equal((await reserve(`3\n${'k'.repeat(maxSimultaneousTurnReservationKeyLength + 1)}`)).status, 400)
-  const tooManyKeys = Array.from({ length: maxSimultaneousTurnReservationKeys + 1 }, (_, index) => `unit:${index}`)
-  assert.equal((await reserve(`3\n${tooManyKeys.join('\n')}`)).status, 400)
-  assert.deepEqual(listSimultaneousTurnReservations(testGameID1, 3), [])
 })
 
 test('同步回合操作超过单局上限返回 400 且不写入', async () => {

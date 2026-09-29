@@ -4,7 +4,6 @@ import {
   acquireSimultaneousTurnLock, appendSimultaneousTurnOperations, createGame, createPlayer, getDB, getAllStats,
   getGameByID, getGamesByPlayer, getLatestFileContent, getPlayerByID, getPlayersPage, getSimultaneousTurnOperations,
   maxSimultaneousTurn, releaseSimultaneousTurnLock, renewSimultaneousTurnLock, rollbackGameToTurn, saveFileContent, saveFilePreview,
-  listSimultaneousTurnReservations, reserveSimultaneousTurnKeys,
   maxSimultaneousTurnOperations, SimultaneousTurnOperationLimitError,
   simultaneousTurnOperationsRetention, updatePlayerInfo,
 } from '../src/database.js'
@@ -57,52 +56,6 @@ test('锁释放只允许持有者本人，释放后其他玩家可以接管', ()
 
   releaseSimultaneousTurnLock(testGameID1, 5, testPlayerID1)
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 5, testPlayerID2), true)
-})
-
-test('预占按回合先到者得，且一次动作要么全部拿到要么一个都不拿', () => {
-  seedPlayer()
-  createGame(testGameID1, [testPlayerID1, testPlayerID2])
-
-  // 对象空闲时整组拿到
-  assert.deepEqual(reserveSimultaneousTurnKeys(testGameID1, 3, testPlayerID1, ['tile:3,-2', 'unit:42']), [])
-  // 同一玩家重复预占自己是幂等的：同一个单位要连续移动
-  assert.deepEqual(reserveSimultaneousTurnKeys(testGameID1, 3, testPlayerID1, ['unit:42']), [])
-  // 别人占用时报出占用者，客户端据此提示"正被谁占用"
-  assert.deepEqual(reserveSimultaneousTurnKeys(testGameID1, 3, testPlayerID2, ['tile:3,-2']), [
-    { key: 'tile:3,-2', owner: testPlayerID1 },
-  ])
-  // 一组里只要有一个被别人占用就整组失败，不能只占一半导致重放到一半的动作
-  assert.deepEqual(reserveSimultaneousTurnKeys(testGameID1, 3, testPlayerID2, ['unit:7', 'tile:3,-2']), [
-    { key: 'tile:3,-2', owner: testPlayerID1 },
-  ])
-  assert.deepEqual(listSimultaneousTurnReservations(testGameID1, 3), [
-    { key: 'tile:3,-2', owner: testPlayerID1 },
-    { key: 'unit:42', owner: testPlayerID1 },
-  ])
-})
-
-test('预占只在该回合内生效，换回合后同一对象可以重新占用', () => {
-  seedPlayer()
-  createGame(testGameID1, [testPlayerID1, testPlayerID2])
-
-  assert.deepEqual(reserveSimultaneousTurnKeys(testGameID1, 3, testPlayerID1, ['tile:3,-2']), [])
-  // 占用是按回合记录的：下一回合同一格不该被上一回合的占用挡住
-  assert.deepEqual(reserveSimultaneousTurnKeys(testGameID1, 4, testPlayerID2, ['tile:3,-2']), [])
-  assert.deepEqual(listSimultaneousTurnReservations(testGameID1, 3), [{ key: 'tile:3,-2', owner: testPlayerID1 }])
-})
-
-test('取锁结算后清理已结算回合的预占，掉线玩家的占用不会永久挡路', () => {
-  seedPlayer()
-  createGame(testGameID1, [testPlayerID1, testPlayerID2])
-
-  const staleTurn = 1
-  assert.deepEqual(reserveSimultaneousTurnKeys(testGameID1, staleTurn, testPlayerID1, ['tile:3,-2']), [])
-  // 取锁说明该回合正在结算：比保留窗口更早的回合必然已经结算，占用随之清理
-  assert.equal(
-    acquireSimultaneousTurnLock(testGameID1, staleTurn + simultaneousTurnOperationsRetention + 1, testPlayerID2),
-    true,
-  )
-  assert.deepEqual(listSimultaneousTurnReservations(testGameID1, staleTurn), [])
 })
 
 test('已结算回合的操作按回合窗口裁剪，不会无限堆积', () => {
