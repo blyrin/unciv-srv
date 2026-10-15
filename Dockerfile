@@ -19,8 +19,9 @@ ENV NODE_ENV=production \
     DB_PATH=/data/unciv-srv.db
 
 # zip 用于管理后台打包历史存档下载
+# curl 用于健康检查
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends zip && \
+    apt-get install -y --no-install-recommends zip curl && \
     rm -rf /var/lib/apt/lists/*
 
 # 以非 root 用户运行
@@ -41,6 +42,6 @@ EXPOSE 11451
 
 # 通过 /isalive 端点做健康检查
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -f http://127.0.0.1:${PORT:-11451}/isalive || exit 1
+  CMD curl -sf http://127.0.0.1:${PORT:-11451}/isalive || exit 1
 
 CMD ["bun", "dist/main.js"]
