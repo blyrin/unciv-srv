@@ -24,7 +24,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # 以非 root 用户运行
-RUN addgroup -g 1001 unciv && adduser -D -u 1001 -G unciv unciv \
+RUN groupadd -g 1001 unciv && useradd -u 1001 -g unciv -m unciv \
     && mkdir -p /data && chown -R unciv:unciv /data
 
 # 复制构建产物与运行所需文件
