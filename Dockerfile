@@ -1,5 +1,5 @@
 # ---------- 构建阶段：类型检查并打包 ----------
-FROM oven/bun:1.4-slim AS build
+FROM oven/bun:1.4 AS build
 
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -11,7 +11,7 @@ COPY test ./test
 RUN bun run typecheck && bun run build
 
 # ---------- 运行阶段：只保留构建产物与运行所需文件 ----------
-FROM oven/bun:1.4-slim AS runtime
+FROM oven/bun:1.4 AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production \
