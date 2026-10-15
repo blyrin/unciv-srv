@@ -1,13 +1,12 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { gzipSync } from 'node:zlib'
-import type { ServerType } from '@hono/node-server'
-import { serve } from '@hono/node-server'
-import type { Hono } from 'hono'
-import type { AppVariables, Config } from '../../src/types.js'
+import { gzipSync, serve } from 'bun'
+import type { Server } from 'bun'
+import type { Config } from '../../src/types.js'
 import { createApp } from '../../src/app.js'
-import { attachChatWebSocket, resetChatState } from '../../src/chat.js'
+import { createChatWebSocket, resetChatState } from '../../src/chat.js'
+import type { ChatWebSocket, PeerData } from '../../src/chat.js'
 import {
   closeDatabase, createGame, createPlayer, initDatabase, saveFileContent, saveFilePreview,
 } from '../../src/database.js'
@@ -19,17 +18,23 @@ export {
   testGameID1, testGameID2, testPassword, testPlayerID1, testPlayerID2, testPlayerID3,
 } from '../fixtures/ids.js'
 
-type TestApp = Hono<{ Variables: AppVariables }>
+/** 测试会替换 globalThis.fetch 打桩 GitHub 请求，本地 HTTP 调用必须用加载时捕获的原始 fetch */
+const localFetch = globalThis.fetch
 
 export interface TestServer {
-  app: TestApp
+  app: ReturnType<typeof createApp>
+  chat: ChatWebSocket
   config: Config
   limiter: RateLimiter
+  server: Server<PeerData>
+  url: string
+  /** 经本地 HTTP 走 Bun 真实路由（手动处理重定向，保留 302 响应） */
+  request: (path: string, init?: RequestInit) => Promise<Response>
   close: () => void
 }
 
 export function setupTestServer(overrides: Partial<Config> = {}): TestServer {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unciv-srv-vitest-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unciv-srv-test-'))
   const config: Config = {
     port: '0',
     dbPath: path.join(dir, 'test.db'),
@@ -53,13 +58,27 @@ export function setupTestServer(overrides: Partial<Config> = {}): TestServer {
   resetChatState()
   initDatabase(config)
   const limiter = new RateLimiter(config.maxAttempts, config.lockTime)
-  const app = createApp(config, limiter)
+  const chat = createChatWebSocket(config)
+  const app = createApp(config, limiter, chat)
+  const server = serve<PeerData>({
+    port: 0,
+    hostname: '127.0.0.1',
+    routes: app.routes,
+    fetch: app.fetch,
+    websocket: chat.handlers,
+  })
+  const url = `http://127.0.0.1:${server.port}`
 
   return {
     app,
+    chat,
     config,
     limiter,
+    server,
+    url,
+    request: (path, init) => localFetch(`${url}${path}`, { ...init, redirect: 'manual' }),
     close: () => {
+      server.stop(true)
       limiter.close()
       resetSessions()
       resetChatState()
@@ -70,7 +89,7 @@ export function setupTestServer(overrides: Partial<Config> = {}): TestServer {
 }
 
 export function basicAuth(playerId = testPlayerID1, password = testPassword): string {
-  return `Basic ${Buffer.from(`${playerId}:${password}`).toString('base64')}`
+  return `Basic ${btoa(`${playerId}:${password}`)}`
 }
 
 export function buildGameData(gameId: string, turns: number, playerIds: string[]): string {
@@ -81,7 +100,7 @@ export function buildGameData(gameId: string, turns: number, playerIds: string[]
       players: playerIds.map((playerId) => ({ playerId, playerType: 'Human' })),
     },
   })
-  return gzipSync(Buffer.from(data)).toString('base64')
+  return gzipSync(new TextEncoder().encode(data)).toBase64()
 }
 
 export function seedPlayer(playerId = testPlayerID1, password = testPassword): void {
@@ -96,8 +115,8 @@ export function seedGameWithContent(): void {
   saveFilePreview(testGameID1, 1, testPlayerID1, '127.0.0.1', data)
 }
 
-export async function loginAsAdmin(app: TestApp): Promise<string> {
-  const response = await app.request('/api/login', {
+export async function loginAsAdmin(server: TestServer): Promise<string> {
+  const response = await server.request('/api/login', {
     method: 'POST',
     body: JSON.stringify({ username: 'admin', password: 'admin123' }),
   })
@@ -109,11 +128,11 @@ export async function loginAsAdmin(app: TestApp): Promise<string> {
 }
 
 export async function loginAsPlayer(
-  app: TestApp,
+  server: TestServer,
   playerId = testPlayerID1,
   password = testPassword,
 ): Promise<string> {
-  const response = await app.request('/api/login', {
+  const response = await server.request('/api/login', {
     method: 'POST',
     body: JSON.stringify({ username: playerId, password }),
   })
@@ -124,18 +143,10 @@ export async function loginAsPlayer(
   return cookie
 }
 
+/** 测试服务器在 setupTestServer 时已启动，这里直接复用同一个实例 */
 export async function startHttpServer(testServer: TestServer): Promise<{
   url: string
-  server: ServerType
+  server: Server<PeerData>
 }> {
-  const server = serve({ fetch: testServer.app.fetch, port: 0 })
-  attachChatWebSocket(server, testServer.config)
-  await new Promise<void>((resolve) => {
-    server.once('listening', () => resolve())
-  })
-  const address = server.address()
-  if (!address || typeof address === 'string') {
-    throw new Error('测试服务器地址无效')
-  }
-  return { url: `http://127.0.0.1:${address.port}`, server }
+  return { url: testServer.url, server: testServer.server }
 }

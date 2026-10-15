@@ -1,44 +1,37 @@
-# ---------- 构建阶段 ----------
-FROM node:24-bookworm-slim AS build
+# ---------- 构建阶段：类型检查并打包 ----------
+FROM oven/bun:1.4-slim AS build
 
 WORKDIR /app
-ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
-# Node 20 自带 corepack，启用 pnpm
-RUN corepack enable
+COPY tsconfig.json tsconfig.test.json ./
+COPY src ./src
+COPY test ./test
+RUN bun run typecheck && bun run build
 
-# better-sqlite3 在容器内 prebuilt 下载失败时会回退源码编译，准备工具链
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-# 先安装依赖，利用 Docker 层缓存
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-
-# 构建 TypeScript 产物，并剔除开发依赖，缩小运行镜像
-COPY . .
-RUN pnpm build && pnpm prune --prod
-
-# ---------- 运行阶段 ----------
-FROM node:24-bookworm-slim AS runtime
+# ---------- 运行阶段：只保留构建产物与运行所需文件 ----------
+FROM oven/bun:1.4-slim AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=11451 \
-    DB_PATH=/data/unciv-srv.db \
-    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+    DB_PATH=/data/unciv-srv.db
+
+# zip 用于管理后台打包历史存档下载
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends zip && \
+    rm -rf /var/lib/apt/lists/*
 
 # 以非 root 用户运行
-RUN groupadd -r unciv && useradd -r -g unciv -u 1001 unciv \
+RUN addgroup -g 1001 unciv && adduser -D -u 1001 -G unciv unciv \
     && mkdir -p /data && chown -R unciv:unciv /data
 
 # 复制构建产物与运行所需文件
-COPY --from=build /app/package.json /app/pnpm-lock.yaml ./
-COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/public ./public
-COPY --from=build /app/migrations ./migrations
+COPY package.json ./
+COPY public ./public
+COPY migrations ./migrations
 COPY example.env ./
 
 USER unciv
@@ -48,6 +41,6 @@ EXPOSE 11451
 
 # 通过 /isalive 端点做健康检查
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||11451)+'/isalive').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD curl -f http://127.0.0.1:${PORT:-11451}/isalive || exit 1
 
-CMD ["node", "dist/main.js"]
+CMD ["bun", "dist/main.js"]

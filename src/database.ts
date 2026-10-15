@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import BetterSqlite3 from 'better-sqlite3'
+import { Database } from 'bun:sqlite'
 import type {
   Config, FileData, Game, GameWithTurns, PageResult, Player, PlayerListEntry, RollbackResult, Stats, TurnMetadata,
 } from './types.js'
@@ -16,14 +16,17 @@ interface Row {
   [key: string]: unknown
 }
 
+/** SQL 绑定参数类型，与 bun:sqlite 的入参保持一致 */
+type SqlValue = string | number | bigint | boolean | null | Uint8Array
+
 export const errRollbackPreviewNotFound = new Error('未找到对应预览记录')
 
-let db: BetterSqlite3.Database | null = null
+let db: Database | null = null
 
 /**
  * 返回已初始化的数据库连接。
  */
-export function getDB(): BetterSqlite3.Database {
+export function getDB(): Database {
   if (!db) {
     throw new Error('数据库未初始化')
   }
@@ -39,15 +42,21 @@ export function initDatabase(config: Config): void {
     fs.mkdirSync(dir, { recursive: true })
   }
 
-  db = new BetterSqlite3(config.dbPath)
-  db.pragma('journal_mode = WAL')
-  db.pragma('synchronous = NORMAL')
-  db.pragma('foreign_keys = ON')
-  db.pragma('busy_timeout = 5000')
-  db.pragma('cache_size = -32000')
-  db.pragma('temp_store = MEMORY')
-  db.pragma('page_size = 4096')
-  db.pragma('mmap_size = 2147483648')
+  // 重复初始化（测试隔离）时先释放旧连接，避免泄漏句柄
+  if (db) {
+    db.close()
+    db = null
+  }
+
+  db = new Database(config.dbPath)
+  db.run('PRAGMA journal_mode = WAL')
+  db.run('PRAGMA synchronous = NORMAL')
+  db.run('PRAGMA foreign_keys = ON')
+  db.run('PRAGMA busy_timeout = 5000')
+  db.run('PRAGMA cache_size = -32000')
+  db.run('PRAGMA temp_store = MEMORY')
+  db.run('PRAGMA page_size = 4096')
+  db.run('PRAGMA mmap_size = 2147483648')
 
   runMigrations()
 
@@ -67,7 +76,7 @@ export function closeDatabase(): void {
   if (!db) {
     return
   }
-  db.pragma('optimize')
+  db.run('PRAGMA optimize')
   db.close()
   db = null
 }
@@ -110,7 +119,7 @@ function readMigrationFiles(): MigrationFile[] {
  */
 export function runMigrations(): void {
   const conn = getDB()
-  conn.exec(`
+  conn.run(`
     create table if not exists schema_migrations
     (
       version integer primary key,
@@ -120,21 +129,21 @@ export function runMigrations(): void {
   `)
 
   const migrationColumns = new Set(
-    (conn.prepare('pragma table_info(schema_migrations)').all() as Row[]).map((row) => String(row.name)),
+    (conn.query('pragma table_info(schema_migrations)').all() as Row[]).map((row) => String(row.name)),
   )
   if (!migrationColumns.has('name')) {
     // Older installations created this table without the migration name column.
-    conn.exec("alter table schema_migrations add column name TEXT not null default ''")
+    conn.run("alter table schema_migrations add column name TEXT not null default ''")
   }
 
   const applied = new Set<number>(
-    conn.prepare('select version from schema_migrations').all().map((row) => Number((row as Row).version)),
+    conn.query('select version from schema_migrations').all().map((row) => Number((row as Row).version)),
   )
   const migrations = readMigrationFiles()
 
   const applyMigration = conn.transaction((version: number, name: string, sql: string) => {
-    conn.exec(sql)
-    conn.prepare('insert into schema_migrations (version, name) values (?, ?)').run(version, name)
+    conn.run(sql)
+    conn.query('insert into schema_migrations (version, name) values (?, ?)').run(version, name)
   })
 
   for (const migration of migrations) {
@@ -157,7 +166,7 @@ export interface MigrationRollbackResult {
 export function rollbackLastMigration(): MigrationRollbackResult | null {
   const conn = getDB()
   const row = conn
-    .prepare('select version, name from schema_migrations order by version desc limit 1')
+    .query('select version, name from schema_migrations order by version desc limit 1')
     .get() as Row | undefined
   if (!row) {
     return null
@@ -171,8 +180,8 @@ export function rollbackLastMigration(): MigrationRollbackResult | null {
   }
 
   const rollback = conn.transaction(() => {
-    conn.exec(migration.downSql as string)
-    conn.prepare('delete from schema_migrations where version = ?').run(version)
+    conn.run(migration.downSql as string)
+    conn.query('delete from schema_migrations where version = ?').run(version)
   })
   rollback()
   console.info('回滚迁移', { version, name })
@@ -184,7 +193,7 @@ export function rollbackLastMigration(): MigrationRollbackResult | null {
  */
 export function isDatabaseHealthy(): boolean {
   try {
-    getDB().prepare('select 1').get()
+    getDB().query('select 1').get()
     return true
   } catch {
     return false
@@ -198,8 +207,8 @@ function valueText(value: unknown): string {
   if (value == null) {
     return ''
   }
-  if (Buffer.isBuffer(value)) {
-    return value.toString('utf8')
+  if (value instanceof Uint8Array) {
+    return new TextDecoder().decode(value)
   }
   return String(value)
 }
@@ -311,7 +320,7 @@ function rowToFileData(row: Row): FileData {
  */
 export function getPlayerByID(playerId: string): Player | null {
   const row = getDB()
-    .prepare(`
+    .query(`
       select player_id,
              password,
              created_at,
@@ -337,7 +346,7 @@ export function createPlayer(playerId: string, password: string, ip: string, app
   const now = Date.now()
   const storageIp = ipForStorage(ip)
   getDB()
-    .prepare(`
+    .query(`
       insert into players (player_id, password, created_at, updated_at, whitelist, approved, remark, create_ip, update_ip)
       values (?, ?, ?, ?, 0, ?, '', ?, ?)
     `)
@@ -349,7 +358,7 @@ export function createPlayer(playerId: string, password: string, ip: string, app
  */
 export function updatePlayerPassword(playerId: string, password: string, ip: string): void {
   getDB()
-    .prepare(`
+    .query(`
       update players
       set password   = ?,
           updated_at = ?,
@@ -364,7 +373,7 @@ export function updatePlayerPassword(playerId: string, password: string, ip: str
  */
 export function updatePlayerLastActive(playerId: string, ip: string): void {
   getDB()
-    .prepare(`
+    .query(`
       update players
       set updated_at = ?,
           update_ip  = ?
@@ -378,7 +387,7 @@ export function updatePlayerLastActive(playerId: string, ip: string): void {
  */
 export function setPlayerApproved(playerId: string, approved: boolean): void {
   getDB()
-    .prepare(`
+    .query(`
       update players
       set approved   = ?,
           updated_at = ?
@@ -395,7 +404,7 @@ export function batchUpdatePlayersApproval(playerIds: string[], approved: boolea
     return
   }
   getDB()
-    .prepare(`update players
+    .query(`update players
               set approved   = ?,
                   updated_at = ?
               where player_id in (${buildInClause(playerIds)})`)
@@ -407,8 +416,8 @@ export function batchUpdatePlayersApproval(playerIds: string[], approved: boolea
  */
 export function migratePlayerPasswords(): number {
   const conn = getDB()
-  const rows = conn.prepare('select player_id, password from players').all() as Row[]
-  const update = conn.prepare('update players set password = ? where player_id = ?')
+  const rows = conn.query('select player_id, password from players').all() as Row[]
+  const update = conn.query('update players set password = ? where player_id = ?')
   let migrated = 0
   const migrate = conn.transaction(() => {
     for (const row of rows) {
@@ -433,17 +442,17 @@ export function clearExpiredIPs(retentionDays = getIPRetentionDays()): { players
   }
   const conn = getDB()
   const cutoff = Date.now() - retentionDays * dayMs
-  const players = conn.prepare(`
+  const players = conn.query(`
     update players
     set create_ip = case when created_at < ? then null else create_ip end,
         update_ip = case when updated_at < ? then null else update_ip end
     where (create_ip is not null and created_at < ?)
        or (update_ip is not null and updated_at < ?)
   `).run(cutoff, cutoff, cutoff, cutoff).changes
-  const content = conn.prepare(`
+  const content = conn.query(`
     update files_content set created_ip = null where created_ip is not null and created_at < ?
   `).run(cutoff).changes
-  const preview = conn.prepare(`
+  const preview = conn.query(`
     update files_preview set created_ip = null where created_ip is not null and created_at < ?
   `).run(cutoff).changes
   return { players, files: content + preview }
@@ -480,7 +489,7 @@ const playerListOrderBy: Record<PlayerListSort, string> = {
 export function getPlayersPage(options: GetPlayersPageOptions): PageResult<PlayerListEntry> {
   const conn = getDB()
   const conditions: string[] = []
-  const args: unknown[] = []
+  const args: SqlValue[] = []
   const keyword = (options.keyword ?? '').trim()
   if (keyword !== '') {
     conditions.push('(player_id LIKE ? OR remark LIKE ?)')
@@ -499,11 +508,11 @@ export function getPlayersPage(options: GetPlayersPageOptions): PageResult<Playe
   }
   const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : ''
 
-  const totalRow = conn.prepare(`select count(*) as total
+  const totalRow = conn.query(`select count(*) as total
                                  from players${where}`).get(...args) as Row
   const offset = (options.page - 1) * options.pageSize
   const rows = conn
-    .prepare(`
+    .query(`
       select player_id,
              password,
              created_at,
@@ -533,7 +542,7 @@ export function getPlayersPage(options: GetPlayersPageOptions): PageResult<Playe
  */
 export function updatePlayerInfo(playerId: string, whitelist: boolean, remark: string): void {
   getDB()
-    .prepare(`
+    .query(`
       update players
       set whitelist  = ?,
           remark     = ?,
@@ -547,7 +556,7 @@ export function updatePlayerInfo(playerId: string, whitelist: boolean, remark: s
  * 获取玩家密码。
  */
 export function getPlayerPassword(playerId: string): string {
-  const row = getDB().prepare('select password from players where player_id = ?').get(playerId) as Row | undefined
+  const row = getDB().query('select password from players where player_id = ?').get(playerId) as Row | undefined
   return valueText(row?.password)
 }
 
@@ -559,7 +568,7 @@ export function batchUpdatePlayersWhitelist(playerIds: string[], whitelist: bool
     return
   }
   getDB()
-    .prepare(`update players
+    .query(`update players
               set whitelist  = ?,
                   updated_at = ?
               where player_id in (${buildInClause(playerIds)})`)
@@ -571,7 +580,7 @@ export function batchUpdatePlayersWhitelist(playerIds: string[], whitelist: bool
  */
 export function getGameByID(gameId: string): Game | null {
   const row = getDB()
-    .prepare(`
+    .query(`
       select game_id, players, created_at, updated_at, whitelist, remark
       from files
       where game_id = ?
@@ -587,7 +596,7 @@ export function getGameByID(gameId: string): Game | null {
 export function createGame(gameId: string, players: string[]): void {
   const now = Date.now()
   getDB()
-    .prepare(`
+    .query(`
       insert into files (game_id, players, created_at, updated_at)
       values (?, ?, ?, ?)
     `)
@@ -599,7 +608,7 @@ export function createGame(gameId: string, players: string[]): void {
  */
 export function updateGamePlayers(gameId: string, players: string[]): void {
   getDB()
-    .prepare(`
+    .query(`
       update files
       set players    = ?,
           updated_at = ?
@@ -629,7 +638,7 @@ const gamesWithTurnsSelect = `
  */
 export function getGamesPage(keyword: string, page: number, pageSize: number): PageResult<GameWithTurns> {
   const conn = getDB()
-  const args: unknown[] = []
+  const args: SqlValue[] = []
   let where = ''
   if (keyword !== '') {
     where = ` WHERE f.game_id LIKE ? OR f.remark LIKE ? OR EXISTS (SELECT 1 FROM json_each(f.players) WHERE json_each.value LIKE ?)`
@@ -637,11 +646,11 @@ export function getGamesPage(keyword: string, page: number, pageSize: number): P
     args.push(like, like, like)
   }
 
-  const totalRow = conn.prepare(`select count(*) as total
+  const totalRow = conn.query(`select count(*) as total
                                  from files f${where}`).get(...args) as Row
   const offset = (page - 1) * pageSize
   const rows = conn
-    .prepare(`
+    .query(`
       ${gamesWithTurnsSelect}
       ${where}
       ORDER BY f.updated_at DESC
@@ -657,7 +666,7 @@ export function getGamesPage(keyword: string, page: number, pageSize: number): P
  */
 export function getGamesByPlayer(playerId: string): GameWithTurns[] {
   const rows = getDB()
-    .prepare(`
+    .query(`
       ${gamesWithTurnsSelect}
       WHERE EXISTS (SELECT 1 FROM json_each(f.players) WHERE json_each.value = ?)
       ORDER BY f.updated_at DESC
@@ -672,7 +681,7 @@ export function getGamesByPlayer(playerId: string): GameWithTurns[] {
  */
 export function countGamesByPlayer(playerId: string): number {
   const row = getDB()
-    .prepare(`
+    .query(`
       select count(*) as count
       from files f
       where exists (select 1 from json_each(f.players) where json_each.value = ?)
@@ -686,7 +695,7 @@ export function countGamesByPlayer(playerId: string): number {
  * 删除游戏。
  */
 export function deleteGame(gameId: string): void {
-  getDB().prepare('delete from files where game_id = ?').run(gameId)
+  getDB().query('delete from files where game_id = ?').run(gameId)
 }
 
 /**
@@ -694,7 +703,7 @@ export function deleteGame(gameId: string): void {
  */
 export function updateGameInfo(gameId: string, whitelist: boolean, remark: string): void {
   getDB()
-    .prepare(`
+    .query(`
       update files
       set whitelist  = ?,
           remark     = ?,
@@ -709,7 +718,7 @@ export function updateGameInfo(gameId: string, whitelist: boolean, remark: strin
  */
 export function isGameCreator(playerId: string, gameId: string): boolean {
   const row = getDB()
-    .prepare(`
+    .query(`
       select created_player
       from files_content
       where game_id = ?
@@ -725,7 +734,7 @@ export function isGameCreator(playerId: string, gameId: string): boolean {
  */
 export function getGamesCreatedByPlayer(playerId: string): number {
   const row = getDB()
-    .prepare(`
+    .query(`
       select count(*) as count
       from files_content fc
       where fc.created_player = ?
@@ -745,7 +754,7 @@ export function batchUpdateGamesWhitelist(gameIds: string[], whitelist: boolean)
     return
   }
   getDB()
-    .prepare(`
+    .query(`
       update files
       set whitelist  = ?,
           updated_at = ?
@@ -760,7 +769,7 @@ export function batchDeleteGames(gameIds: string[]): void {
   if (!gameIds.length) {
     return
   }
-  getDB().prepare(`
+  getDB().query(`
     delete
     from files
     where game_id in (${buildInClause(gameIds)})`)
@@ -772,7 +781,7 @@ export function batchDeleteGames(gameIds: string[]): void {
  */
 function getLatestFileData(table: FileTable, gameId: string): FileData | null {
   const row = getDB()
-    .prepare(`
+    .query(`
       select id, game_id, turns, created_player, created_ip, created_at, data
       from ${table}
       where game_id = ?
@@ -788,7 +797,7 @@ function getLatestFileData(table: FileTable, gameId: string): FileData | null {
  */
 function saveFileData(table: FileTable, gameId: string, turns: number, playerId: string, ip: string, data: string): void {
   getDB()
-    .prepare(`
+    .query(`
       insert into ${table} (game_id, turns, created_player, created_ip, created_at, data)
       values (?, ?, ?, ?, ?, ?)
     `)
@@ -844,7 +853,7 @@ export function acquireSimultaneousTurnLock(gameId: string, turn: number, owner:
     return false
   }
   const db = getDB()
-  const result = db.prepare(`
+  const result = db.query(`
     insert into simultaneous_turn_locks (game_id, turn, owner, acquired_at)
     values (?, ?, ?, ?)
     on conflict(game_id) do update set turn = excluded.turn, owner = excluded.owner, acquired_at = excluded.acquired_at
@@ -860,7 +869,7 @@ export function acquireSimultaneousTurnLock(gameId: string, turn: number, owner:
 }
 
 export function releaseSimultaneousTurnLock(gameId: string, turn: number, owner: string): void {
-  getDB().prepare(`
+  getDB().query(`
     delete from simultaneous_turn_locks where game_id = ? and turn = ? and owner = ?
   `).run(gameId, turn, owner)
 }
@@ -874,7 +883,7 @@ export function renewSimultaneousTurnLock(gameId: string, turn: number, owner: s
   if (!Number.isInteger(turn) || turn < 0 || turn > maxSimultaneousTurn) {
     return false
   }
-  const result = getDB().prepare(`
+  const result = getDB().query(`
     update simultaneous_turn_locks set acquired_at = ?
     where game_id = ? and turn = ? and owner = ?
   `).run(now, gameId, turn, owner)
@@ -913,11 +922,11 @@ function normalizeSimultaneousTurnOperation(operation: unknown, expectedPlayerId
  * 只按回合作界，保证已结算回合的操作不会无限堆积。
  */
 function pruneSimultaneousTurnOperations(
-  db: BetterSqlite3.Database, gameId: string, keepFromTurn: number,
+  db: Database, gameId: string, keepFromTurn: number,
 ): void {
   // immediate 事务：与 append 的读-改-写串行化，避免并发提交的操作被裁剪写回时覆盖丢失。
   db.transaction(() => {
-  const row = db.prepare('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
+  const row = db.query('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
   if (!row) {
     return
   }
@@ -926,11 +935,11 @@ function pruneSimultaneousTurnOperations(
     parsed = JSON.parse(valueText(row.data))
   } catch {
     // 数据损坏时直接丢弃，避免永久阻塞后续写入
-    db.prepare('delete from simultaneous_turn_operations where game_id = ?').run(gameId)
+    db.query('delete from simultaneous_turn_operations where game_id = ?').run(gameId)
     return
   }
   if (!Array.isArray(parsed)) {
-    db.prepare('delete from simultaneous_turn_operations where game_id = ?').run(gameId)
+    db.query('delete from simultaneous_turn_operations where game_id = ?').run(gameId)
     return
   }
   const kept: unknown[] = []
@@ -946,7 +955,7 @@ function pruneSimultaneousTurnOperations(
   if (dropped.length === 0) {
     return
   }
-  db.prepare(`
+  db.query(`
     insert into simultaneous_turn_operations (game_id, data, updated_at)
     values (?, ?, ?)
     on conflict(game_id) do update set data = excluded.data, updated_at = excluded.updated_at
@@ -960,7 +969,7 @@ export function appendSimultaneousTurnOperations(
   const db = getDB()
   // immediate 事务：读-改-写必须整体串行化，否则多个连接/进程并发提交时会互相覆盖（丢操作）。
   const transaction = db.transaction(() => {
-    const row = db.prepare('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
+    const row = db.query('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
     let existing: unknown[] = []
     if (row) {
       const parsed = JSON.parse(valueText(row.data)) as unknown
@@ -1010,7 +1019,7 @@ export function appendSimultaneousTurnOperations(
       }
       retained = retained.filter((operation) => operation.turn > oldestTurn)
     }
-    db.prepare(`
+    db.query(`
       insert into simultaneous_turn_operations (game_id, data, updated_at)
       values (?, ?, ?)
       on conflict(game_id) do update set data = excluded.data, updated_at = excluded.updated_at
@@ -1020,7 +1029,7 @@ export function appendSimultaneousTurnOperations(
 }
 
 export function getSimultaneousTurnOperations(gameId: string): string | null {
-  const row = getDB().prepare('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
+  const row = getDB().query('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
   return row ? valueText(row.data) : null
 }
 
@@ -1040,7 +1049,7 @@ export function saveFilePreview(gameId: string, turns: number, playerId: string,
  */
 export function getAllTurnsForGame(gameId: string): FileData[] {
   const rows = getDB()
-    .prepare(`
+    .query(`
       select id, game_id, turns, created_player, created_ip, created_at, data
       from files_content
       where game_id = ?
@@ -1056,7 +1065,7 @@ export function getAllTurnsForGame(gameId: string): FileData[] {
  */
 export function getTurnsMetadata(gameId: string): TurnMetadata[] {
   const rows = getDB()
-    .prepare(`
+    .query(`
       select id, turns, created_player, created_ip, created_at
       from files_content
       where game_id = ?
@@ -1078,7 +1087,7 @@ export function getTurnsMetadata(gameId: string): TurnMetadata[] {
  */
 export function getTurnByID(turnId: number): FileData | null {
   const row = getDB()
-    .prepare(`
+    .query(`
       select id, game_id, turns, created_player, created_ip, created_at, data
       from files_content
       where id = ?
@@ -1093,7 +1102,7 @@ export function getTurnByID(turnId: number): FileData | null {
  */
 function deleteRowsAfterTarget(table: FileTable, gameId: string, targetId: number): number {
   const result = getDB()
-    .prepare(`
+    .query(`
       with target as ( select turns, created_at, id from ${table} where id = ? )
       delete
       from ${table}
@@ -1116,7 +1125,7 @@ export function rollbackGameToTurn(gameId: string, turnId: number): RollbackResu
   const conn = getDB()
   const rollback = conn.transaction(() => {
     const target = conn
-      .prepare(`
+      .query(`
         select id, game_id, turns, created_player, created_ip, created_at
         from files_content
         where id = ?
@@ -1130,7 +1139,7 @@ export function rollbackGameToTurn(gameId: string, turnId: number): RollbackResu
 
     const createdPlayer = valueText(target.created_player)
     const previewRow = conn
-      .prepare(`
+      .query(`
         select id
         from files_preview
         where game_id = ?
@@ -1146,7 +1155,7 @@ export function rollbackGameToTurn(gameId: string, turnId: number): RollbackResu
 
     const deletedTurns = deleteRowsAfterTarget('files_content', gameId, Number(target.id))
     const deletedPreviews = deleteRowsAfterTarget('files_preview', gameId, Number(previewRow.id))
-    conn.prepare('update files set updated_at = ? where game_id = ?').run(Date.now(), gameId)
+    conn.query('update files set updated_at = ? where game_id = ?').run(Date.now(), gameId)
 
     return {
       deletedTurns,
@@ -1167,7 +1176,7 @@ export function getAllStats(): Stats {
   const sevenDaysAgo = now - 7 * dayMs
   const thirtyDaysAgo = now - 30 * dayMs
   const row = getDB()
-    .prepare(`
+    .query(`
       with player_stats as ( select count(*)                                                                 as player_count,
                                     coalesce(sum(case when whitelist = 1 then 1 else 0 end), 0)              as whitelist_player_count,
                                     coalesce(sum(case when approved = 0 then 1 else 0 end), 0)               as pending_player_count,
@@ -1244,7 +1253,7 @@ export function getAllStats(): Stats {
 export function cleanupEmptyGames(): number {
   const now = Date.now()
   const result = getDB()
-    .prepare(`
+    .query(`
       delete
       from files
       where not exists (select 1 from files_content c where c.game_id = files.game_id)
@@ -1259,7 +1268,7 @@ export function cleanupEmptyGames(): number {
  */
 export function getArchiveUsage(): number {
   const row = getDB()
-    .prepare(`
+    .query(`
       select (select coalesce(sum(length(data)), 0) from files_content) +
              (select coalesce(sum(length(data)), 0) from files_preview) as total_bytes
     `)
@@ -1341,7 +1350,7 @@ export function archiveColdGames(archiveDir: string, maxBytes: number): ArchiveR
 
   const conn = getDB()
   const candidates = conn
-    .prepare(`
+    .query(`
       select f.game_id as game_id,
              coalesce((select sum(length(c.data)) from files_content c where c.game_id = f.game_id), 0) +
              coalesce((select sum(length(p.data)) from files_preview p where p.game_id = f.game_id), 0) as bytes
@@ -1377,7 +1386,7 @@ export function archiveColdGames(archiveDir: string, maxBytes: number): ArchiveR
       if (archived == null) continue
       const line = `${JSON.stringify(archived)}\n`
       fs.writeSync(handle, line)
-      bytes += Buffer.byteLength(line)
+      bytes += new TextEncoder().encode(line).length
     }
     fs.fsyncSync(handle)
   } catch (error) {
@@ -1396,8 +1405,8 @@ export function archiveColdGames(archiveDir: string, maxBytes: number): ArchiveR
 
   const archiveFile = bytes === 0 ? '' : path.basename(file)
   const archivedAt = Date.now()
-  const remove = conn.prepare('delete from files where game_id = ?')
-  const remember = conn.prepare(`
+  const remove = conn.query('delete from files where game_id = ?')
+  const remember = conn.query(`
     insert into archived_games (game_id, archive_file, archived_at, restore_requested_at, requested_by)
     values (?, ?, ?, null, '')
     on conflict(game_id) do update set archive_file         = excluded.archive_file,
@@ -1440,7 +1449,7 @@ function rowToArchivedGameRecord(row: Row): ArchivedGameRecord {
 /** 查询某个对局是否已被冷归档 */
 export function getArchivedGameRecord(gameId: string): ArchivedGameRecord | null {
   const row = getDB()
-    .prepare(`
+    .query(`
       select game_id, archive_file, archived_at, restore_requested_at, requested_by
       from archived_games
       where game_id = ?
@@ -1455,7 +1464,7 @@ export function getArchivedGameRecord(gameId: string): ArchivedGameRecord | null
  */
 export function requestArchivedGameRestore(gameId: string, playerId: string): void {
   getDB()
-    .prepare(`
+    .query(`
       update archived_games
       set restore_requested_at = coalesce(restore_requested_at, ?),
           requested_by         = ?
@@ -1467,7 +1476,7 @@ export function requestArchivedGameRestore(gameId: string, playerId: string): vo
 /** 管理员：待恢复的冷存档列表（按请求时间从早到晚） */
 export function getRestoreRequests(): ArchivedGameRecord[] {
   const rows = getDB()
-    .prepare(`
+    .query(`
       select game_id, archive_file, archived_at, restore_requested_at, requested_by
       from archived_games
       where restore_requested_at is not null
@@ -1479,7 +1488,7 @@ export function getRestoreRequests(): ArchivedGameRecord[] {
 
 /** 管理员：放弃恢复某局冷存档（删除墓碑，之后玩家再访问会被当作普通的不存在对局） */
 export function clearArchivedGame(gameId: string): number {
-  return getDB().prepare('delete from archived_games where game_id = ?').run(gameId).changes
+  return getDB().query('delete from archived_games where game_id = ?').run(gameId).changes
 }
 
 /**
@@ -1512,7 +1521,7 @@ export function restoreArchivedGames(file: string, gameId?: string): ArchivedGam
   conn.transaction(() => {
     for (const archived of archivedGames) {
       conn
-        .prepare(`
+        .query(`
           insert into files (game_id, players, created_at, updated_at, whitelist, remark)
           values (?, ?, ?, ?, ?, ?)
           on conflict(game_id) do update set players    = excluded.players,
@@ -1529,15 +1538,15 @@ export function restoreArchivedGames(file: string, gameId?: string): ArchivedGam
           archived.remark,
         )
 
-      conn.prepare('delete from files_content where game_id = ?').run(archived.gameId)
+      conn.query('delete from files_content where game_id = ?').run(archived.gameId)
       conn
-        .prepare('insert into files_content (game_id, turns, created_player, created_at, data) values (?, ?, ?, ?, ?)')
+        .query('insert into files_content (game_id, turns, created_player, created_at, data) values (?, ?, ?, ?, ?)')
         .run(archived.gameId, archived.turns, archived.contentPlayer, archived.contentCreatedAt, archived.data)
 
-      conn.prepare('delete from files_preview where game_id = ?').run(archived.gameId)
+      conn.query('delete from files_preview where game_id = ?').run(archived.gameId)
       if (archived.previewData != null) {
         conn
-          .prepare('insert into files_preview (game_id, turns, created_player, created_at, data) values (?, ?, ?, ?, ?)')
+          .query('insert into files_preview (game_id, turns, created_player, created_at, data) values (?, ?, ?, ?, ?)')
           .run(
             archived.gameId,
             archived.previewTurns ?? archived.turns,
@@ -1546,7 +1555,7 @@ export function restoreArchivedGames(file: string, gameId?: string): ArchivedGam
             archived.previewData,
           )
       }
-      conn.prepare('delete from archived_games where game_id = ?').run(archived.gameId)
+      conn.query('delete from archived_games where game_id = ?').run(archived.gameId)
     }
   })()
 
@@ -1558,7 +1567,7 @@ export function restoreArchivedGames(file: string, gameId?: string): ArchivedGam
  */
 function cleanupOldFileRecords(table: FileTable): number {
   const result = getDB()
-    .prepare(
+    .query(
       `
         delete
         from ${table}
@@ -1612,8 +1621,8 @@ export function runCleanup(
   }
   const ips = clearExpiredIPs()
   const conn = getDB()
-  conn.exec('ANALYZE')
-  conn.exec('VACUUM')
+  conn.run('ANALYZE')
+  conn.run('VACUUM')
   console.info('数据清理任务完成', {
     emptyGames,
     archivedGames: archived.games,

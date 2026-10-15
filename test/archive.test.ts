@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, test } from 'vitest'
+import { afterEach, beforeEach, test } from 'bun:test'
 import {
   archiveColdGames, cleanupEmptyGames, clearArchivedGame, createGame, getArchivedGameRecord, getArchiveUsage, getDB,
   getGameByID, getLatestFileContent, getLatestFilePreview, getRestoreRequests, restoreArchivedGames, saveFileContent,
@@ -35,7 +35,7 @@ function makeGame(gameId: string, size: number, updatedAtOffset: number): number
   saveFilePreview(gameId, 1, testPlayerID1, '127.0.0.1', '{"preview":1}')
   const updatedAt = Date.now() + updatedAtOffset
   getDB()
-    .prepare('update files set whitelist = 0, created_at = ?, updated_at = ? where game_id = ?')
+    .query('update files set whitelist = 0, created_at = ?, updated_at = ? where game_id = ?')
     .run(updatedAt - 1000, updatedAt, gameId)
   return updatedAt
 }
@@ -108,7 +108,7 @@ test('没有存档的空对局不写进归档文件，由空对局清理负责',
   createGame(testGameID1, [testPlayerID1])
   const old = Date.now() - 2 * 24 * 60 * 60 * 1000
   getDB()
-    .prepare('update files set created_at = ?, updated_at = ? where game_id = ?')
+    .query('update files set created_at = ?, updated_at = ? where game_id = ?')
     .run(old, old, testGameID1)
 
   const result = archiveColdGames(archiveDir, 1)
@@ -127,7 +127,7 @@ test('玩家打开已冷归档的对局时返回提示并登记恢复请求，�
   assert.equal(archiveColdGames(archiveDir, 1000).games, 1)
   assert.equal(getGameByID(testGameID1), null)
 
-  const response = await server.app.request(`/files/${testGameID1}`, {
+  const response = await server.request(`/files/${testGameID1}`, {
     headers: { Authorization: basicAuth(testPlayerID1, testPassword), 'User-Agent': 'Unciv' },
   })
   assert.equal(response.status, 503)
@@ -143,21 +143,21 @@ test('玩家打开已冷归档的对局时返回提示并登记恢复请求，�
   assert.ok(requests[0].restoreRequestedAt != null)
 
   // 客户端会定时刷新预览：这类请求也要给出提示，但不应该登记成玩家的恢复请求
-  const preview = await server.app.request(`/files/${testGameID1}_Preview`, {
+  const preview = await server.request(`/files/${testGameID1}_Preview`, {
     headers: { Authorization: basicAuth(testPlayerID2, testPassword), 'User-Agent': 'Unciv' },
   })
   assert.equal(preview.status, 503)
   assert.equal(getRestoreRequests()[0].requestedBy, testPlayerID1)
 
   // 管理员可以查到待恢复列表，也可以放弃某一局
-  const cookie = await loginAsAdmin(server.app)
-  const list = await server.app.request('/api/restore-requests', { headers: { Cookie: cookie } })
+  const cookie = await loginAsAdmin(server)
+  const list = await server.request('/api/restore-requests', { headers: { Cookie: cookie } })
   assert.equal(list.status, 200)
   const body = (await list.json()) as { requests: Array<{ gameId: string, requestedBy: string }> }
   assert.deepEqual(body.requests.map((item) => item.gameId), [testGameID1])
   assert.equal(body.requests[0].requestedBy, testPlayerID1)
 
-  const cleared = await server.app.request(`/api/restore-requests/${testGameID1}`, {
+  const cleared = await server.request(`/api/restore-requests/${testGameID1}`, {
     method: 'DELETE', headers: { Cookie: cookie },
   })
   assert.equal(cleared.status, 204)

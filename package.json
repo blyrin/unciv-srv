@@ -2,42 +2,18 @@
   "name": "unciv-srv",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@10.34.5",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "bun": ">=1.4.3"
   },
   "scripts": {
-    "dev": "tsx src/main.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/main.js",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "format": "prettier --write .",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
-  },
-  "dependencies": {
-    "@hono/node-server": "^2.0.6",
-    "better-sqlite3": "^12.11.1",
-    "fflate": "^0.8.3",
-    "hono": "^4.12.27",
-    "ws": "^8.21.0"
+    "dev": "bun --bun --watch src/main.ts",
+    "build": "bun build --minify --target=bun --outdir dist src/main.ts",
+    "start": "bun --bun dist/main.js",
+    "typecheck": "bun check -p tsconfig.json && bun check -p tsconfig.test.json",
+    "test": "bun test"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^25.9.4",
-    "@types/ws": "^8.18.1",
-    "@vitest/coverage-v8": "^4.1.9",
-    "eslint": "^9.39.4",
-    "eslint-config-prettier": "^10.1.8",
-    "globals": "^17.12.0",
-    "prettier": "^3.9.9",
-    "tsx": "^4.22.4",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.70.1",
-    "vitest": "^4.1.9"
+    "@types/bun": "^1.4.3"
   }
 }

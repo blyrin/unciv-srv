@@ -1,4 +1,5 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { CryptoHasher } from 'bun'
+import { scryptSync, timingSafeEqual } from 'node:crypto'
 
 /** 哈希前缀，用来区分加密存储的密码与旧库中的明文密码 */
 const hashPrefix = 'scrypt$'
@@ -31,9 +32,9 @@ const verifyCache = new Map<string, VerifyCacheEntry>()
  * 生成密码哈希，格式：scrypt$N$r$p$盐(Base64)$哈希(Base64)。
  */
 export function hashPassword(password: string): string {
-  const salt = randomBytes(saltLength)
+  const salt = crypto.getRandomValues(new Uint8Array(saltLength))
   const hash = scryptSync(password, salt, keyLength, { N, r: blockSize, p: parallelization, maxmem })
-  return `${hashPrefix}${N}$${blockSize}$${parallelization}$${salt.toString('base64')}$${hash.toString('base64')}`
+  return `${hashPrefix}${N}$${blockSize}$${parallelization}$${salt.toBase64()}$${hash.toBase64()}`
 }
 
 /**
@@ -73,8 +74,8 @@ export function verifyPassword(password: string, stored: string): boolean {
     return false
   }
 
-  const salt = Buffer.from(parts[4], 'base64')
-  const expected = Buffer.from(parts[5], 'base64')
+  const salt = Uint8Array.fromBase64(parts[4])
+  const expected = Uint8Array.fromBase64(parts[5])
   if (salt.length === 0 || expected.length === 0) {
     return false
   }
@@ -92,7 +93,8 @@ export function verifyPassword(password: string, stored: string): boolean {
  * 带缓存的密码校验：同一密码在缓存有效期内只做一次 scrypt。
  */
 export function verifyPasswordCached(playerId: string, password: string, stored: string): boolean {
-  const key = `${playerId}:${createHash('sha256').update(password).digest('base64')}`
+  const digest = new CryptoHasher('sha256').update(password).digest('base64')
+  const key = `${playerId}:${digest}`
   const now = Date.now()
   const cached = verifyCache.get(key)
   if (cached != null && cached.stored === stored && cached.expiresAt > now) {

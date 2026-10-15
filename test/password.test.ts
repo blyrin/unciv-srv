@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { test } from 'bun:test'
 import {
   clearPasswordCache, hashPassword, isHashedPassword, verifyPassword, verifyPasswordCached,
 } from '../src/password.js'

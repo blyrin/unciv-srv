@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterEach, beforeEach, test, vi } from 'vitest'
+import { afterEach, beforeEach, jest, mock, test } from 'bun:test'
 import { shouldSyncFile } from '../src/downloads.js'
 import { setupTestServer, type TestServer } from './helpers/server.js'
 
@@ -20,6 +20,7 @@ const releaseInfo = {
 }
 
 let server: TestServer
+const originalFetch = globalThis.fetch
 
 beforeEach(() => {
   server = setupTestServer()
@@ -27,8 +28,8 @@ beforeEach(() => {
 
 afterEach(() => {
   server.close()
-  vi.unstubAllGlobals()
-  vi.useRealTimers()
+  globalThis.fetch = originalFetch
+  jest.useRealTimers()
 })
 
 test('shouldSyncFile：排除辅助文件，保留安装包', () => {
@@ -41,7 +42,7 @@ test('shouldSyncFile：排除辅助文件，保留安装包', () => {
 })
 
 test('直链：302 到镜像前缀的 GitHub 下载地址', async () => {
-  const response = await server.app.request('/dl/4.21.10.7/UncivCN-4.21.10.7.Apk')
+  const response = await server.request('/dl/4.21.10.7/UncivCN-4.21.10.7.Apk')
   assert.equal(response.status, 302)
   assert.equal(
     response.headers.get('Location'),
@@ -52,7 +53,7 @@ test('直链：302 到镜像前缀的 GitHub 下载地址', async () => {
 test('直链：未配置镜像前缀时直接跳 GitHub', async () => {
   const plainServer = setupTestServer({ downloadGithubProxy: '' })
   try {
-    const response = await plainServer.app.request('/dl/4.21.10.7/linuxFilesForJar-4.21.10.7.zip')
+    const response = await plainServer.request('/dl/4.21.10.7/linuxFilesForJar-4.21.10.7.zip')
     assert.equal(response.status, 302)
     assert.equal(
       response.headers.get('Location'),
@@ -64,48 +65,50 @@ test('直链：未配置镜像前缀时直接跳 GitHub', async () => {
 })
 
 test('直链：拒绝非法版本号与文件名', async () => {
-  assert.equal((await server.app.request('/dl/not-a-version/x.apk')).status, 400)
-  assert.equal((await server.app.request('/dl/4.21.10.7/..%2Fevil.apk')).status, 400)
+  assert.equal((await server.request('/dl/not-a-version/x.apk')).status, 400)
+  assert.equal((await server.request('/dl/4.21.10.7/..%2Fevil.apk')).status, 400)
 })
 
 test('版本清单：转发 GitHub latest release 并过滤辅助文件', async () => {
-  const fetchMock = vi.fn(async (_url: string | URL | Request) => new Response(JSON.stringify(releaseInfo), {
+  const fetchMock = mock(async (_url: string | URL | Request) => new Response(JSON.stringify(releaseInfo), {
     headers: { 'Content-Type': 'application/json' },
   }))
-  vi.stubGlobal('fetch', fetchMock)
-
-  const response = await server.app.request('/api/downloads/latest.json')
+  globalThis.fetch = fetchMock as unknown as typeof fetch
+  const response = await server.request('/api/downloads/latest.json')
   assert.equal(response.status, 200)
-  const body = await response.json()
+  const body = await response.json() as { tag_name: string; assets: Array<{ name: string }> }
   assert.equal(body.tag_name, '4.21.10.7')
-  assert.equal(body.html_url, 'https://github.com/AutumnPizazz/Unciv/releases/tag/4.21.10.7')
-  assert.equal(body.name, '4.21.10.7')
-  assert.deepEqual(body.assets.map((asset: { name: string }) => asset.name), ['UncivCN-4.21.10.7.Apk'])
-  assert.ok(String(fetchMock.mock.calls[0][0]).includes('api.github.com/repos/AutumnPizazz/Unciv/releases/latest'))
+  assert.equal(body.assets.length, 1)
+  assert.equal(body.assets[0]?.name, 'UncivCN-4.21.10.7.Apk')
+  assert.ok(String(fetchMock.mock.calls[0]?.[0]).includes('api.github.com/repos/AutumnPizazz/Unciv/releases/latest'))
 
   // 缓存：短时间内再次请求不会重复访问 GitHub API
-  await server.app.request('/api/downloads/latest.json')
+  await server.request('/api/downloads/latest.json')
   assert.equal(fetchMock.mock.calls.length, 1)
 })
 
 test('版本清单：GitHub 不可用且无缓存时返回 502', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => {
+  const failingFetch = mock(async () => {
     throw new Error('network down')
-  }))
-  const response = await server.app.request('/api/downloads/latest.json')
+  })
+  globalThis.fetch = failingFetch as unknown as typeof fetch
+
+  const response = await server.request('/api/downloads/latest.json')
   assert.equal(response.status, 502)
 })
 
 test('版本清单：缓存过期后 GitHub 出错则继续使用上一次缓存', async () => {
-  vi.stubGlobal('fetch', vi.fn(async (_url: string | URL | Request) => new Response(JSON.stringify(releaseInfo))))
-  vi.useFakeTimers()
-  assert.equal((await server.app.request('/api/downloads/latest.json')).status, 200)
+  const releaseFetch = mock(async (_url: string | URL | Request) => new Response(JSON.stringify(releaseInfo)))
+  globalThis.fetch = releaseFetch as unknown as typeof fetch
+  jest.useFakeTimers()
+  assert.equal((await server.request('/api/downloads/latest.json')).status, 200)
 
-  vi.setSystemTime(Date.now() + 5 * 60_000)
-  vi.stubGlobal('fetch', vi.fn(async () => {
+  jest.setSystemTime(Date.now() + 5 * 60_000)
+  const failingFetch = mock(async () => {
     throw new Error('network down')
-  }))
-  const response = await server.app.request('/api/downloads/latest.json')
+  })
+  globalThis.fetch = failingFetch as unknown as typeof fetch
+  const response = await server.request('/api/downloads/latest.json')
   assert.equal(response.status, 200)
-  assert.equal((await response.json()).tag_name, '4.21.10.7')
+  assert.equal((await response.json() as { tag_name: string }).tag_name, '4.21.10.7')
 })

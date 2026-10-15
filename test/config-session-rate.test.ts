@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, test, vi } from 'vitest'
+import { afterEach, jest, test } from 'bun:test'
 import { loadConfig, loadEnvFile } from '../src/config.js'
 import { RateLimiter } from '../src/rate-limit.js'
 import {
@@ -100,12 +100,12 @@ test('Session 计数只统计未过期的会话', () => {
 })
 
 test('Session 过期读取和批量清理符合约定', () => {
-  vi.useFakeTimers()
-  vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
+  jest.useFakeTimers()
+  jest.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
   const expiredByRead = createSession('expired-read', false)
   const expiredByCleanup = createSession('expired-cleanup', true)
 
-  vi.setSystemTime(new Date('2026-01-02T00:00:00.001Z'))
+  jest.setSystemTime(new Date('2026-01-02T00:00:00.001Z'))
   assert.equal(getSession(expiredByRead), null)
   cleanupExpiredSessions()
   assert.equal(getSession(expiredByCleanup), null)
@@ -129,19 +129,19 @@ test('登录限流记录失败、锁定和重置', () => {
 })
 
 test('登录限流锁定过期后重新计数并清理旧记录', () => {
-  vi.useFakeTimers()
-  vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
+  jest.useFakeTimers()
+  jest.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
   const limiter = new RateLimiter(2, 1)
   try {
     assert.equal(limiter.recordAttempt('locked'), false)
     assert.equal(limiter.recordAttempt('locked'), true)
-    vi.setSystemTime(new Date('2026-01-01T00:01:00.001Z'))
+    jest.setSystemTime(new Date('2026-01-01T00:01:00.001Z'))
     assert.equal(limiter.recordAttempt('locked'), false)
     assert.equal(limiter.getRemainingAttempts('locked'), 1)
 
     assert.equal(limiter.recordAttempt('stale'), false)
-    vi.setSystemTime(new Date('2026-01-02T00:01:00.002Z'))
-    vi.advanceTimersByTime(oneMinuteMs)
+    jest.setSystemTime(new Date('2026-01-02T00:01:00.002Z'))
+    jest.advanceTimersByTime(oneMinuteMs)
     assert.equal(limiter.getRemainingAttempts('stale'), 2)
   } finally {
     limiter.close()

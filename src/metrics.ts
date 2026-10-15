@@ -39,25 +39,25 @@ export function renderMetrics(): string {
   const metrics: MetricLine[] = [
     {
       name: 'process_uptime_seconds',
-      help: 'Node.js 进程运行时长（秒）',
+      help: '进程运行时长（秒）',
       type: 'gauge',
       value: process.uptime(),
     },
     {
       name: 'process_resident_memory_bytes',
-      help: 'Node.js 进程常驻内存大小（字节）',
+      help: '进程常驻内存大小（字节）',
       type: 'gauge',
       value: memory.rss,
     },
     {
-      name: 'nodejs_heap_used_bytes',
-      help: 'V8 堆已使用字节数',
+      name: 'js_heap_used_bytes',
+      help: 'JS 堆已使用字节数',
       type: 'gauge',
       value: memory.heapUsed,
     },
     {
-      name: 'nodejs_heap_total_bytes',
-      help: 'V8 堆申请的总字节数',
+      name: 'js_heap_total_bytes',
+      help: 'JS 堆申请的总字节数',
       type: 'gauge',
       value: memory.heapTotal,
     },

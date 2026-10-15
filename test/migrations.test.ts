@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterEach, beforeEach, test } from 'vitest'
+import { afterEach, beforeEach, test } from 'bun:test'
 import { getDB, rollbackLastMigration, runMigrations } from '../src/database.js'
 import { setupTestServer, type TestServer } from './helpers/server.js'
 
@@ -15,13 +15,13 @@ afterEach(() => {
 
 function hasTable(name: string): boolean {
   const row = getDB()
-    .prepare("select name from sqlite_master where type = 'table' and name = ?")
+    .query("select name from sqlite_master where type = 'table' and name = ?")
     .get(name)
   return row != null
 }
 
 function migrationCount(): number {
-  const row = getDB().prepare('select count(*) as count from schema_migrations').get() as { count: number }
+  const row = getDB().query('select count(*) as count from schema_migrations').get() as { count: number }
   return row.count
 }
 

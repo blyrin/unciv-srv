@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterEach, beforeEach, test } from 'vitest'
+import { afterEach, beforeEach, test } from 'bun:test'
 import { createGame, getLatestFileContent, getPlayerByID, getSimultaneousTurnOperations, maxSimultaneousTurnOperations } from '../src/database.js'
 import { decodeFile, encodeFile, maxTurnOperationsSize } from '../src/utils.js'
 import {
@@ -21,7 +21,7 @@ test('同步回合玩家并发提交操作不会互相覆盖且接受省略的�
   seedPlayer(testPlayerID1)
   seedPlayer(testPlayerID2)
   createGame(testGameID1, [testPlayerID1, testPlayerID2])
-  const request = (playerId: string) => server.app.request(`/simultaneous-turn-operations/${testGameID1}`, {
+  const request = (playerId: string) => server.request(`/simultaneous-turn-operations/${testGameID1}`, {
     method: 'POST', headers: { Authorization: basicAuth(playerId), 'User-Agent': 'Unciv' },
     body: JSON.stringify([{ playerId, type: 'done' }]),
   })
@@ -34,7 +34,7 @@ test('同步回合玩家并发提交操作不会互相覆盖且接受省略的�
   assert.deepEqual(saved.map((operation) => operation.playerId).sort(), [testPlayerID1, testPlayerID2].sort())
   assert.equal(saved.every((operation) => operation.turn === 0 && operation.sequence === 0), true)
 
-  const spoofed = await server.app.request(`/simultaneous-turn-operations/${testGameID1}`, {
+  const spoofed = await server.request(`/simultaneous-turn-operations/${testGameID1}`, {
     method: 'POST', headers: { Authorization: basicAuth(testPlayerID1), 'User-Agent': 'Unciv' },
     body: JSON.stringify([{ playerId: testPlayerID2, type: 'done' }]),
   })
@@ -44,7 +44,7 @@ test('同步回合玩家并发提交操作不会互相覆盖且接受省略的�
 test('超大的同步回合操作提交返回 413', async () => {
   seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
-  const response = await server.app.request(`/simultaneous-turn-operations/${testGameID1}`, {
+  const response = await server.request(`/simultaneous-turn-operations/${testGameID1}`, {
     method: 'POST', headers: { Authorization: basicAuth(testPlayerID1), 'User-Agent': 'Unciv' },
     body: 'x'.repeat(maxTurnOperationsSize + 1),
   })
@@ -56,27 +56,27 @@ test('结算锁续期路由只接受持有者本人', async () => {
   seedPlayer(testPlayerID2)
   createGame(testGameID1, [testPlayerID1, testPlayerID2])
   const headers = (playerId: string) => ({ Authorization: basicAuth(playerId), 'User-Agent': 'Unciv' })
-  const acquire = await server.app.request(`/simultaneous-turn-lock/${testGameID1}`, {
+  const acquire = await server.request(`/simultaneous-turn-lock/${testGameID1}`, {
     method: 'POST', headers: headers(testPlayerID1), body: `3:${testPlayerID1}`,
   })
   assert.equal(acquire.status, 201)
 
-  const renew = await server.app.request(`/simultaneous-turn-lock/${testGameID1}/renew`, {
+  const renew = await server.request(`/simultaneous-turn-lock/${testGameID1}/renew`, {
     method: 'POST', headers: headers(testPlayerID1), body: `3:${testPlayerID1}`,
   })
   assert.equal(renew.status, 204)
 
   // 冒用他人 owner 无法绕过参数校验
-  const spoofed = await server.app.request(`/simultaneous-turn-lock/${testGameID1}/renew`, {
+  const spoofed = await server.request(`/simultaneous-turn-lock/${testGameID1}/renew`, {
     method: 'POST', headers: headers(testPlayerID1), body: `3:${testPlayerID2}`,
   })
   assert.equal(spoofed.status, 400)
 
   // 锁已被更高回合接管后，旧回合续期返回 409，客户端需重新取锁
-  await server.app.request(`/simultaneous-turn-lock/${testGameID1}`, {
+  await server.request(`/simultaneous-turn-lock/${testGameID1}`, {
     method: 'POST', headers: headers(testPlayerID1), body: `4:${testPlayerID1}`,
   })
-  const stale = await server.app.request(`/simultaneous-turn-lock/${testGameID1}/renew`, {
+  const stale = await server.request(`/simultaneous-turn-lock/${testGameID1}/renew`, {
     method: 'POST', headers: headers(testPlayerID1), body: `3:${testPlayerID1}`,
   })
   assert.equal(stale.status, 409)
@@ -89,7 +89,7 @@ test('同步回合操作超过单局上限返回 400 且不写入', async () => 
   const operations = Array.from({ length: maxSimultaneousTurnOperations + 1 }, (_, sequence) => ({
     turn: 0, sequence, type: 'move', playerId: testPlayerID1,
   }))
-  const response = await server.app.request(`/simultaneous-turn-operations/${testGameID1}`, {
+  const response = await server.request(`/simultaneous-turn-operations/${testGameID1}`, {
     method: 'POST', headers, body: JSON.stringify(operations),
   })
   assert.equal(response.status, 400)
@@ -97,13 +97,13 @@ test('同步回合操作超过单局上限返回 400 且不写入', async () => 
 })
 
 test('/isalive 返回健康检查内容', async () => {
-  const response = await server.app.request('/isalive')
+  const response = await server.request('/isalive')
   assert.equal(response.status, 200)
   assert.equal(await response.text(), '{"authVersion":1,"chatVersion":1}')
 })
 
 test('/auth 自动注册并返回 204', async () => {
-  const response = await server.app.request('/auth', {
+  const response = await server.request('/auth', {
     headers: { Authorization: basicAuth() },
   })
   assert.equal(response.status, 204)
@@ -121,7 +121,7 @@ test('HTTP 直连请求写入真实远端 IP', async () => {
     assert.notEqual(player.createIp, 'unknown')
     assert.doesNotMatch(player.createIp, /^::ffff:/)
   } finally {
-    http.server.close()
+    http.server.stop(true)
   }
 })
 
@@ -129,14 +129,14 @@ test('/files 上传和下载正式存档', async () => {
   seedPlayer()
   const body = buildGameData(testGameID1, 4, [testPlayerID1])
   const uncivHeaders = { Authorization: basicAuth(), 'User-Agent': 'Unciv' }
-  const put = await server.app.request(`/files/${testGameID1}`, {
+  const put = await server.request(`/files/${testGameID1}`, {
     method: 'PUT',
     headers: uncivHeaders,
     body,
   })
   assert.equal(put.status, 204)
 
-  const get = await server.app.request(`/files/${testGameID1}`, {
+  const get = await server.request(`/files/${testGameID1}`, {
     headers: uncivHeaders,
   })
   assert.equal(get.status, 200)
@@ -152,7 +152,7 @@ test('/files 上传缺省回合数的初始存档', async () => {
     },
   }))
 
-  const put = await server.app.request(`/files/${testGameID1}`, {
+  const put = await server.request(`/files/${testGameID1}`, {
     method: 'PUT',
     headers: {
       Authorization: basicAuth(),
@@ -166,7 +166,7 @@ test('/files 上传缺省回合数的初始存档', async () => {
 })
 
 test('/files 拒绝非 Unciv 客户端', async () => {
-  const response = await server.app.request(`/files/${testGameID1}`, {
+  const response = await server.request(`/files/${testGameID1}`, {
     headers: { Authorization: basicAuth() },
   })
   assert.equal(response.status, 403)
@@ -174,7 +174,7 @@ test('/files 拒绝非 Unciv 客户端', async () => {
 
 test('/api/login 和 /api/session 保持 Cookie 会话行为', async () => {
   seedPlayer()
-  const login = await server.app.request('/api/login', {
+  const login = await server.request('/api/login', {
     method: 'POST',
     body: JSON.stringify({ username: testPlayerID1, password: testPassword }),
   })
@@ -183,7 +183,7 @@ test('/api/login 和 /api/session 保持 Cookie 会话行为', async () => {
 
   const cookie = login.headers.get('set-cookie')
   assert.ok(cookie?.includes('session_id='))
-  const session = await server.app.request('/api/session', {
+  const session = await server.request('/api/session', {
     headers: { Cookie: cookie ?? '' },
   })
   assert.deepEqual(await session.json(), { isLoggedIn: true, playerId: testPlayerID1 })
@@ -191,15 +191,15 @@ test('/api/login 和 /api/session 保持 Cookie 会话行为', async () => {
 
 test('用户可以下载参与游戏的回合列表和 ZIP', async () => {
   seedGameWithContent()
-  const cookie = await loginAsPlayer(server.app)
+  const cookie = await loginAsPlayer(server)
 
-  const turns = await server.app.request(`/api/games/${testGameID1}/turns`, {
+  const turns = await server.request(`/api/games/${testGameID1}/turns`, {
     headers: { Cookie: cookie },
   })
   assert.equal(turns.status, 200)
   assert.equal((await turns.json()).length, 1)
 
-  const download = await server.app.request(`/api/games/${testGameID1}/download`, {
+  const download = await server.request(`/api/games/${testGameID1}/download`, {
     headers: { Cookie: cookie },
   })
   assert.equal(download.status, 200)

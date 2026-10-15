@@ -1,7 +1,7 @@
-import { gunzipSync, gzipSync } from 'node:zlib'
-import { randomInt } from 'node:crypto'
-import { zipSync } from 'fflate'
-import type { Context } from 'hono'
+import { mkdtemp, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { $, Archive, file, gzipSync, gunzipSync, which, write } from 'bun'
 
 export const gameIdRegex = /^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}(_Preview)?$/
 export const playerIdRegex = /^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}$/
@@ -48,12 +48,11 @@ export interface FileEntry {
   data: string
 }
 
-interface NodeServerEnv {
-  incoming?: {
-    socket?: {
-      remoteAddress?: string
-    }
-  }
+/** 压缩包：系统 zip 不可用时回退 Bun.Archive 的 tar.gz */
+export interface ArchiveFile {
+  data: Uint8Array
+  extension: string
+  contentType: string
 }
 
 /**
@@ -98,8 +97,7 @@ export function successResponse(): Response {
  * 返回下载文件响应。
  */
 export function fileResponse(contentType: string, filename: string, data: Uint8Array | string): Response {
-  const body = typeof data === 'string' ? data : Buffer.from(data)
-  return new Response(body, {
+  return new Response(data as BodyInit, {
     status: 200,
     headers: {
       'Content-Type': contentType,
@@ -116,18 +114,18 @@ export function normalizeClientIP(ip: string): string {
 }
 
 /**
- * 恢复被 Node 按 Latin-1 暴露的 UTF-8 请求头文本。
+ * 恢复被按 Latin-1 暴露的 UTF-8 请求头文本。
  */
 export function decodeHeaderValue(value: string): string {
-  const decoded = Buffer.from(value, 'latin1').toString('utf8')
+  const bytes = Uint8Array.from(value, (char) => char.charCodeAt(0) & 0xff)
+  const decoded = new TextDecoder().decode(bytes)
   return decoded.includes('\uFFFD') ? value : decoded
 }
 
 /**
  * 按代理头和连接信息获取客户端 IP。
  */
-export function getClientIP(input: Request | Context, remoteAddress = ''): string {
-  const request = input instanceof Request ? input : input.req.raw
+export function getClientIP(request: Request, remoteAddress = ''): string {
   const forwardedFor = request.headers.get('X-Forwarded-For')
   if (forwardedFor) {
     const comma = forwardedFor.indexOf(',')
@@ -138,10 +136,6 @@ export function getClientIP(input: Request | Context, remoteAddress = ''): strin
   if (realIP) {
     return normalizeClientIP(realIP)
   }
-
-  if (!remoteAddress && !(input instanceof Request)) {
-    remoteAddress = ((input.env as NodeServerEnv | undefined)?.incoming?.socket?.remoteAddress ?? '')
-  }
   return normalizeClientIP(remoteAddress || 'unknown')
 }
 
@@ -149,9 +143,10 @@ export function getClientIP(input: Request | Context, remoteAddress = ''): strin
  * 生成指定长度的会话随机字符串。
  */
 export function generateRandomStr(length: number): string {
+  const random = crypto.getRandomValues(new Uint8Array(length))
   let result = ''
-  for (let i = 0; i < length; i += 1) {
-    result += randomCharset[randomInt(randomCharset.length)]
+  for (let index = 0; index < length; index += 1) {
+    result += randomCharset[random[index] % randomCharset.length]
   }
   return result
 }
@@ -171,7 +166,7 @@ export function parseBasicAuthCredentials(header: string | null | undefined): Ba
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 !== 0) {
     throw new HttpError(401, '无效的认证数据')
   }
-  const payload = Buffer.from(encoded, 'base64').toString('utf8')
+  const payload = new TextDecoder().decode(Uint8Array.fromBase64(encoded))
 
   const colon = payload.indexOf(':')
   if (colon < 0) {
@@ -214,7 +209,13 @@ export async function readLimitedText(request: Request, maxBytes = maxBodySize):
     chunks.push(value)
   }
 
-  return Buffer.concat(chunks).toString('utf8')
+  const merged = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(merged)
 }
 
 /**
@@ -225,8 +226,7 @@ export function decodeGameFile(encoded: string): { data: string; gameData: GameD
     throw new Error('空的文件数据')
   }
 
-  const compressed = Buffer.from(encoded, 'base64')
-  const data = gunzipSync(compressed).toString('utf8')
+  const data = new TextDecoder().decode(gunzipSync(Uint8Array.fromBase64(encoded)))
   return { data, gameData: parseGameData(data) }
 }
 
@@ -241,7 +241,7 @@ export function decodeFile(encoded: string): string {
  * 将 JSON 存档编码为客户端需要的 Base64+Gzip 格式。
  */
 export function encodeFile(data: string): string {
-  return gzipSync(Buffer.from(data)).toString('base64')
+  return gzipSync(new TextEncoder().encode(data)).toBase64()
 }
 
 /**
@@ -302,8 +302,70 @@ export function getBaseGameID(gameId: string): string {
 }
 
 /**
- * 创建历史存档 ZIP 数据。
+ * 用系统 zip 打包，目录内只允许出现本次生成的存档文件。
  */
-export function createZip(entries: FileEntry[]): Uint8Array {
-  return zipSync(Object.fromEntries(entries.map((entry) => [entry.name, Buffer.from(entry.data)])))
+async function zipWithSystemZip(dir: string, zipPath: string, names: string[]): Promise<boolean> {
+  if (!which('zip')) {
+    return false
+  }
+  try {
+    const result = await $`zip -q ${zipPath} ${names}`.cwd(dir).quiet().nothrow()
+    return result.exitCode === 0
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 用 PowerShell 的 Compress-Archive 打包（Windows 默认可用）。
+ */
+async function zipWithPowerShell(dir: string, zipPath: string, names: string[]): Promise<boolean> {
+  if (!which('powershell')) {
+    return false
+  }
+  try {
+    const paths = names.map((name) => path.join(dir, name))
+    const result = await $`powershell -NoProfile -Command Compress-Archive -Path ${paths} -DestinationPath ${zipPath}`
+      .quiet()
+      .nothrow()
+    return result.exitCode === 0 && (await file(zipPath).exists())
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 用 Bun.Archive 生成 tar.gz，系统 zip 不可用时的回退方案。
+ */
+export function createTarGz(entries: FileEntry[]): Promise<ArchiveFile> {
+  const archive = new Archive(Object.fromEntries(entries.map((entry) => [entry.name, entry.data])), {
+    compress: 'gzip',
+  })
+  return archive.bytes().then((data) => ({ data, extension: 'tar.gz', contentType: 'application/gzip' }))
+}
+
+/**
+ * 创建历史存档压缩包：优先调用系统 zip / PowerShell Compress-Archive 生成 .zip，
+ * 两者都不可用时回退 Bun.Archive 生成 .tar.gz。
+ */
+export async function createArchive(entries: FileEntry[]): Promise<ArchiveFile> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'unciv-srv-zip-'))
+  const names = entries.map((entry) => entry.name)
+  try {
+    for (const entry of entries) {
+      await write(path.join(dir, entry.name), entry.data)
+    }
+    const zipPath = `${dir}.zip`
+    const zipped = process.platform === 'win32'
+      ? await zipWithPowerShell(dir, zipPath, names)
+      : await zipWithSystemZip(dir, zipPath, names)
+    if (zipped) {
+      return { data: await file(zipPath).bytes(), extension: 'zip', contentType: 'application/zip' }
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+    await rm(`${dir}.zip`, { force: true })
+  }
+
+  return createTarGz(entries)
 }

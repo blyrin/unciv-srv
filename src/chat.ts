@@ -1,8 +1,4 @@
-import type { IncomingMessage } from 'node:http'
-import type { Duplex } from 'node:stream'
-import type { RawData } from 'ws'
-import { WebSocket, WebSocketServer } from 'ws'
-import type { ServerType } from '@hono/node-server'
+import type { Server, ServerWebSocket, WebSocketHandler } from 'bun'
 import { getGameByID } from './database.js'
 import { authenticatePlayer, pendingApprovalMessage } from './middleware.js'
 import { recordChatMessage } from './metrics.js'
@@ -13,7 +9,7 @@ import {
 } from './utils.js'
 
 /**
- * 聊天功能是否开启，由 attachChatWebSocket 依据配置设置。
+ * 聊天功能是否开启，由 createChatWebSocket 依据配置设置。
  */
 let chatEnabled = true
 
@@ -44,15 +40,15 @@ export interface GenericMessage {
   sequence?: number
 }
 
-interface Peer {
-  ws: WebSocket
+/** 每个 WebSocket 连接的上下文数据，升级时写入、事件里读取 */
+export interface PeerData {
   playerId: string
   ip: string
   ua: string
-  alive: boolean
-  heartbeat: NodeJS.Timeout
   connectedAt: number
 }
+
+type Peer = ServerWebSocket<PeerData>
 
 const gameSubscribers = new Map<string, Set<Peer>>()
 const peerSubscriptions = new Map<Peer, Set<string>>()
@@ -61,22 +57,22 @@ const playerPeers = new Map<string, Set<Peer>>()
 /**
  * 读取请求头中的首个值。
  */
-function firstHeaderValue(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? value[0] ?? '' : value ?? ''
+function firstHeaderValue(value: string | null): string {
+  return value ?? ''
 }
 
 /**
  * 获取 WebSocket 客户端 IP。
  */
-function getWebSocketClientIP(request: IncomingMessage): string {
-  const forwardedFor = firstHeaderValue(request.headers['x-forwarded-for'])
+function getWebSocketClientIP(request: Request, remoteAddress: string): string {
+  const forwardedFor = firstHeaderValue(request.headers.get('x-forwarded-for'))
   if (forwardedFor) {
     const comma = forwardedFor.indexOf(',')
     return normalizeClientIP(comma >= 0 ? forwardedFor.slice(0, comma).trim() : forwardedFor)
   }
 
-  const realIP = firstHeaderValue(request.headers['x-real-ip'])
-  return normalizeClientIP(realIP || request.socket.remoteAddress || 'unknown')
+  const realIP = firstHeaderValue(request.headers.get('x-real-ip'))
+  return normalizeClientIP(realIP || remoteAddress || 'unknown')
 }
 
 /**
@@ -105,23 +101,36 @@ function isValidGameChannelID(gameId: string | undefined): gameId is string {
 }
 
 /**
+ * 把收到的帧统一转为文本。
+ */
+function messageText(message: string | ArrayBuffer | Uint8Array): string {
+  if (typeof message === 'string') {
+    return message
+  }
+  return new TextDecoder().decode(message instanceof ArrayBuffer ? new Uint8Array(message) : message)
+}
+
+/**
  * 向连接发送 JSON 消息。
  */
 function sendJSON(peer: Peer, message: unknown): void {
-  if (peer.ws.readyState !== WebSocket.OPEN) {
+  if (peer.readyState !== WebSocket.OPEN) {
     cleanupPeer(peer)
     return
   }
-  peer.ws.send(JSON.stringify(message), (error) => {
-    if (error) {
-      console.error('WebSocket 发送消息失败', {
-        playerId: peer.playerId,
-        ip: peer.ip,
-        messageType: getMessageLogType(message),
-      }, error)
-      cleanupPeer(peer)
+  try {
+    const sent = peer.send(JSON.stringify(message))
+    if (sent === 0) {
+      throw new Error('连接已断开，消息被丢弃')
     }
-  })
+  } catch (error) {
+    console.error('WebSocket 发送消息失败', {
+      playerId: peer.data.playerId,
+      ip: peer.data.ip,
+      messageType: getMessageLogType(message),
+    }, error)
+    cleanupPeer(peer)
+  }
 }
 
 /**
@@ -135,22 +144,22 @@ function sendError(peer: Peer, message: string): void {
  * 登记玩家在线连接。
  */
 function registerPlayerPeer(peer: Peer): void {
-  const peers = playerPeers.get(peer.playerId) ?? new Set<Peer>()
+  const peers = playerPeers.get(peer.data.playerId) ?? new Set<Peer>()
   peers.add(peer)
-  playerPeers.set(peer.playerId, peers)
+  playerPeers.set(peer.data.playerId, peers)
 }
 
 /**
  * 清理玩家在线连接。
  */
 function unregisterPlayerPeer(peer: Peer): void {
-  const peers = playerPeers.get(peer.playerId)
+  const peers = playerPeers.get(peer.data.playerId)
   if (!peers) {
     return
   }
   peers.delete(peer)
   if (peers.size === 0) {
-    playerPeers.delete(peer.playerId)
+    playerPeers.delete(peer.data.playerId)
   }
 }
 
@@ -228,7 +237,6 @@ function cleanupPeerSubscriptions(peer: Peer): void {
  * 清理连接状态。
  */
 function cleanupPeer(peer: Peer): void {
-  clearInterval(peer.heartbeat)
   cleanupPeerSubscriptions(peer)
   unregisterPlayerPeer(peer)
 }
@@ -295,8 +303,8 @@ function handleJoin(peer: Peer, msg: GenericMessage): void {
     gameIds,
   })
   console.info('WebSocket 订阅频道', {
-    playerId: peer.playerId,
-    ip: peer.ip,
+    playerId: peer.data.playerId,
+    ip: peer.data.ip,
     requested: msg.gameIds?.length ?? 0,
     accepted: gameIds.length,
     subscriptions: getPeerSubscriptionCount(peer),
@@ -310,8 +318,8 @@ function handleJoin(peer: Peer, msg: GenericMessage): void {
 function handleLeave(peer: Peer, msg: GenericMessage): void {
   const gameIds = unsubscribePeer(peer, msg.gameIds)
   console.info('WebSocket 取消订阅频道', {
-    playerId: peer.playerId,
-    ip: peer.ip,
+    playerId: peer.data.playerId,
+    ip: peer.data.ip,
     requested: msg.gameIds?.length ?? 0,
     removed: gameIds.length,
     subscriptions: getPeerSubscriptionCount(peer),
@@ -325,8 +333,8 @@ function handleLeave(peer: Peer, msg: GenericMessage): void {
 function handleChat(peer: Peer, msg: GenericMessage): void {
   if (!isValidGameChannelID(msg.gameId)) {
     console.info('WebSocket 拒绝聊天消息', {
-      playerId: peer.playerId,
-      ip: peer.ip,
+      playerId: peer.data.playerId,
+      ip: peer.data.ip,
       gameId: msg.gameId ?? '',
       reason: '无效游戏ID',
     })
@@ -350,30 +358,30 @@ function handleChat(peer: Peer, msg: GenericMessage): void {
   let legacyAllowed = false
 
   try {
-    const legacy = getLegacyChatPeers(peer.playerId, msg.gameId)
+    const legacy = getLegacyChatPeers(peer.data.playerId, msg.gameId)
     targetPeers = targetPeers.concat(legacy.peers)
     legacyAllowed = legacy.allowed
   } catch (error) {
     if (!subscribed) {
       console.error('WebSocket 获取游戏失败', {
-        playerId: peer.playerId,
-        ip: peer.ip,
+        playerId: peer.data.playerId,
+        ip: peer.data.ip,
         gameId: msg.gameId,
       }, error)
       sendError(peer, '发送消息失败')
       return
     }
     console.error('WebSocket 旧客户端聊天广播失败', {
-      playerId: peer.playerId,
-      ip: peer.ip,
+      playerId: peer.data.playerId,
+      ip: peer.data.ip,
       gameId: msg.gameId,
     }, error)
   }
 
   if (!subscribed && !legacyAllowed) {
     console.info('WebSocket 拒绝聊天消息', {
-      playerId: peer.playerId,
-      ip: peer.ip,
+      playerId: peer.data.playerId,
+      ip: peer.data.ip,
       gameId: msg.gameId,
       reason: '未订阅频道',
     })
@@ -383,8 +391,8 @@ function handleChat(peer: Peer, msg: GenericMessage): void {
   const targets = publishToPeers(targetPeers, response)
   recordChatMessage()
   console.info('WebSocket 转发聊天消息', {
-    playerId: peer.playerId,
-    ip: peer.ip,
+    playerId: peer.data.playerId,
+    ip: peer.data.ip,
     gameId: msg.gameId,
     civName: msg.civName ?? '',
     targets,
@@ -399,8 +407,8 @@ function handleChat(peer: Peer, msg: GenericMessage): void {
 function handleOnlineMessage(peer: Peer, msg: GenericMessage): void {
   if (!isValidGameChannelID(msg.gameId)) {
     console.info('WebSocket 忽略在线状态消息', {
-      playerId: peer.playerId,
-      ip: peer.ip,
+      playerId: peer.data.playerId,
+      ip: peer.data.ip,
       type: msg.type ?? '',
       gameId: msg.gameId ?? '',
       reason: '无效游戏ID',
@@ -410,8 +418,8 @@ function handleOnlineMessage(peer: Peer, msg: GenericMessage): void {
 
   if (!isPeerSubscribed(peer, msg.gameId)) {
     console.info('WebSocket 忽略在线状态消息', {
-      playerId: peer.playerId,
-      ip: peer.ip,
+      playerId: peer.data.playerId,
+      ip: peer.data.ip,
       type: msg.type ?? '',
       gameId: msg.gameId,
       reason: '未订阅频道',
@@ -424,8 +432,8 @@ function handleOnlineMessage(peer: Peer, msg: GenericMessage): void {
     civName: msg.civName,
   })
   console.info('WebSocket 转发在线状态消息', {
-    playerId: peer.playerId,
-    ip: peer.ip,
+    playerId: peer.data.playerId,
+    ip: peer.data.ip,
     type: msg.type ?? '',
     gameId: msg.gameId,
     civName: msg.civName ?? '',
@@ -440,18 +448,17 @@ function handleOperationSignal(peer: Peer, msg: GenericMessage): void {
   })
 }
 
-
-function handleMessage(peer: Peer, data: RawData): void {
+function handleMessage(peer: Peer, message: string | ArrayBuffer | Uint8Array): void {
   let msg: GenericMessage
-  const text = data.toString()
+  const text = messageText(message)
   try {
     msg = JSON.parse(text) as GenericMessage
   } catch {
     console.info('WebSocket 拒绝消息', {
-      playerId: peer.playerId,
-      ip: peer.ip,
+      playerId: peer.data.playerId,
+      ip: peer.data.ip,
       reason: '无效消息格式',
-      bytes: Buffer.byteLength(text),
+      bytes: new TextEncoder().encode(text).length,
     })
     sendError(peer, '无效的消息格式')
     return
@@ -467,8 +474,8 @@ function handleMessage(peer: Peer, data: RawData): void {
     case 'chat':
       if (!chatEnabled) {
         console.info('WebSocket 拒绝聊天消息', {
-          playerId: peer.playerId,
-          ip: peer.ip,
+          playerId: peer.data.playerId,
+          ip: peer.data.ip,
           reason: '聊天功能已关闭',
         })
         sendError(peer, chatDisabledMessage)
@@ -485,8 +492,8 @@ function handleMessage(peer: Peer, data: RawData): void {
       break
     default:
       console.info('WebSocket 忽略未知消息类型', {
-        playerId: peer.playerId,
-        ip: peer.ip,
+        playerId: peer.data.playerId,
+        ip: peer.data.ip,
         type: msg.type ?? '',
       })
       break
@@ -496,8 +503,8 @@ function handleMessage(peer: Peer, data: RawData): void {
 /**
  * 解析 WebSocket Basic Auth。
  */
-export function parseWebSocketAuth(request: IncomingMessage): string {
-  const credentials = parseBasicAuthCredentials(request.headers.authorization)
+export function parseWebSocketAuth(authorization: string | null | undefined): string {
+  const credentials = parseBasicAuthCredentials(authorization)
   const result = authenticatePlayer(credentials.playerId, credentials.password)
   if (result.type === 'pending') {
     throw new HttpError(403, pendingApprovalMessage)
@@ -508,104 +515,93 @@ export function parseWebSocketAuth(request: IncomingMessage): string {
   return result.playerId
 }
 
+/** 聊天 WebSocket 处理器：handlers 交给 Bun.serve，upgrade 在 fetch 里调用 */
+export interface ChatWebSocket {
+  handlers: WebSocketHandler<PeerData>
+  /**
+   * 尝试把 /chat 请求升级为 WebSocket：认证失败返回错误响应，成功升级返回 undefined。
+   */
+  upgrade(request: Request, server: Server<PeerData>): Response | undefined
+}
+
 /**
- * 将聊天 WebSocket 绑定到 HTTP server。
+ * 创建聊天 WebSocket 处理器，按配置决定是否允许聊天。
  */
-export function attachChatWebSocket(server: ServerType, config: Config): void {
+export function createChatWebSocket(config: Config): ChatWebSocket {
   chatEnabled = config.chatEnabled
-  const wss = new WebSocketServer({ noServer: true, maxPayload: maxWebSocketFrameSize })
 
-  server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const url = new URL(request.url ?? '/', 'http://localhost')
-    const ip = getWebSocketClientIP(request)
-    const ua = decodeHeaderValue(firstHeaderValue(request.headers['user-agent']))
-    if (url.pathname !== '/chat') {
-      console.info('WebSocket 拒绝升级', {
-        path: url.pathname,
-        ip,
-        ua,
-        reason: '非聊天路径',
-      })
-      socket.destroy()
-      return
-    }
-
-    let playerId: string
-    try {
-      playerId = parseWebSocketAuth(request)
-    } catch (error) {
-      console.info('WebSocket 认证失败', {
-        path: url.pathname,
-        ip,
-        ua,
-        reason: error instanceof Error ? error.message : '认证失败',
-      })
-      const status = error instanceof HttpError ? error.status : 401
-      const body = `${error instanceof Error ? error.message : '认证失败'}\n`
-      socket.write(
-        `HTTP/1.1 ${status} ${status === 403 ? 'Forbidden' : 'Unauthorized'}\r\n`
-        + `Content-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
-      )
-      socket.destroy()
-      return
-    }
-
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      const peer: Peer = {
-        ws,
-        playerId,
-        ip,
-        ua,
-        alive: true,
-        heartbeat: setInterval(() => {
-          if (!peer.alive) {
-            console.info('WebSocket 心跳超时', {
-              playerId: peer.playerId,
-              ip: peer.ip,
-              subscriptions: getPeerSubscriptionCount(peer),
-            })
-            ws.terminate()
-            return
-          }
-          peer.alive = false
-          ws.ping()
-        }, 30 * 1000),
-        connectedAt: performance.now(),
-      }
-      peer.heartbeat.unref()
-
+  const handlers: WebSocketHandler<PeerData> = {
+    data: {} as PeerData,
+    idleTimeout: 30,
+    maxPayloadLength: maxWebSocketFrameSize,
+    open(peer) {
       registerPlayerPeer(peer)
       console.info('WebSocket 连接建立', {
-        playerId: peer.playerId,
-        ip: peer.ip,
-        ua: peer.ua,
-        playerConnections: playerPeers.get(peer.playerId)?.size ?? 0,
+        playerId: peer.data.playerId,
+        ip: peer.data.ip,
+        ua: peer.data.ua,
+        playerConnections: playerPeers.get(peer.data.playerId)?.size ?? 0,
       })
-      ws.on('pong', () => {
-        peer.alive = true
+    },
+    message(peer, message) {
+      handleMessage(peer, message)
+    },
+    close(peer, code, reason) {
+      console.info('WebSocket 连接关闭', {
+        playerId: peer.data.playerId,
+        ip: peer.data.ip,
+        code,
+        reason,
+        duration: `${(performance.now() - peer.data.connectedAt).toFixed(2)}ms`,
+        subscriptions: getPeerSubscriptionCount(peer),
       })
-      ws.on('message', (data) => handleMessage(peer, data))
-      ws.on('close', (code, reason) => {
-        console.info('WebSocket 连接关闭', {
-          playerId: peer.playerId,
-          ip: peer.ip,
-          code,
-          reason: reason.toString(),
-          duration: `${(performance.now() - peer.connectedAt).toFixed(2)}ms`,
-          subscriptions: getPeerSubscriptionCount(peer),
+      cleanupPeer(peer)
+    },
+  }
+
+  return {
+    handlers,
+    upgrade(request, server) {
+      const url = new URL(request.url)
+      const ip = getWebSocketClientIP(request, server.requestIP(request)?.address ?? '')
+      const ua = decodeHeaderValue(request.headers.get('user-agent') ?? '')
+      if (url.pathname !== '/chat') {
+        console.info('WebSocket 拒绝升级', {
+          path: url.pathname,
+          ip,
+          ua,
+          reason: '非聊天路径',
         })
-        cleanupPeer(peer)
+        return new Response('Not Found\n', { status: 404 })
+      }
+
+      let playerId: string
+      try {
+        playerId = parseWebSocketAuth(request.headers.get('authorization'))
+      } catch (error) {
+        console.info('WebSocket 认证失败', {
+          path: url.pathname,
+          ip,
+          ua,
+          reason: error instanceof Error ? error.message : '认证失败',
+        })
+        const status = error instanceof HttpError ? error.status : 401
+        const body = `${error instanceof Error ? error.message : '认证失败'}\n`
+        return new Response(body, {
+          status,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        })
+      }
+
+      const upgraded = server.upgrade(request, {
+        data: { playerId, ip, ua, connectedAt: performance.now() },
       })
-      ws.on('error', (error) => {
-        console.error('WebSocket 连接错误', {
-          playerId: peer.playerId,
-          ip: peer.ip,
-          subscriptions: getPeerSubscriptionCount(peer),
-        }, error)
-        cleanupPeer(peer)
-      })
-    })
-  })
+      if (!upgraded) {
+        return new Response('升级失败\n', { status: 400 })
+      }
+      return undefined
+    },
+  }
 }
 
 /**
@@ -629,11 +625,6 @@ export function notifyGameUpdated(gameId: string): void {
  * 清空聊天状态，供测试隔离使用。
  */
 export function resetChatState(): void {
-  for (const peers of playerPeers.values()) {
-    for (const peer of peers) {
-      clearInterval(peer.heartbeat)
-    }
-  }
   gameSubscribers.clear()
   peerSubscriptions.clear()
   playerPeers.clear()

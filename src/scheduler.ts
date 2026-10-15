@@ -31,8 +31,8 @@ function millisUntilNextFourAM(now = new Date()): number {
  * 启动数据和会话清理任务。
  */
 export function startScheduler(config: Config): Scheduler {
-  let cleanupTimer: NodeJS.Timeout
-  let sessionTimer: NodeJS.Timeout
+  let cleanupTimer: ReturnType<typeof setTimeout>
+  let sessionTimer: ReturnType<typeof setTimeout>
 
   const scheduleCleanup = () => {
     cleanupTimer = setTimeout(() => {

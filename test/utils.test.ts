@@ -1,15 +1,15 @@
+import { Archive } from 'bun'
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
-import { unzipSync } from 'fflate'
+import { test } from 'bun:test'
 import {
-  createZip, decodeFile, decodeHeaderValue, encodeFile, errorResponse, fileResponse, generateRandomStr, getBaseGameID,
+  createArchive, createTarGz, decodeFile, decodeHeaderValue, encodeFile, errorResponse, fileResponse, generateRandomStr, getBaseGameID,
   getClientIP, getPlayerIDsFromGameData, HttpError, isPreviewID, jsonResponse, parseBasicAuthCredentials, parseGameData,
   readLimitedText, successResponse, textResponse, validateGameID, validatePlayerID,
 } from '../src/utils.js'
 import { basicAuth, testGameID1, testPassword, testPlayerID1 } from './helpers/server.js'
 
 function encodedBasicAuth(payload: string): string {
-  return `Basic ${Buffer.from(payload).toString('base64')}`
+  return `Basic ${btoa(payload)}`
 }
 
 function requestWithHeaders(headers: HeadersInit): Request {
@@ -78,7 +78,7 @@ test('请求头文本可恢复 UTF-8 乱码', () => {
 test('存档解码错误和游戏数据解析覆盖失败路径', () => {
   assert.throws(() => decodeFile(''))
   assert.throws(() => decodeFile('not-base64-gzip'))
-  assert.throws(() => decodeFile(Buffer.from('plain').toString('base64')))
+  assert.throws(() => decodeFile(btoa('plain')))
   assert.throws(() => parseGameData('{'))
   assert.throws(() => parseGameData(JSON.stringify({ gameId: testGameID1, turns: -1 })), /无效的回合数/)
   assert.throws(() => parseGameData(JSON.stringify({ gameId: testGameID1, turns: 1.5 })), /无效的回合数/)
@@ -104,17 +104,29 @@ test('玩家列表只提取人类玩家', () => {
   assert.deepEqual(getPlayerIDsFromGameData(JSON.stringify({ gameId: testGameID1, turns: 1 })), [])
 })
 
-test('随机字符串和 ZIP 生成可用', () => {
+test('随机字符串和历史存档压缩包可用', async () => {
   const random = generateRandomStr(20)
   assert.equal(random.length, 20)
   assert.match(random, /^[A-Za-z0-9]+$/)
 
-  const zip = unzipSync(createZip([
+  const entries = [
     { name: 'a.json', data: '{"a":1}' },
     { name: 'b.json', data: '{"b":2}' },
-  ]))
-  assert.equal(Buffer.from(zip['a.json']!).toString('utf8'), '{"a":1}')
-  assert.equal(Buffer.from(zip['b.json']!).toString('utf8'), '{"b":2}')
+  ]
+
+  // 回退方案：Bun.Archive 的 tar.gz 可按条目名与内容还原
+  const tarGz = await createTarGz(entries)
+  assert.equal(tarGz.extension, 'tar.gz')
+  assert.equal(tarGz.contentType, 'application/gzip')
+  const files = await new Archive(tarGz.data).files('**/*')
+  assert.deepEqual([...files.keys()], ['a.json', 'b.json'])
+  assert.equal(await files.get('a.json')!.text(), '{"a":1}')
+  assert.equal(await files.get('b.json')!.text(), '{"b":2}')
+
+  // 系统 zip 可用时输出 .zip，否则回退 .tar.gz，两者都应是可下载的非空压缩包
+  const archive = await createArchive(entries)
+  assert.ok(archive.data.length > 0)
+  assert.match(archive.contentType, /^(application\/zip|application\/gzip)$/)
 })
 
 test('Basic Auth 错误格式返回约定消息', () => {

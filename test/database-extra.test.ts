@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterEach, beforeEach, test } from 'vitest'
+import { afterEach, beforeEach, test } from 'bun:test'
 import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersWhitelist, cleanupEmptyGames, cleanupOldContents,
   cleanupOldPreviews, clearExpiredIPs, countGamesByPlayer, createGame, createPlayer, deleteGame, getAllTurnsForGame, getDB, getGameByID,
@@ -25,7 +25,7 @@ afterEach(() => {
 test('玩家数据库操作覆盖重复、更新、搜索和批量', () => {
   seedPlayer(testPlayerID1)
   assert.throws(() => createPlayer(testPlayerID1, testPassword, '127.0.0.1'))
-  const timeTypes = getDB().prepare(`
+  const timeTypes = getDB().query(`
     select typeof(created_at) as created_type,
            typeof(updated_at) as updated_type
     from players
@@ -103,12 +103,12 @@ test('回档使用最早匹配预览，同时间记录按 ID 判断', () => {
   const conn = getDB()
   const earlyTime = Date.UTC(2026, 0, 1)
   const lateTime = Date.UTC(2026, 0, 2)
-  conn.prepare(`
+  conn.query(`
     insert into files_content (game_id, turns, created_player, created_ip, created_at, data)
     values (?, ?, ?, ?, ?, ?)
   `).run(testGameID1, 1, testPlayerID1, '127.0.0.1', earlyTime, '{"turns":1}')
-  const targetId = Number((conn.prepare('select id from files_content where turns = 1').get() as { id: number }).id)
-  conn.prepare(`
+  const targetId = Number((conn.query('select id from files_content where turns = 1').get() as { id: number }).id)
+  conn.query(`
     insert into files_content (game_id, turns, created_player, created_ip, created_at, data)
     values (?, ?, ?, ?, ?, ?),
            (?, ?, ?, ?, ?, ?)
@@ -116,7 +116,7 @@ test('回档使用最早匹配预览，同时间记录按 ID 判断', () => {
     testGameID1, 2, testPlayerID1, '127.0.0.1', earlyTime, '{"turns":2}',
     testGameID1, 2, testPlayerID1, '127.0.0.1', lateTime, '{"turns":2-later}',
   )
-  conn.prepare(`
+  conn.query(`
     insert into files_preview (game_id, turns, created_player, created_ip, created_at, data)
     values (?, ?, ?, ?, ?, ?),
            (?, ?, ?, ?, ?, ?),
@@ -136,7 +136,7 @@ test('清理任务删除空对局并只保留最新存档和预览', () => {
   createGame(testGameID1, [testPlayerID1])
   const conn = getDB()
   const expiredTime = Date.now() - 121 * 24 * 60 * 60 * 1000
-  conn.prepare(`
+  conn.query(`
     update files
     set whitelist  = 0,
         created_at = ?,
@@ -171,9 +171,9 @@ test('过期 IP 按保留天数清理', () => {
   updatePlayerLastActive(testPlayerID1, '10.0.0.1')
   const conn = getDB()
   const old = Date.now() - 40 * 24 * 60 * 60 * 1000
-  conn.prepare('update players set created_at = ?, updated_at = ? where player_id = ?').run(old, old, testPlayerID1)
-  conn.prepare('update files_content set created_at = ? where game_id = ?').run(old, testGameID1)
-  assert.equal((conn.prepare('select created_ip from files_content where game_id = ?').get(testGameID1) as {
+  conn.query('update players set created_at = ?, updated_at = ? where player_id = ?').run(old, old, testPlayerID1)
+  conn.query('update files_content set created_at = ? where game_id = ?').run(old, testGameID1)
+  assert.equal((conn.query('select created_ip from files_content where game_id = ?').get(testGameID1) as {
     created_ip: string
   }).created_ip, '10.0.0.1')
   assert.equal(getPlayerByID(testPlayerID1)?.updateIp, '10.0.0.1')
@@ -181,7 +181,7 @@ test('过期 IP 按保留天数清理', () => {
   assert.deepEqual(clearExpiredIPs(30), { players: 1, files: 1 })
   assert.equal(getPlayerByID(testPlayerID1)?.createIp, undefined)
   assert.equal(getPlayerByID(testPlayerID1)?.updateIp, undefined)
-  assert.equal((conn.prepare('select created_ip from files_content where game_id = ?').get(testGameID1) as {
+  assert.equal((conn.query('select created_ip from files_content where game_id = ?').get(testGameID1) as {
     created_ip: string | null
   }).created_ip, null)
   assert.deepEqual(clearExpiredIPs(0), { players: 0, files: 0 })
@@ -209,12 +209,12 @@ test('批量删除空列表保持空操作', () => {
 test('缺失审核字段的历史账号一律按未审核处理', () => {
   const conn = getDB()
   // 迁移 000004 以 0 回填历史数据，缺列写入也必须落到未审核
-  const column = conn.prepare("select dflt_value from pragma_table_info('players') where name = 'approved'").get() as {
+  const column = conn.query("select dflt_value from pragma_table_info('players') where name = 'approved'").get() as {
     dflt_value: string
   } | undefined
   assert.equal(column?.dflt_value, '0')
 
-  conn.prepare('insert into players (player_id, password, created_at, updated_at) values (?, ?, ?, ?)')
+  conn.query('insert into players (player_id, password, created_at, updated_at) values (?, ?, ?, ?)')
     .run(testPlayerID2, hashPassword(testPassword), Date.now(), Date.now())
   assert.equal(getPlayerByID(testPlayerID2)?.approved, false)
   assert.equal(getPlayerByID(testPlayerID2)?.whitelist, false)

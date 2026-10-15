@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterEach, beforeEach, test } from 'vitest'
+import { afterEach, beforeEach, test } from 'bun:test'
 import {
   acquireSimultaneousTurnLock, appendSimultaneousTurnOperations, createGame, createPlayer, getDB, getAllStats,
   getGameByID, getGamesByPlayer, getLatestFileContent, getPlayerByID, getPlayersPage, getSimultaneousTurnOperations,
@@ -204,9 +204,9 @@ test('玩家列表支持按审核状态、白名单、关键词与排序筛选',
   updatePlayerInfo(testPlayerID3, true, '白名单玩家')
   createGame(testGameID1, [testPlayerID1])
   // 手动拉开注册时间，保证排序断言稳定
-  getDB().prepare('update players set created_at = ? where player_id = ?').run(1000, testPlayerID1)
-  getDB().prepare('update players set created_at = ? where player_id = ?').run(2000, testPlayerID2)
-  getDB().prepare('update players set created_at = ? where player_id = ?').run(3000, testPlayerID3)
+  getDB().query('update players set created_at = ? where player_id = ?').run(1000, testPlayerID1)
+  getDB().query('update players set created_at = ? where player_id = ?').run(2000, testPlayerID2)
+  getDB().query('update players set created_at = ? where player_id = ?').run(3000, testPlayerID3)
 
   const pending = getPlayersPage({ page: 1, pageSize: 20, status: 'pending' })
   assert.deepEqual(pending.items.map((item) => item.playerId), [testPlayerID2])

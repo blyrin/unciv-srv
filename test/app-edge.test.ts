@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterEach, beforeEach, test } from 'vitest'
+import { afterEach, beforeEach, test } from 'bun:test'
 import {
   closeDatabase, createGame, getLatestFilePreview, getPlayerByID, getTurnsMetadata, saveFileContent,
 } from '../src/database.js'
@@ -21,28 +21,28 @@ afterEach(() => {
 })
 
 test('/auth 覆盖认证错误和修改密码', async () => {
-  assert.equal((await server.app.request('/auth')).status, 401)
+  assert.equal((await server.request('/auth')).status, 401)
 
-  const register = await server.app.request('/auth', {
+  const register = await server.request('/auth', {
     headers: { Authorization: basicAuth() },
   })
   assert.equal(register.status, 204)
 
-  const short = await server.app.request('/auth', {
+  const short = await server.request('/auth', {
     method: 'PUT',
     headers: { Authorization: basicAuth() },
     body: 'short',
   })
   assert.equal(short.status, 400)
 
-  const tooLarge = await server.app.request('/auth', {
+  const tooLarge = await server.request('/auth', {
     method: 'PUT',
     headers: { Authorization: basicAuth() },
     body: 'x'.repeat(maxTextBodySize + 1),
   })
   assert.equal(tooLarge.status, 413)
 
-  const changed = await server.app.request('/auth', {
+  const changed = await server.request('/auth', {
     method: 'PUT',
     headers: { Authorization: basicAuth() },
     body: 'newpass123',
@@ -50,7 +50,7 @@ test('/auth 覆盖认证错误和修改密码', async () => {
   assert.equal(changed.status, 204)
   assert.equal(verifyPassword('newpass123', getPlayerByID(testPlayerID1)?.password ?? ''), true)
 
-  const wrongPassword = await server.app.request('/auth', {
+  const wrongPassword = await server.request('/auth', {
     headers: { Authorization: basicAuth(testPlayerID1, testPassword) },
   })
   assert.equal(wrongPassword.status, 401)
@@ -60,33 +60,33 @@ test('/auth 在审核模式下等待管理员开通', async () => {
   const gated = setupTestServer({ registerMode: 'approval' })
   try {
     const playerId = '00000000-0000-0000-0000-00000000000a'
-    const register = await gated.app.request('/auth', {
+    const register = await gated.request('/auth', {
       headers: { Authorization: basicAuth(playerId, testPassword) },
     })
     assert.equal(register.status, 403)
     assert.deepEqual(await register.json(), { type: 'error', message: '账号待审核，请联系管理员开通' })
     assert.equal(getPlayerByID(playerId)?.approved, false)
 
-    const blocked = await gated.app.request(`/files/${testGameID1}`, {
+    const blocked = await gated.request(`/files/${testGameID1}`, {
       headers: { Authorization: basicAuth(playerId, testPassword), 'User-Agent': 'Unciv' },
     })
     assert.equal(blocked.status, 403)
 
-    const login = await gated.app.request('/api/login', {
+    const login = await gated.request('/api/login', {
       method: 'POST',
       body: JSON.stringify({ username: playerId, password: testPassword }),
     })
     assert.equal(login.status, 403)
 
-    const cookie = await loginAsAdmin(gated.app)
-    const approve = await gated.app.request(`/api/players/${playerId}`, {
+    const cookie = await loginAsAdmin(gated)
+    const approve = await gated.request(`/api/players/${playerId}`, {
       method: 'PUT',
       headers: { Cookie: cookie },
       body: JSON.stringify({ whitelist: false, remark: '', approved: true }),
     })
     assert.equal(approve.status, 204)
 
-    const allowed = await gated.app.request('/auth', {
+    const allowed = await gated.request('/auth', {
       headers: { Authorization: basicAuth(playerId, testPassword) },
     })
     assert.equal(allowed.status, 204)
@@ -99,7 +99,7 @@ test('/auth 在关闭注册后不创建新账号', async () => {
   const gated = setupTestServer({ registerMode: 'closed' })
   try {
     const playerId = '00000000-0000-0000-0000-00000000000b'
-    const register = await gated.app.request('/auth', {
+    const register = await gated.request('/auth', {
       headers: { Authorization: basicAuth(playerId, testPassword) },
     })
     assert.equal(register.status, 401)
@@ -117,54 +117,54 @@ test('/files 覆盖上传错误、既有游戏权限和预览存档', async () =
   const gameFile = `/files/${testGameID1}`
   const previewFile = `/files/${testGameID2}_Preview`
 
-  const missing = await server.app.request(gameFile, {
+  const missing = await server.request(gameFile, {
     headers: uncivHeaders,
   })
   assert.equal(missing.status, 404)
 
-  const invalidGameId = await server.app.request('/files/invalid', {
+  const invalidGameId = await server.request('/files/invalid', {
     method: 'PUT',
     headers: uncivHeaders,
     body: buildGameData(testGameID1, 1, [testPlayerID1]),
   })
   assert.equal(invalidGameId.status, 400)
 
-  const tooLarge = await server.app.request(gameFile, {
+  const tooLarge = await server.request(gameFile, {
     method: 'PUT',
     headers: uncivHeaders,
     body: 'x'.repeat(maxBodySize + 1),
   })
   assert.equal(tooLarge.status, 413)
 
-  const empty = await server.app.request(gameFile, {
+  const empty = await server.request(gameFile, {
     method: 'PUT',
     headers: uncivHeaders,
     body: '',
   })
   assert.equal(empty.status, 400)
 
-  const invalidData = await server.app.request(gameFile, {
+  const invalidData = await server.request(gameFile, {
     method: 'PUT',
     headers: uncivHeaders,
     body: 'not-base64-gzip',
   })
   assert.equal(invalidData.status, 400)
 
-  const mismatchedGame = await server.app.request(gameFile, {
+  const mismatchedGame = await server.request(gameFile, {
     method: 'PUT',
     headers: uncivHeaders,
     body: buildGameData(testGameID2, 1, [testPlayerID1]),
   })
   assert.equal(mismatchedGame.status, 400)
 
-  const invalidPlayers = await server.app.request(gameFile, {
+  const invalidPlayers = await server.request(gameFile, {
     method: 'PUT',
     headers: uncivHeaders,
     body: encodeFile(JSON.stringify({ gameId: testGameID1, turns: 1, gameParameters: { players: {} } })),
   })
   assert.equal(invalidPlayers.status, 400)
 
-  const notParticipant = await server.app.request(gameFile, {
+  const notParticipant = await server.request(gameFile, {
     method: 'PUT',
     headers: uncivHeaders,
     body: buildGameData(testGameID1, 1, [testPlayerID2]),
@@ -172,14 +172,14 @@ test('/files 覆盖上传错误、既有游戏权限和预览存档', async () =
   assert.equal(notParticipant.status, 403)
 
   createGame(testGameID1, [testPlayerID2])
-  const existingForbidden = await server.app.request(gameFile, {
+  const existingForbidden = await server.request(gameFile, {
     method: 'PUT',
     headers: uncivHeaders,
     body: buildGameData(testGameID1, 2, [testPlayerID1, testPlayerID2]),
   })
   assert.equal(existingForbidden.status, 403)
 
-  const preview = await server.app.request(previewFile, {
+  const preview = await server.request(previewFile, {
     method: 'PUT',
     headers: uncivHeaders,
     body: buildGameData(testGameID2, 3, [testPlayerID1]),
@@ -187,7 +187,7 @@ test('/files 覆盖上传错误、既有游戏权限和预览存档', async () =
   assert.equal(preview.status, 204)
   assert.equal(getLatestFilePreview(testGameID2)?.turns, 3)
 
-  const previewDownload = await server.app.request(previewFile, {
+  const previewDownload = await server.request(previewFile, {
     headers: uncivHeaders,
   })
   assert.equal(previewDownload.status, 200)
@@ -196,12 +196,12 @@ test('/files 覆盖上传错误、既有游戏权限和预览存档', async () =
 test('/chat HTTP 探测区分有效和无效认证', async () => {
   seedPlayer(testPlayerID1)
 
-  const valid = await server.app.request('/chat', {
+  const valid = await server.request('/chat', {
     headers: { Authorization: basicAuth() },
   })
   assert.equal(valid.status, 400)
 
-  const invalid = await server.app.request('/chat', {
+  const invalid = await server.request('/chat', {
     headers: { Authorization: basicAuth(testPlayerID1, 'wrong-pass') },
   })
   assert.equal(invalid.status, 401)
@@ -209,40 +209,40 @@ test('/chat HTTP 探测区分有效和无效认证', async () => {
 
 test('Web 会话、管理统计和页面路由覆盖边界行为', async () => {
   seedPlayer(testPlayerID1)
-  const adminCookie = await loginAsAdmin(server.app)
+  const adminCookie = await loginAsAdmin(server)
 
-  const adminSession = await server.app.request('/api/session', { headers: { Cookie: adminCookie } })
+  const adminSession = await server.request('/api/session', { headers: { Cookie: adminCookie } })
   assert.deepEqual(await adminSession.json(), { isLoggedIn: true, isAdmin: true })
 
-  const noSession = await server.app.request('/api/session')
+  const noSession = await server.request('/api/session')
   assert.deepEqual(await noSession.json(), { isLoggedIn: false })
 
-  const staleSession = await server.app.request('/api/session', { headers: { Cookie: 'session_id=missing' } })
+  const staleSession = await server.request('/api/session', { headers: { Cookie: 'session_id=missing' } })
   assert.deepEqual(await staleSession.json(), { isLoggedIn: false })
   assert.ok(staleSession.headers.get('set-cookie')?.includes('Max-Age=0'))
 
-  const stats = await server.app.request('/api/stats', { headers: { Cookie: adminCookie } })
+  const stats = await server.request('/api/stats', { headers: { Cookie: adminCookie } })
   assert.equal(stats.status, 200)
 
-  const emptyGamePatch = await server.app.request('/api/games/batch', {
+  const emptyGamePatch = await server.request('/api/games/batch', {
     method: 'PATCH',
     headers: { Cookie: adminCookie },
     body: JSON.stringify({ gameIds: [], whitelist: true }),
   })
   assert.equal(emptyGamePatch.status, 400)
 
-  const emptyGameDelete = await server.app.request('/api/games/batch', {
+  const emptyGameDelete = await server.request('/api/games/batch', {
     method: 'DELETE',
     headers: { Cookie: adminCookie },
     body: JSON.stringify({ gameIds: [] }),
   })
   assert.equal(emptyGameDelete.status, 400)
 
-  const index = await server.app.request('/')
+  const index = await server.request('/')
   assert.equal(index.status, 200)
   assert.match(await index.text(), /Unciv/i)
 
-  const logout = await server.app.request('/api/logout', { headers: { Cookie: adminCookie } })
+  const logout = await server.request('/api/logout', { headers: { Cookie: adminCookie } })
   assert.equal(logout.status, 302)
   assert.equal(logout.headers.get('Location'), '/')
 })
@@ -254,40 +254,40 @@ test('游戏下载、回合下载和回档覆盖权限与错误分支', async ()
   createGame(testGameID1, [testPlayerID1, testPlayerID2])
   saveFileContent(testGameID1, 1, testPlayerID1, '127.0.0.1', '{"turns":1}')
 
-  const creatorCookie = await loginAsPlayer(server.app, testPlayerID1)
-  const otherCookie = await loginAsPlayer(server.app, testPlayerID2)
-  const outsiderCookie = await loginAsPlayer(server.app, testPlayerID3)
+  const creatorCookie = await loginAsPlayer(server, testPlayerID1)
+  const otherCookie = await loginAsPlayer(server, testPlayerID2)
+  const outsiderCookie = await loginAsPlayer(server, testPlayerID3)
   const turnId = getTurnsMetadata(testGameID1)[0]!.id
 
-  const outsiderTurns = await server.app.request(`/api/games/${testGameID1}/turns`, {
+  const outsiderTurns = await server.request(`/api/games/${testGameID1}/turns`, {
     headers: { Cookie: outsiderCookie },
   })
   assert.equal(outsiderTurns.status, 403)
 
-  const missingGameTurns = await server.app.request(`/api/games/${testGameID2}/turns`, {
+  const missingGameTurns = await server.request(`/api/games/${testGameID2}/turns`, {
     headers: { Cookie: creatorCookie },
   })
   assert.equal(missingGameTurns.status, 404)
 
-  const turnDownload = await server.app.request(`/api/games/${testGameID1}/turns/${turnId}/download`, {
+  const turnDownload = await server.request(`/api/games/${testGameID1}/turns/${turnId}/download`, {
     headers: { Cookie: otherCookie },
   })
   assert.equal(turnDownload.status, 200)
   assert.equal(turnDownload.headers.get('Content-Type'), 'application/json')
   assert.equal(await turnDownload.text(), '{"turns":1}')
 
-  const missingTurn = await server.app.request(`/api/games/${testGameID1}/turns/${turnId + 999}/download`, {
+  const missingTurn = await server.request(`/api/games/${testGameID1}/turns/${turnId + 999}/download`, {
     headers: { Cookie: creatorCookie },
   })
   assert.equal(missingTurn.status, 404)
 
-  const missingRollbackPreview = await server.app.request(`/api/games/${testGameID1}/turns/${turnId}/rollback`, {
+  const missingRollbackPreview = await server.request(`/api/games/${testGameID1}/turns/${turnId}/rollback`, {
     method: 'POST',
     headers: { Cookie: creatorCookie },
   })
   assert.equal(missingRollbackPreview.status, 404)
 
-  const missingRollbackTurn = await server.app.request(`/api/games/${testGameID1}/turns/${turnId + 999}/rollback`, {
+  const missingRollbackTurn = await server.request(`/api/games/${testGameID1}/turns/${turnId + 999}/rollback`, {
     method: 'POST',
     headers: { Cookie: creatorCookie },
   })
@@ -295,10 +295,10 @@ test('游戏下载、回合下载和回档覆盖权限与错误分支', async ()
 })
 
 test('应用未处理异常统一返回 500', async () => {
-  const adminCookie = await loginAsAdmin(server.app)
+  const adminCookie = await loginAsAdmin(server)
   closeDatabase()
 
-  const response = await server.app.request('/api/stats', {
+  const response = await server.request('/api/stats', {
     headers: { Cookie: adminCookie },
   })
   assert.equal(response.status, 500)

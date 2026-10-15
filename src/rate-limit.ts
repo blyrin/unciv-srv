@@ -10,7 +10,7 @@ interface AttemptInfo {
 export class RateLimiter {
   private readonly attempts = new Map<string, AttemptInfo>()
   private readonly lockTimeMs: number
-  private readonly timer: NodeJS.Timeout
+  private readonly timer: ReturnType<typeof setInterval>
 
   constructor(
     private readonly maxAttempts: number,

@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict'
-import { afterEach, test } from 'vitest'
+import { afterEach, beforeEach, test } from 'bun:test'
 import {
   anonymizeIP, defaultIPRetentionDays, defaultIPStorageMode, getIPRetentionDays, getIPStorageMode, ipForLog,
   ipForStorage, ipForStorageOrUndefined, setIPRetentionDays, setIPStorageMode,
 } from '../src/privacy.js'
+
+// Bun 的测试共享同一进程内的模块状态，先复位再断言默认值
+beforeEach(() => {
+  setIPStorageMode(defaultIPStorageMode)
+  setIPRetentionDays(defaultIPRetentionDays)
+})
 
 afterEach(() => {
   setIPStorageMode(defaultIPStorageMode)

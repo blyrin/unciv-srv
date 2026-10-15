@@ -1,9 +1,6 @@
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 
-const moduleDir = path.dirname(fileURLToPath(import.meta.url))
-
-export const projectRoot = path.resolve(moduleDir, '..')
+export const projectRoot = path.resolve(import.meta.dir, '..')
 
 /**
  * 将相对路径固定到仓库根目录。
