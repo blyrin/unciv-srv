@@ -97,4 +97,4 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown)
 }
 
-await main()
+main().catch(console.error)
