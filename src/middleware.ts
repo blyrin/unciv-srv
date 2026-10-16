@@ -3,7 +3,6 @@ import type { AppVariables, Config, RegisterMode } from './types.js'
 import {
   createPlayer, getArchivedGameRecord, getPlayerByID, requestArchivedGameRestore, updatePlayerLastActive,
 } from './database.js'
-import { recordHttpRequest } from './metrics.js'
 import { verifyPasswordCached } from './password.js'
 import { ipForLog } from './privacy.js'
 import { clearSessionCookieHeader, getSession, parseCookie, sessionCookieName } from './session.js'
@@ -70,7 +69,7 @@ async function runChain(ctx: RequestContext, middlewares: Middleware[], handler:
 }
 
 /**
- * 把中间件链与处理器包装成 Bun routes 处理器：建上下文、跑链、统一错误响应并计数。
+ * 把中间件链与处理器包装成 Bun routes 处理器：建上下文、跑链、统一错误响应。
  */
 export function routeHandler(...endpoints: Endpoint[]): RouteHandler {
   const handler = endpoints.pop()
@@ -79,7 +78,6 @@ export function routeHandler(...endpoints: Endpoint[]): RouteHandler {
   }
   const middlewares = endpoints as Middleware[]
   return async (req, server) => {
-    recordHttpRequest()
     const ctx = createContext(req, server)
     try {
       return await runChain(ctx, middlewares, handler as Handler)

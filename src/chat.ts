@@ -1,7 +1,6 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from 'bun'
 import { getGameByID } from './database.js'
 import { authenticatePlayer, pendingApprovalMessage } from './middleware.js'
-import { recordChatMessage } from './metrics.js'
 import type { Config } from './types.js'
 import {
   decodeHeaderValue, getBaseGameID, HttpError, isPreviewID, maxWebSocketFrameSize, normalizeClientIP,
@@ -389,7 +388,6 @@ function handleChat(peer: Peer, msg: GenericMessage): void {
     return
   }
   const targets = publishToPeers(targetPeers, response)
-  recordChatMessage()
   console.info('WebSocket 转发聊天消息', {
     playerId: peer.data.playerId,
     ip: peer.data.ip,

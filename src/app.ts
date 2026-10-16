@@ -9,7 +9,6 @@ import {
   pendingApprovalMessage, rateLimit, routeHandler, sessionAuth, validateGameIDMiddleware,
 } from './middleware.js'
 import { isHashedPassword, verifyPasswordCached } from './password.js'
-import { recordHttpRequest, renderMetrics } from './metrics.js'
 import type { RateLimiter } from './rate-limit.js'
 import {
   clearSessionCookieHeader, createSession, deleteSession, getSession, parseCookie, sessionCookieHeader,
@@ -174,14 +173,6 @@ export function createApp(config: Config, limiter: RateLimiter, chat?: ChatWebSo
     ...createDownloadsRoutes(config),
 
     '/isalive': { GET: routeHandler(logger(), () => new Response(healthCheckResponse, { status: 200 })) },
-
-    // Prometheus 文本格式指标（无外部依赖）
-    '/metrics': {
-      GET: routeHandler(logger(), () => new Response(renderMetrics(), {
-        status: 200,
-        headers: { 'Content-Type': 'text/plain; version=0.0.4' },
-      })),
-    },
 
     // 就绪探针：数据库可用返回 200，否则 503
     '/ready': {
@@ -699,7 +690,6 @@ export function createApp(config: Config, limiter: RateLimiter, chat?: ChatWebSo
       if (chat && isChatUpgrade(request)) {
         return await chat.upgrade(request, server)
       }
-      recordHttpRequest()
       if (new URL(request.url).pathname === '/chat') {
         return chatProbeResponse(request)
       }

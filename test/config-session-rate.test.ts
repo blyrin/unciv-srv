@@ -6,7 +6,7 @@ import { afterEach, jest, test } from 'bun:test'
 import { loadConfig, loadEnvFile } from '../src/config.js'
 import { RateLimiter } from '../src/rate-limit.js'
 import {
-  cleanupExpiredSessions, clearSessionCookieHeader, createSession, deleteSession, getSession, getSessionCount, parseCookie, resetSessions,
+  cleanupExpiredSessions, clearSessionCookieHeader, createSession, deleteSession, getSession, parseCookie, resetSessions,
   sessionCookieHeader, sessionCookieName,
 } from '../src/session.js'
 
@@ -87,16 +87,6 @@ test('Session 创建、读取、删除和 Cookie 头符合接口约定', () => {
   deleteSession(sessionId)
   assert.equal(getSession(sessionId), null)
   assert.equal(clearSessionCookieHeader().includes('Max-Age=0'), true)
-})
-
-test('Session 计数只统计未过期的会话', () => {
-  const sessionId = createSession('counted', false)
-  const adminId = createSession('counted-admin', true)
-  assert.equal(getSessionCount(), 2)
-  deleteSession(sessionId)
-  assert.equal(getSessionCount(), 1)
-  deleteSession(adminId)
-  assert.equal(getSessionCount(), 0)
 })
 
 test('Session 过期读取和批量清理符合约定', () => {
