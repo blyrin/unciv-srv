@@ -34,8 +34,15 @@ import { createDownloadsRoutes } from './downloads.js'
 
 const healthCheckResponse = '{"authVersion":1,"chatVersion":1}'
 
-/** 管理后台是单页应用，启动时读一次即可，避免每个请求都同步读盘 */
-const indexPageHtml = fs.readFileSync(path.join(projectRoot, 'public/index.html'), 'utf8')
+const indexPagePath = path.join(projectRoot, 'public/index.html')
+
+/**
+ * 开发模式每个请求都从硬盘读前端页面。
+ */
+const devMode = process.argv.includes('--dev')
+
+/** 管理后台是单页应用，生产模式启动时读一次。 */
+const indexPageHtml: string | null = devMode ? null : fs.readFileSync(indexPagePath, 'utf8')
 
 /**
  * 解析分页查询参数。
@@ -115,7 +122,8 @@ function checkGameCreatorAccess(ctx: RequestContext, gameId: string, forbiddenMe
  * 返回 Web 管理页面。
  */
 function indexPageResponse(): Response {
-  return new Response(indexPageHtml, {
+  const html = indexPageHtml ?? fs.readFileSync(indexPagePath, 'utf8')
+  return new Response(html, {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',

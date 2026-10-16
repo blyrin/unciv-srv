@@ -7,7 +7,7 @@
     "bun": ">=1.4.3"
   },
   "scripts": {
-    "dev": "bun --bun --watch src/main.ts",
+    "dev": "bun --bun --watch src/main.ts --dev",
     "build": "bun build --minify --target=bun --outdir dist src/main.ts",
     "start": "bun --bun dist/main.js",
     "typecheck": "bun check -p tsconfig.json && bun check -p tsconfig.test.json",
