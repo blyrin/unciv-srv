@@ -9,6 +9,9 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M24 3.5L41.5 13.7v20.6L24 44.5 6.5 34.3V13.7z' fill='none' stroke='%23e9b954' stroke-width='3'/%3E%3C/svg%3E" />
     <style>
+      [v-cloak] {
+        display: none;
+      }
       :root {
         --bg: #0b0f17;
         --panel: #121a29;
@@ -1069,12 +1072,7 @@
       .skel {
         height: 13px;
         border-radius: 6px;
-        background: linear-gradient(
-          90deg,
-          rgba(255, 255, 255, 0.05) 25%,
-          rgba(255, 255, 255, 0.12) 50%,
-          rgba(255, 255, 255, 0.05) 75%
-        );
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 25%, rgba(255, 255, 255, 0.12) 50%, rgba(255, 255, 255, 0.05) 75%);
         background-size: 200% 100%;
         animation: shimmer 1.3s infinite;
       }
@@ -1393,7 +1391,7 @@
     </style>
   </head>
   <body>
-    <div id="app">
+    <div id="app" v-cloak>
       <transition name="pop">
         <div class="toast" :class="'toast-'+toast.type" v-if="toast.show">
           <span class="ic" v-html="toastIcon"></span>
@@ -1425,23 +1423,15 @@
             <div class="field">
               <label>密码</label>
               <div class="pwd-wrap">
-                <input
-                  class="input"
-                  :type="loginForm.showPwd?'text':'password'"
-                  v-model="loginForm.password"
-                  @keyup.enter="doLogin" />
+                <input class="input" :type="loginForm.showPwd?'text':'password'" v-model="loginForm.password" @keyup.enter="doLogin" />
                 <button class="ibtn" type="button" @click="loginForm.showPwd=!loginForm.showPwd">
                   <span class="ic" v-html="loginForm.showPwd?icons.eyeOff:icons.eye"></span>
                 </button>
               </div>
             </div>
-            <button class="btn btn-gold login-btn" :disabled="loading" @click="doLogin">
-              {{ loading ? '验证登录中...' : '登 录' }}
-            </button>
+            <button class="btn btn-gold login-btn" :disabled="loading" @click="doLogin">{{ loading ? '验证登录中...' : '登 录' }}</button>
             <div class="login-foot">
-              <a href="https://github.com/blyrin/unciv-srv" target="_blank" rel="noopener">
-                https://github.com/blyrin/unciv-srv
-              </a>
+              <a href="https://github.com/blyrin/unciv-srv" target="_blank" rel="noopener"> https://github.com/blyrin/unciv-srv </a>
             </div>
           </div>
         </div>
@@ -1456,12 +1446,7 @@
             <div class="b-name">Unciv Srv</div>
           </div>
           <nav class="nav">
-            <div
-              class="nav-item"
-              v-for="t in visibleTabs"
-              :key="t.key"
-              :class="{active:tab===t.key}"
-              @click="switchTab(t.key)">
+            <div class="nav-item" v-for="t in visibleTabs" :key="t.key" :class="{active:tab===t.key}" @click="switchTab(t.key)">
               <span class="ic" v-html="icons[t.icon]"></span>
               {{ t.name }}
               <span class="nav-dot" v-if="t.key==='players'&&pendingCount>0"></span>
@@ -1640,9 +1625,7 @@
                         <span class="s-label">平均游戏回合</span>
                         <span class="ic s-ico" v-html="icons.history"></span>
                       </div>
-                      <div class="s-num">
-                        {{ display.avgGameTurns ? Number(display.avgGameTurns).toFixed(1) : '0.0' }}
-                      </div>
+                      <div class="s-num">{{ display.avgGameTurns ? Number(display.avgGameTurns).toFixed(1) : '0.0' }}</div>
                     </div>
                     <div class="card stat c-amber">
                       <div class="s-top">
@@ -1708,9 +1691,7 @@
                       <b>{{ selectedPlayers.length }}</b>
                       项
                     </span>
-                    <button class="btn btn-sm" @click="toggleAllPlayers">
-                      {{ allPlayersChecked ? '取消本页' : '全选本页' }}
-                    </button>
+                    <button class="btn btn-sm" @click="toggleAllPlayers">{{ allPlayersChecked ? '取消本页' : '全选本页' }}</button>
                     <button class="btn btn-sm" @click="selectedPlayers=[]">清空</button>
                     <span class="bdiv"></span>
                     <button class="btn btn-sm act-gold" @click="batchPlayers('whitelist')">设为白名单</button>
@@ -1726,11 +1707,7 @@
                       <thead>
                         <tr>
                           <th class="w-chk">
-                            <input
-                              type="checkbox"
-                              class="chk"
-                              :checked="allPlayersChecked"
-                              @change="toggleAllPlayers" />
+                            <input type="checkbox" class="chk" :checked="allPlayersChecked" @change="toggleAllPlayers" />
                           </th>
                           <th>玩家 ID</th>
                           <th>状态</th>
@@ -1749,11 +1726,7 @@
                         <template v-else-if="players.length">
                           <tr v-for="p in players" :key="p.playerId">
                             <td>
-                              <input
-                                type="checkbox"
-                                class="chk"
-                                :checked="selectedPlayers.includes(p.playerId)"
-                                @change="togglePlayer(p.playerId)" />
+                              <input type="checkbox" class="chk" :checked="selectedPlayers.includes(p.playerId)" @change="togglePlayer(p.playerId)" />
                             </td>
                             <td><span class="pid">{{ p.playerId }}</span></td>
                             <td>
@@ -1814,10 +1787,7 @@
                         <span class="ic" v-html="icons.chevL"></span>
                       </button>
                       <span class="mono">{{ playerPage }} / {{ playerTotalPages }}</span>
-                      <button
-                        class="pbtn"
-                        :disabled="playerPage>=playerTotalPages"
-                        @click="playerPage++;fetchPlayers()">
+                      <button class="pbtn" :disabled="playerPage>=playerTotalPages" @click="playerPage++;fetchPlayers()">
                         <span class="ic" v-html="icons.chevR"></span>
                       </button>
                     </div>
@@ -1846,9 +1816,7 @@
                       <b>{{ selectedGames.length }}</b>
                       个对局
                     </span>
-                    <button class="btn btn-sm" @click="toggleAllGames">
-                      {{ allGamesChecked ? '取消本页' : '全选本页' }}
-                    </button>
+                    <button class="btn btn-sm" @click="toggleAllGames">{{ allGamesChecked ? '取消本页' : '全选本页' }}</button>
                     <button class="btn btn-sm" @click="selectedGames=[]">清空</button>
                     <span class="bdiv"></span>
                     <button class="btn btn-sm act-gold" @click="batchGames('whitelist')">设为白名单</button>
@@ -1884,11 +1852,7 @@
                         <template v-else-if="games.length">
                           <tr v-for="g in games" :key="g.gameId">
                             <td>
-                              <input
-                                type="checkbox"
-                                class="chk"
-                                :checked="selectedGames.includes(g.gameId)"
-                                @change="toggleGame(g.gameId)" />
+                              <input type="checkbox" class="chk" :checked="selectedGames.includes(g.gameId)" @change="toggleGame(g.gameId)" />
                             </td>
                             <td>
                               <div class="pid">{{ g.gameId }}</div>
@@ -1902,9 +1866,7 @@
                               <div>更: {{ formatDate(g.updatedAt) }}</div>
                             </td>
                             <td>
-                              <span class="badge" :class="g.whitelist?'b-gold':'b-dim'">
-                                {{ g.whitelist ? '白名单' : '普通' }}
-                              </span>
+                              <span class="badge" :class="g.whitelist?'b-gold':'b-dim'"> {{ g.whitelist ? '白名单' : '普通' }} </span>
                             </td>
                             <td>
                               <div class="ops">
@@ -2017,9 +1979,7 @@
           <div class="modal" :class="'modal-'+modal.type">
             <div class="m-head">
               <div class="m-title">
-                <span
-                  class="ic"
-                  v-html="modal.type==='turns'?icons.history:modal.type==='pwd'?icons.key:modal.type==='password'?icons.eye:icons.pen"></span>
+                <span class="ic" v-html="modal.type==='turns'?icons.history:modal.type==='pwd'?icons.key:modal.type==='password'?icons.eye:icons.pen"></span>
                 {{ modal.title }}
               </div>
               <button class="ibtn" @click="closeModal"><span class="ic" v-html="icons.x"></span></button>
@@ -2079,20 +2039,14 @@
                   <div class="t">白名单玩家</div>
                   <div class="d">加入白名单后可直接参与联机</div>
                 </div>
-                <button
-                  class="switch"
-                  :class="{on:modal.data.whitelist}"
-                  @click="modal.data.whitelist=!modal.data.whitelist"></button>
+                <button class="switch" :class="{on:modal.data.whitelist}" @click="modal.data.whitelist=!modal.data.whitelist"></button>
               </div>
               <div class="sw-row">
                 <div>
                   <div class="t">允许联机（审核通过）</div>
                   <div class="d">未通过审核的账号无法连接服务器</div>
                 </div>
-                <button
-                  class="switch"
-                  :class="{on:modal.data.approved}"
-                  @click="modal.data.approved=!modal.data.approved"></button>
+                <button class="switch" :class="{on:modal.data.approved}" @click="modal.data.approved=!modal.data.approved"></button>
               </div>
               <div class="field" style="margin: 16px 0 0">
                 <label>备注说明</label>
@@ -2106,10 +2060,7 @@
                   <div class="t">白名单对局</div>
                   <div class="d">开启后仅白名单玩家可加入该对局</div>
                 </div>
-                <button
-                  class="switch"
-                  :class="{on:modal.data.whitelist}"
-                  @click="modal.data.whitelist=!modal.data.whitelist"></button>
+                <button class="switch" :class="{on:modal.data.whitelist}" @click="modal.data.whitelist=!modal.data.whitelist"></button>
               </div>
               <div class="field" style="margin: 16px 0 0">
                 <label>备注说明</label>
@@ -2128,12 +2079,7 @@
               </div>
               <div class="field" style="margin-bottom: 0">
                 <label>确认新密码</label>
-                <input
-                  class="input"
-                  type="password"
-                  v-model="pwdForm.confirm"
-                  placeholder="再次输入新密码"
-                  @keyup.enter="submitPwd" />
+                <input class="input" type="password" v-model="pwdForm.confirm" placeholder="再次输入新密码" @keyup.enter="submitPwd" />
               </div>
             </div>
 
@@ -2147,9 +2093,7 @@
 
             <div class="m-foot" v-if="modal.type==='player'||modal.type==='game'">
               <button class="btn" @click="closeModal">取消</button>
-              <button class="btn btn-gold" :disabled="modal.saving" @click="saveModal">
-                {{ modal.saving ? '保存中...' : '确认保存' }}
-              </button>
+              <button class="btn btn-gold" :disabled="modal.saving" @click="saveModal">{{ modal.saving ? '保存中...' : '确认保存' }}</button>
             </div>
             <div class="m-foot" v-if="modal.type==='pwd'">
               <button class="btn" @click="closeModal">取消</button>
@@ -2169,9 +2113,7 @@
             <div class="c-msg">{{ confirmDialog.message }}</div>
             <div class="c-btns">
               <button class="btn" @click="confirmDialog.show=false">{{ confirmDialog.cancelText }}</button>
-              <button class="btn" :class="confirmDialog.danger?'btn-danger-solid':'btn-gold'" @click="runConfirm">
-                {{ confirmDialog.confirmText }}
-              </button>
+              <button class="btn" :class="confirmDialog.danger?'btn-danger-solid':'btn-gold'" @click="runConfirm">{{ confirmDialog.confirmText }}</button>
             </div>
           </div>
         </div>
@@ -2181,10 +2123,7 @@
     <script src="https://unpkg.com/vue@3.4.38/dist/vue.global.prod.js"></script>
     <script>
       async function request(url, opts = {}) {
-        const res = await fetch(
-          url,
-          Object.assign({ headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' }, opts)
-        )
+        const res = await fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' }, opts))
         if (res.status === 204) return {}
         let data = null
         const ct = res.headers.get('content-type') || ''
@@ -2203,10 +2142,8 @@
         stats: () => request('/api/stats'),
         myStats: () => request('/api/users/stats'),
         players: (q) => request('/api/players?' + q),
-        updatePlayer: (id, d) =>
-          request('/api/players/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(d) }),
-        batchPlayers: (ids, d) =>
-          request('/api/players/batch', { method: 'PATCH', body: JSON.stringify({ playerIds: ids, ...d }) }),
+        updatePlayer: (id, d) => request('/api/players/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(d) }),
+        batchPlayers: (ids, d) => request('/api/players/batch', { method: 'PATCH', body: JSON.stringify({ playerIds: ids, ...d }) }),
         playerPassword: (id) => request('/api/players/' + encodeURIComponent(id) + '/password'),
         changePassword: (d, id) =>
           request(id ? '/api/players/' + encodeURIComponent(id) + '/password' : '/api/users/password', {
@@ -2214,12 +2151,9 @@
             body: JSON.stringify(d),
           }),
         games: (q) => request('/api/games?' + q),
-        updateGame: (id, d) =>
-          request('/api/games/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(d) }),
-        batchGames: (ids, d) =>
-          request('/api/games/batch', { method: 'PATCH', body: JSON.stringify({ gameIds: ids, ...d }) }),
-        batchDeleteGames: (ids) =>
-          request('/api/games/batch', { method: 'DELETE', body: JSON.stringify({ gameIds: ids }) }),
+        updateGame: (id, d) => request('/api/games/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(d) }),
+        batchGames: (ids, d) => request('/api/games/batch', { method: 'PATCH', body: JSON.stringify({ gameIds: ids, ...d }) }),
+        batchDeleteGames: (ids) => request('/api/games/batch', { method: 'DELETE', body: JSON.stringify({ gameIds: ids }) }),
         deleteGame: (id) => request('/api/games/' + encodeURIComponent(id), { method: 'DELETE' }),
         myGames: () => request('/api/users/games'),
         turns: (id) => request('/api/games/' + encodeURIComponent(id) + '/turns'),
@@ -2229,9 +2163,7 @@
           }),
       }
       const sv = (p) =>
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
-        p +
-        '</svg>'
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>'
 
       Vue.createApp({
         data() {
@@ -2247,20 +2179,14 @@
               flag: sv('<path d="M5 21V4"/><path d="M5 4h11.5l-2.2 4 2.2 4H5"/>'),
               search: sv('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>'),
               key: sv('<circle cx="7.5" cy="15.5" r="4.2"/><path d="M10.7 12.3L20 3"/><path d="M16.5 3H20v3.5"/>'),
-              logout: sv(
-                '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>'
-              ),
-              pen: sv(
-                '<path d="M17.2 3.3a2.6 2.6 0 0 1 3.7 3.7L7.6 20.3 2.5 21.5l1.2-5.1z"/><path d="M14.5 6l3.5 3.5"/>'
-              ),
+              logout: sv('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>'),
+              pen: sv('<path d="M17.2 3.3a2.6 2.6 0 0 1 3.7 3.7L7.6 20.3 2.5 21.5l1.2-5.1z"/><path d="M14.5 6l3.5 3.5"/>'),
               check: sv('<path d="M20 6.5L9.5 17 4 11.5"/>'),
               eye: sv('<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>'),
               eyeOff: sv(
                 '<path d="M17.94 17.94A10.5 10.5 0 0 1 12 19c-7 0-11-7-11-7a19.8 19.8 0 0 1 5.06-5.94M9.9 4.24A9.9 9.9 0 0 1 12 4c7 0 11 7 11 7a19.8 19.8 0 0 1-2.16 3.19"/><path d="M1 1l22 22"/>'
               ),
-              download: sv(
-                '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>'
-              ),
+              download: sv('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>'),
               history: sv('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 3"/>'),
               trash: sv(
                 '<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/>'
@@ -2268,18 +2194,10 @@
               chevL: sv('<path d="M14.5 6L8.5 12l6 6"/>'),
               chevR: sv('<path d="M9.5 6l6 6-6 6"/>'),
               x: sv('<path d="M18 6L6 18M6 6l12 12"/>'),
-              warn: sv(
-                '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>'
-              ),
-              shield: sv(
-                '<path d="M12 2.8l7.5 2.9v6c0 5-3.2 8.1-7.5 9.5-4.3-1.4-7.5-4.5-7.5-9.5v-6z"/><path d="M9 11.8l2.2 2.2 4-4.2"/>'
-              ),
-              copy: sv(
-                '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'
-              ),
-              server: sv(
-                '<rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/>'
-              ),
+              warn: sv('<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),
+              shield: sv('<path d="M12 2.8l7.5 2.9v6c0 5-3.2 8.1-7.5 9.5-4.3-1.4-7.5-4.5-7.5-9.5v-6z"/><path d="M9 11.8l2.2 2.2 4-4.2"/>'),
+              copy: sv('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'),
+              server: sv('<rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/>'),
               clock: sv('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
               spark: sv('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>'),
               info: sv('<circle cx="12" cy="12" r="8.5"/><path d="M12 8h.01"/><path d="M12 11v5"/>'),
@@ -2423,8 +2341,7 @@
             this.fetchPlayers()
           },
           async doLogin() {
-            if (!this.loginForm.username.trim() || !this.loginForm.password)
-              return this.notify('请输入用户名 / 玩家 ID 与密码', 'warn')
+            if (!this.loginForm.username.trim() || !this.loginForm.password) return this.notify('请输入用户名 / 玩家 ID 与密码', 'warn')
             this.loading = true
             try {
               const r = await API.login({ username: this.loginForm.username.trim(), password: this.loginForm.password })
@@ -2707,10 +2624,7 @@
             if (!this.pwdForm.next || this.pwdForm.next.length < 6) return this.notify('新密码至少 6 位', 'warn')
             if (this.pwdForm.next !== this.pwdForm.confirm) return this.notify('两次输入的新密码不一致', 'error')
             try {
-              await API.changePassword(
-                t ? { password: this.pwdForm.next } : { oldPassword: this.pwdForm.old, newPassword: this.pwdForm.next },
-                t
-              )
+              await API.changePassword(t ? { password: this.pwdForm.next } : { oldPassword: this.pwdForm.old, newPassword: this.pwdForm.next }, t)
               this.notify('密码修改成功', 'success')
               this.modal.show = false
             } catch (e) {
@@ -2774,8 +2688,7 @@
           rollback(t) {
             this.ask({
               title: '回档确认 · ' + t.turns,
-              message:
-                '回档会永久删除该游戏中比目标回合更新的所有存档记录，操作后无法撤销。确定回档至 ' + t.turns + ' 吗？',
+              message: '回档会永久删除该游戏中比目标回合更新的所有存档记录，操作后无法撤销。确定回档至 ' + t.turns + ' 吗？',
               confirmText: '确认回档',
               danger: true,
               action: async () => {
@@ -2820,13 +2733,7 @@
           },
           downloadTurn(t) {
             const k = t.id != null ? t.id : t.turns
-            this.dl(
-              '/api/games/' +
-                encodeURIComponent(this.modal.data.gameId) +
-                '/turns/' +
-                encodeURIComponent(k) +
-                '/download'
-            )
+            this.dl('/api/games/' + encodeURIComponent(this.modal.data.gameId) + '/turns/' + encodeURIComponent(k) + '/download')
           },
           downloadLatest(g) {
             this.dl('/api/games/' + encodeURIComponent(g.gameId) + '/download')
@@ -2861,11 +2768,7 @@
           mineCheck(g) {
             if (g.isCreator === true) return true
             if (!this.userInfo) return false
-            return (
-              g.createdPlayer === this.userInfo.id ||
-              g.createdPlayer === this.userInfo.name ||
-              g.createdBy === this.userInfo.id
-            )
+            return g.createdPlayer === this.userInfo.id || g.createdPlayer === this.userInfo.name || g.createdBy === this.userInfo.id
           },
           playersOf(g) {
             let pl = g.players || g.playerIds || g.members || []
@@ -2879,17 +2782,7 @@
             const d = new Date(t)
             if (isNaN(d.getTime())) return String(t)
             const z = (n) => String(n).padStart(2, '0')
-            return (
-              d.getFullYear() +
-              '-' +
-              z(d.getMonth() + 1) +
-              '-' +
-              z(d.getDate()) +
-              ' ' +
-              z(d.getHours()) +
-              ':' +
-              z(d.getMinutes())
-            )
+            return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + ' ' + z(d.getHours()) + ':' + z(d.getMinutes())
           },
           formatWait(t) {
             if (!t) return ''
