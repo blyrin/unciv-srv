@@ -512,7 +512,6 @@ const playerListOrderBy: Record<PlayerListSort, string> = {
  * 每行附带该玩家参与的对局数，方便审核时判断账号是否真的在用。
  */
 export function getPlayersPage(options: GetPlayersPageOptions): PageResult<PlayerListEntry> {
-  const conn = getDB()
   const conditions: string[] = []
   const args: SqlValue[] = []
   const keyword = (options.keyword ?? '').trim()
@@ -545,18 +544,30 @@ export function getPlayersPage(options: GetPlayersPageOptions): PageResult<Playe
              approved,
              remark,
              create_ip,
-             update_ip,
-             (select count(*)
-              from files f
-              where exists (select 1 from json_each(f.players) where json_each.value = players.player_id)) as game_count
+             update_ip
       from players${where}
       order by ${playerListOrderBy[options.sort ?? 'created_desc']}
       LIMIT ? offset ?
     `)
     .all(...args, options.pageSize, offset) as Row[]
 
+  const playerIds = rows.map((row) => valueText(row.player_id))
+  const gameCounts = new Map<string, number>()
+  if (playerIds.length > 0) {
+    const countRows = statement(`select json_each.value as player_id, count(*) as game_count
+                                  from files f, json_each(f.players)
+                                  where json_each.value in (${buildInClause(playerIds)})
+                                  group by json_each.value`).all(...playerIds) as Row[]
+    for (const row of countRows) {
+      gameCounts.set(valueText(row.player_id), Number(row.game_count ?? 0))
+    }
+  }
+
   return {
-    items: rows.map((row) => ({ ...rowToPlayer(row), gameCount: Number(row.game_count ?? 0) })),
+    items: rows.map((row) => {
+      const player = rowToPlayer(row)
+      return { ...player, gameCount: gameCounts.get(player.playerId) ?? 0 }
+    }),
     total: Number(totalRow.total ?? 0),
   }
 }
