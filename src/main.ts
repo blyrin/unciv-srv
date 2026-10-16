@@ -3,13 +3,10 @@ import type { Server } from 'bun'
 import { createApp } from './app.js'
 import { createChatWebSocket } from './chat.js'
 import { closeDatabase, initDatabase, restoreArchivedGames, runCleanup } from './database.js'
-import { loadConfig, loadEnvFile } from './config.js'
+import { loadConfig, loadEnvFile, cleanupFlag, restoreFlag } from './config.js'
 import type { PeerData } from './chat.js'
 import { RateLimiter } from './rate-limit.js'
 import { startScheduler } from './scheduler.js'
-
-const restoreFlag = '--restore-archive'
-const cleanupFlag = '--cleanup'
 
 /**
  * 归档恢复入口：bun dist/main.js --restore-archive <归档文件> [对局ID]。
@@ -51,7 +48,7 @@ async function runCleanupFromCommandLine(): Promise<boolean> {
   loadEnvFile()
   const config = loadConfig()
   await initDatabase(config)
-  runCleanup(config.archiveEnabled, config.archiveDir, config.archiveMaxBytes)
+  await runCleanup(config.archiveEnabled, config.archiveDir, config.archiveMaxBytes)
   closeDatabase()
   return true
 }
@@ -72,7 +69,7 @@ async function main(): Promise<void> {
   await initDatabase(config)
 
   const limiter = new RateLimiter(config.maxAttempts, config.lockTime)
-  const scheduler = startScheduler(config)
+  const scheduler = startScheduler()
   const chat = createChatWebSocket(config)
   const app = createApp(config, limiter, chat)
   const port = Number.parseInt(config.port, 10)

@@ -15,7 +15,7 @@ import {
   sessionCookieName,
 } from './session.js'
 import {
-  createArchive, decodeGameFile, encodeFile, errorResponse, fileResponse, getBaseGameID, getClientIP,
+  createArchive, decodeGameFile, encodedFileResponse, errorResponse, fileResponse, getBaseGameID, getClientIP,
   getPlayerIDsFromParsedGameData, HttpError, jsonResponse, maxJsonBodySize, maxTextBodySize, maxTurnOperationsSize,
   parseBasicAuthCredentials, projectRoot, readLimitedText, successResponse, textResponse,
 } from './utils.js'
@@ -202,7 +202,7 @@ export function createApp(config: Config, limiter: RateLimiter, chat?: ChatWebSo
         if (!file) {
           return errorResponse(404, '找不到存档')
         }
-        return textResponse(encodeFile(file.data))
+        return encodedFileResponse(file.data)
       }),
       PUT: routeHandler(logger(), validateGameIDMiddleware(), basicAuthOnly(), coldArchiveNotice(), async (ctx) => {
         const playerId = ctx.get('playerId')

@@ -159,7 +159,7 @@ test('清理任务删除空对局并只保留最新存档和预览', async () =>
 
   saveFileContent(testGameID1, 3, testPlayerID1, '127.0.0.1', '{"turns":3}')
   saveFilePreview(testGameID1, 3, testPlayerID1, '127.0.0.1', '{"preview":3}')
-  runCleanup(server.config.archiveEnabled, server.config.archiveDir, server.config.archiveMaxBytes)
+  await runCleanup(server.config.archiveEnabled, server.config.archiveDir, server.config.archiveMaxBytes)
   assert.equal(getLatestFileContent(testGameID1)?.turns, 3)
   assert.equal(getAllTurnsForGame(testGameID1).length, 1)
 })

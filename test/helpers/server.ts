@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -8,8 +9,9 @@ import { createApp } from '../../src/app.js'
 import { createChatWebSocket, resetChatState } from '../../src/chat.js'
 import type { ChatWebSocket, PeerData } from '../../src/chat.js'
 import {
-  closeDatabase, createGame, createPlayer, initDatabase, saveFileContent, saveFilePreview,
+  closeDatabase, createGame, createPlayer, getDB, initDatabase, saveFileContent, saveFilePreview,
 } from '../../src/database.js'
+import type { ArchivedGame } from '../../src/database.js'
 import { RateLimiter } from '../../src/rate-limit.js'
 import { resetSessions } from '../../src/session.js'
 import { testGameID1, testPassword, testPlayerID1 } from '../fixtures/ids.js'
@@ -90,6 +92,58 @@ export async function setupTestServer(overrides: Partial<Config> = {}): Promise<
 
 export function basicAuth(playerId = testPlayerID1, password = testPassword): string {
   return `Basic ${btoa(`${playerId}:${password}`)}`
+}
+
+export function makeGame(gameId: string, size: number, updatedAtOffset: number, playerId = testPlayerID1): number {
+  createGame(gameId, [playerId])
+  saveFileContent(gameId, 1, playerId, '127.0.0.1', 'x'.repeat(size))
+  saveFilePreview(gameId, 1, playerId, '127.0.0.1', '{"preview":1}')
+  const updatedAt = Date.now() + updatedAtOffset
+  getDB().query('update files set whitelist = 0, created_at = ?, updated_at = ? where game_id = ?')
+    .run(updatedAt - 1000, updatedAt, gameId)
+  return updatedAt
+}
+
+export function createArchiveDir(): { archiveDir: string; cleanup: () => void } {
+  const archiveDir = fs.mkdtempSync(path.join(os.tmpdir(), 'unciv-srv-archive-'))
+  return { archiveDir, cleanup: () => fs.rmSync(archiveDir, { recursive: true, force: true }) }
+}
+
+export function archiveFileNames(archiveDir: string): string[] {
+  return fs.existsSync(archiveDir) ? fs.readdirSync(archiveDir) : []
+}
+
+export function archiveFileWithGame(archiveDir: string, gameId: string): string {
+  const name = archiveFileNames(archiveDir)
+    .find((file) => fs.readFileSync(path.join(archiveDir, file), 'utf8').includes(gameId))
+  assert.ok(name, `归档目录里没有包含 ${gameId} 的归档文件`)
+  return path.join(archiveDir, name)
+}
+
+export function writeArchiveFile(dir: string, games: ArchivedGame[]): string {
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, 'external.jsonl')
+  fs.writeFileSync(file, games.map((game) => JSON.stringify(game)).join('\n') + '\n')
+  return file
+}
+
+export function archivedGameFixture(gameId: string, overrides: Partial<ArchivedGame> = {}): ArchivedGame {
+  return {
+    version: 1,
+    gameId,
+    players: [testPlayerID1],
+    whitelist: false,
+    remark: '',
+    createdAt: 1000,
+    updatedAt: 2000,
+    turns: 7,
+    contentPlayer: testPlayerID1,
+    contentCreatedAt: 1500,
+    data: '{"save":1}',
+    previewTurns: 7,
+    previewData: '{"preview":1}',
+    ...overrides,
+  }
 }
 
 export function buildGameData(gameId: string, turns: number, playerIds: string[]): string {

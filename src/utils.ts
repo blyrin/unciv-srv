@@ -238,6 +238,50 @@ export function encodeFile(data: string): string {
 }
 
 /**
+ * 按 3 字节对齐切块转 Base64：边界落在 3 的倍数上时，各块的 Base64 直接拼接
+ * 就等于整块 toBase64()，不足 3 字节的尾块由 toBase64 自行补 '='。
+ */
+function base64ChunkStream(): TransformStream<Uint8Array, Uint8Array> {
+  let tail = new Uint8Array(0)
+  const encoder = new TextEncoder()
+  return new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      const merged = new Uint8Array(tail.length + chunk.length)
+      merged.set(tail)
+      merged.set(chunk, tail.length)
+      const aligned = merged.length - (merged.length % 3)
+      if (aligned > 0) {
+        controller.enqueue(encoder.encode(merged.subarray(0, aligned).toBase64()))
+      }
+      tail = merged.slice(aligned)
+    },
+    flush(controller) {
+      if (tail.length > 0) {
+        controller.enqueue(encoder.encode(tail.toBase64()))
+      }
+    },
+  })
+}
+
+/**
+ * 返回 Base64+Gzip 存档响应
+ */
+export function encodedFileResponse(data: string): Response {
+  const raw = new TextEncoder().encode(data)
+  const body = new Response(raw).body
+  if (body == null) {
+    throw new Error('无法创建响应体流')
+  }
+  const encoded = body.pipeThrough(new CompressionStream('gzip')).pipeThrough(base64ChunkStream())
+  return new Response(encoded, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+    },
+  })
+}
+
+/**
  * 解析存档中的关键游戏字段。
  */
 export function parseGameData(data: string): GameData {
@@ -352,7 +396,7 @@ function createZip(entries: FileEntry[]): Uint8Array {
       name,
       payload,
       rawSize: raw.length,
-      crc: Bun.hash.crc32(raw) >>> 0,
+      crc: hash.crc32(raw) >>> 0,
       method: useDeflate ? zipMethod.deflate : zipMethod.store,
       offset: localSize,
     })

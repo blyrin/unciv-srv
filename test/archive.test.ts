@@ -1,52 +1,42 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, test } from 'bun:test'
 import {
-  archiveColdGames, cleanupEmptyGames, clearArchivedGame, createGame, getArchivedGameRecord, getArchiveUsage, getDB,
-  getGameByID, getLatestFileContent, getLatestFilePreview, getRestoreRequests, restoreArchivedGames, saveFileContent,
-  saveFilePreview, updateGameInfo,
+  acquireSimultaneousTurnLock, appendSimultaneousTurnOperations, archiveColdGames, cleanupEmptyGames, clearArchivedGame,
+  createGame, getAllTurnsForGame, getArchivedGameRecord, getArchiveUsage, getDB, getGameByID, getLatestFileContent,
+  getLatestFilePreview, getRestoreRequests, getSimultaneousTurnOperations, getTurnsMetadata, restoreArchivedGames,
+  rollbackGameToTurn, saveFileContent, saveFilePreview, updateGameInfo,
 } from '../src/database.js'
 import {
-  basicAuth, loginAsAdmin, seedPlayer, setupTestServer, testGameID1, testGameID2, testPassword, testPlayerID1,
-  testPlayerID2, type TestServer,
+  archiveFileNames, archiveFileWithGame, archivedGameFixture, basicAuth, createArchiveDir, loginAsAdmin, makeGame,
+  seedPlayer, setupTestServer, testGameID1, testGameID2, testPassword, testPlayerID1, testPlayerID2,
+  type TestServer, writeArchiveFile,
 } from './helpers/server.js'
 
 let server: TestServer
 let archiveDir: string
+let cleanupArchiveDir: () => void
 
 beforeEach(async () => {
   server = await setupTestServer()
-  archiveDir = fs.mkdtempSync(path.join(os.tmpdir(), 'unciv-srv-archive-'))
+  const archive = createArchiveDir()
+  archiveDir = archive.archiveDir
+  cleanupArchiveDir = archive.cleanup
 })
 
 afterEach(async () => {
   server.close()
-  fs.rmSync(archiveDir, { recursive: true, force: true })
+  cleanupArchiveDir()
 })
-
-/**
- * 造一局有存档的对局：size 控制存档正文字节数，updatedAtOffset 控制使用时间（负数表示更久没用）。
- */
-function makeGame(gameId: string, size: number, updatedAtOffset: number): number {
-  createGame(gameId, [testPlayerID1])
-  saveFileContent(gameId, 1, testPlayerID1, '127.0.0.1', 'x'.repeat(size))
-  saveFilePreview(gameId, 1, testPlayerID1, '127.0.0.1', '{"preview":1}')
-  const updatedAt = Date.now() + updatedAtOffset
-  getDB()
-    .query('update files set whitelist = 0, created_at = ?, updated_at = ? where game_id = ?')
-    .run(updatedAt - 1000, updatedAt, gameId)
-  return updatedAt
-}
 
 test('存档总量未超过阈值时不动任何对局', async () => {
   await seedPlayer(testPlayerID1)
   makeGame(testGameID1, 1000, 0)
 
-  const result = archiveColdGames(archiveDir, 1024 * 1024)
+  const result = await archiveColdGames(archiveDir, 1024 * 1024)
   assert.deepEqual(result, { games: 0, bytes: 0 })
-  assert.equal(fs.readdirSync(archiveDir).length, 0)
+  assert.equal(archiveFileNames(archiveDir).length, 0)
   assert.ok(getGameByID(testGameID1) != null)
   assert.ok(getArchiveUsage() >= 1000)
 })
@@ -57,13 +47,13 @@ test('总量超过阈值时按最久未使用顺序归档，先写归档文件�
   makeGame(testGameID2, 1000, 0)
 
   // 阈值只够放下最新那一局，于是只有最久未使用的那局被归档
-  const result = archiveColdGames(archiveDir, 1200)
+  const result = await archiveColdGames(archiveDir, 1200)
   assert.equal(result.games, 1)
   assert.ok(result.bytes > 0)
   assert.equal(getGameByID(testGameID1), null)
   assert.ok(getGameByID(testGameID2) != null)
 
-  const files = fs.readdirSync(archiveDir)
+  const files = archiveFileNames(archiveDir)
   assert.equal(files.length, 1)
   assert.match(files[0], /^unciv-archive-\d{8}-\d{6}Z\.jsonl$/)
   const file = path.join(archiveDir, files[0])
@@ -91,14 +81,28 @@ test('总量超过阈值时按最久未使用顺序归档，先写归档文件�
   assert.deepEqual(getRestoreRequests(), [])
 })
 
+test('写归档文件失败时中止归档，不删除任何对局记录', async () => {
+  await seedPlayer(testPlayerID1)
+  makeGame(testGameID1, 3000, -60_000)
+  // 归档目录位置上放一个已存在的文件，创建归档目录必然失败
+  const blocked = path.join(archiveDir, 'blocked')
+  fs.writeFileSync(blocked, '')
+
+  await assert.rejects(archiveColdGames(blocked, 1000))
+  assert.ok(getGameByID(testGameID1) != null)
+  assert.ok(getLatestFileContent(testGameID1) != null)
+  assert.equal(getArchivedGameRecord(testGameID1), null)
+  assert.equal(archiveFileNames(archiveDir).length, 1)
+})
+
 test('白名单对局不会被归档', async () => {
   await seedPlayer(testPlayerID1)
   makeGame(testGameID1, 4000, -60_000)
   updateGameInfo(testGameID1, true, '长期保留')
 
-  const result = archiveColdGames(archiveDir, 100)
+  const result = await archiveColdGames(archiveDir, 100)
   assert.deepEqual(result, { games: 0, bytes: 0 })
-  assert.equal(fs.readdirSync(archiveDir).length, 0)
+  assert.equal(archiveFileNames(archiveDir).length, 0)
   assert.equal(getGameByID(testGameID1)?.remark, '长期保留')
   assert.ok(getLatestFileContent(testGameID1) != null)
 })
@@ -111,20 +115,134 @@ test('没有存档的空对局不写进归档文件，由空对局清理负责',
     .query('update files set created_at = ?, updated_at = ? where game_id = ?')
     .run(old, old, testGameID1)
 
-  const result = archiveColdGames(archiveDir, 1)
+  const result = await archiveColdGames(archiveDir, 1)
   assert.deepEqual(result, { games: 0, bytes: 0 })
-  assert.equal(fs.readdirSync(archiveDir).length, 0)
+  assert.equal(archiveFileNames(archiveDir).length, 0)
   assert.ok(getGameByID(testGameID1) != null)
 
   assert.equal(cleanupEmptyGames(), 1)
   assert.equal(getGameByID(testGameID1), null)
 })
 
+test('只上传过预览的对局不会被归档，否则墓碑会指向不含它的归档文件', async () => {
+  await seedPlayer(testPlayerID1)
+  createGame(testGameID1, [testPlayerID1])
+  saveFilePreview(testGameID1, 1, testPlayerID1, '127.0.0.1', 'y'.repeat(4000))
+  const old = Date.now() - 60_000
+  getDB().query('update files set created_at = ?, updated_at = ? where game_id = ?').run(old, old, testGameID1)
+
+  const result = await archiveColdGames(archiveDir, 1000)
+  assert.deepEqual(result, { games: 0, bytes: 0 })
+  assert.equal(archiveFileNames(archiveDir).length, 0)
+  assert.ok(getGameByID(testGameID1) != null)
+  assert.equal(getArchivedGameRecord(testGameID1), null)
+  assert.ok(getLatestFilePreview(testGameID1) != null)
+})
+
+test('同一秒内再次归档不会覆盖上一个归档文件', async () => {
+  await seedPlayer(testPlayerID1)
+  makeGame(testGameID1, 3000, -120_000)
+  const first = await archiveColdGames(archiveDir, 1500)
+  makeGame(testGameID2, 3000, -60_000)
+  const second = await archiveColdGames(archiveDir, 1500)
+
+  assert.equal(first.games, 1)
+  assert.equal(second.games, 1)
+  const files = archiveFileNames(archiveDir)
+  assert.equal(files.length, 2)
+  // 每个墓碑都必须指向真的含有自己对局的归档文件
+  for (const gameId of [testGameID1, testGameID2]) {
+    const record = getArchivedGameRecord(gameId)
+    assert.ok(record != null)
+    assert.ok(fs.readFileSync(path.join(archiveDir, record.archiveFile), 'utf8').includes(gameId))
+  }
+})
+
+test('容量统计按 UTF-8 字节而不是字符数', async () => {
+  await seedPlayer(testPlayerID1)
+  const data = '中文存档数据'.repeat(500)
+  createGame(testGameID1, [testPlayerID1])
+  saveFileContent(testGameID1, 1, testPlayerID1, '127.0.0.1', data)
+
+  assert.equal(getArchiveUsage(), new TextEncoder().encode(data).length)
+})
+
+test('归档会级联清理同步回合锁与操作', async () => {
+  await seedPlayer(testPlayerID1)
+  makeGame(testGameID1, 3000, -60_000)
+  assert.equal(acquireSimultaneousTurnLock(testGameID1, 5, testPlayerID1), true)
+  appendSimultaneousTurnOperations(testGameID1, testPlayerID1, [
+    { turn: 5, sequence: 1, playerId: testPlayerID1, type: 'move' },
+  ])
+  assert.ok(getSimultaneousTurnOperations(testGameID1) != null)
+
+  await archiveColdGames(archiveDir, 1000)
+
+  const conn = getDB()
+  assert.equal((conn.query('select count(*) as count from simultaneous_turn_locks').get() as { count: number }).count, 0)
+  assert.equal((conn.query('select count(*) as count from simultaneous_turn_operations').get() as { count: number }).count, 0)
+})
+
+test('恢复时创建者不在 players 表也能恢复（异地或换库恢复）', async () => {
+  const file = writeArchiveFile(archiveDir, [
+    archivedGameFixture(testGameID1, { contentPlayer: 'ghost-player' }),
+  ])
+
+  const [restored] = restoreArchivedGames(file)
+  assert.equal(restored.gameId, testGameID1)
+  assert.ok(getGameByID(testGameID1) != null)
+  assert.equal(getLatestFileContent(testGameID1)?.data, '{"save":1}')
+  // 创建者缺失时置空，而不是让整笔恢复失败
+  const row = getDB()
+    .query('select created_player from files_content where game_id = ?')
+    .get(testGameID1) as { created_player: string | null }
+  assert.equal(row.created_player, null)
+})
+
+test('同一个归档文件里多局恢复，创建者缺失不影响其他对局', async () => {
+  await seedPlayer(testPlayerID1)
+  const file = writeArchiveFile(archiveDir, [
+    archivedGameFixture(testGameID1),
+    archivedGameFixture(testGameID2, { contentPlayer: 'ghost-player' }),
+  ])
+
+  const restored = restoreArchivedGames(file)
+  assert.equal(restored.length, 2)
+  assert.ok(getGameByID(testGameID1) != null)
+  assert.ok(getGameByID(testGameID2) != null)
+  assert.equal(getLatestFileContent(testGameID2)?.data, '{"save":1}')
+})
+
+test('恢复会覆盖库里已有的旧存档，而不是叠加', async () => {
+  await seedPlayer(testPlayerID1)
+  createGame(testGameID1, [testPlayerID1])
+  saveFileContent(testGameID1, 99, testPlayerID1, '127.0.0.1', '{"turns":99}')
+  saveFilePreview(testGameID1, 99, testPlayerID1, '127.0.0.1', '{"preview":99}')
+
+  restoreArchivedGames(writeArchiveFile(archiveDir, [archivedGameFixture(testGameID1)]))
+
+  assert.deepEqual(getAllTurnsForGame(testGameID1).map((turn) => turn.turns), [7])
+  assert.equal(getLatestFileContent(testGameID1)?.data, '{"save":1}')
+  assert.equal(getLatestFilePreview(testGameID1)?.data, '{"preview":1}')
+})
+
+test('恢复后的对局可以正常回档', async () => {
+  await seedPlayer(testPlayerID1)
+  restoreArchivedGames(writeArchiveFile(archiveDir, [archivedGameFixture(testGameID1)]))
+
+  const turn = getTurnsMetadata(testGameID1)[0]
+  assert.deepEqual(rollbackGameToTurn(testGameID1, turn.id), {
+    deletedTurns: 0,
+    deletedPreviews: 0,
+    currentTurns: 7,
+  })
+})
+
 test('玩家打开已冷归档的对局时返回提示并登记恢复请求，预览请求不登记', async () => {
   await seedPlayer(testPlayerID1)
   await seedPlayer(testPlayerID2)
   makeGame(testGameID1, 4000, -60_000)
-  assert.equal(archiveColdGames(archiveDir, 1000).games, 1)
+  assert.equal((await archiveColdGames(archiveDir, 1000)).games, 1)
   assert.equal(getGameByID(testGameID1), null)
 
   const response = await server.request(`/files/${testGameID1}`, {
@@ -177,7 +295,7 @@ test('归档文件格式不受支持时报错', async () => {
 
 test('归档文件里没有指定对局时报错', async () => {
   const file = path.join(archiveDir, 'one-game.jsonl')
-  fs.writeFileSync(file, `${JSON.stringify({ version: 1, gameId: testGameID1, data: '{}' })}\n`)
+  fs.writeFileSync(file, `${JSON.stringify(archivedGameFixture(testGameID1))}\n`)
 
   assert.throws(() => restoreArchivedGames(file, testGameID2), /没有对局/)
 })
@@ -185,9 +303,22 @@ test('归档文件里没有指定对局时报错', async () => {
 test('可以直接放弃一局冷存档（清掉墓碑）', async () => {
   await seedPlayer(testPlayerID1)
   makeGame(testGameID1, 4000, -60_000)
-  assert.equal(archiveColdGames(archiveDir, 1000).games, 1)
+  assert.equal((await archiveColdGames(archiveDir, 1000)).games, 1)
 
   assert.equal(clearArchivedGame(testGameID1), 1)
   assert.equal(getArchivedGameRecord(testGameID1), null)
   assert.equal(clearArchivedGame(testGameID1), 0)
+})
+
+test('按 gameId 恢复时只恢复该局，且不影响其他对局的墓碑', async () => {
+  await seedPlayer(testPlayerID1)
+  makeGame(testGameID1, 3000, -120_000)
+  await archiveColdGames(archiveDir, 2000)
+  makeGame(testGameID2, 3000, -60_000)
+  await archiveColdGames(archiveDir, 2000)
+
+  const restored = restoreArchivedGames(archiveFileWithGame(archiveDir, testGameID1), testGameID1)
+  assert.equal(restored.length, 1)
+  assert.equal(getArchivedGameRecord(testGameID1), null)
+  assert.ok(getArchivedGameRecord(testGameID2) != null)
 })

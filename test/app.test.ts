@@ -143,6 +143,28 @@ test('/files 上传和下载正式存档', async () => {
   assert.equal(JSON.parse(decodeFile(await get.text())).turns, 4)
 })
 
+test('/files 下载大存档时分块传输的内容与上传完全一致', async () => {
+  await seedPlayer()
+  // 足够大才会跨多个 gzip 块与 Base64 分块边界
+  const data = JSON.stringify({
+    gameId: testGameID1,
+    turns: 42,
+    gameParameters: { players: [{ playerId: testPlayerID1, playerType: 'Human' }] },
+    padding: 'x'.repeat(300_000),
+  })
+  const uncivHeaders = { Authorization: basicAuth(), 'User-Agent': 'Unciv' }
+  const put = await server.request(`/files/${testGameID1}`, {
+    method: 'PUT',
+    headers: uncivHeaders,
+    body: encodeFile(data),
+  })
+  assert.equal(put.status, 204)
+
+  const get = await server.request(`/files/${testGameID1}`, { headers: uncivHeaders })
+  assert.equal(get.status, 200)
+  assert.equal(decodeFile(await get.text()), data)
+})
+
 test('/files 上传缺省回合数的初始存档', async () => {
   await seedPlayer()
   const body = encodeFile(JSON.stringify({

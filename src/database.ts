@@ -1272,8 +1272,8 @@ export function cleanupEmptyGames(): number {
  */
 export function getArchiveUsage(): number {
   const row = statement(`
-      select (select coalesce(sum(length(data)), 0) from files_content) +
-             (select coalesce(sum(length(data)), 0) from files_preview) as total_bytes
+      select (select coalesce(sum(length(cast(data as blob))), 0) from files_content) +
+             (select coalesce(sum(length(cast(data as blob))), 0) from files_preview) as total_bytes
     `)
     .get() as Row | undefined
   return Number(row?.total_bytes ?? 0)
@@ -1316,6 +1316,20 @@ function archiveFileName(date = new Date()): string {
   return `${archiveFileNamePrefix}${stamp}Z.jsonl`
 }
 
+/**
+ * 取一个未被占用的归档文件名：同名会直接 rename 覆盖，把上一个归档文件里的对局永久丢掉。
+ */
+function pickArchiveFileName(archiveDir: string): string {
+  const base = Date.now()
+  for (let offset = 0; offset < 60; offset += 1) {
+    const name = archiveFileName(new Date(base + offset * 1000))
+    if (!fs.existsSync(path.join(archiveDir, name))) {
+      return name
+    }
+  }
+  throw new Error('无法生成未被占用的归档文件名')
+}
+
 /** 把一局对局组装成归档记录，没有正式存档的空对局返回 null */
 function buildArchivedGame(gameId: string): ArchivedGame | null {
   const game = getGameByID(gameId)
@@ -1344,8 +1358,9 @@ function buildArchivedGame(gameId: string): ArchivedGame | null {
  * 直到总量回到阈值以内。归档写成一个 JSON Lines 文件（每行一局，文件本身不压缩，
  * 交给加密归档工具 bvault 的 tar.zstd.gpg 处理）：全部写入成功后再在一个事务里
  * 删除数据库记录并留下恢复墓碑，任何一局写入失败都会中止本次归档，不删除任何记录。
+ * 只有保存过正式存档的对局会进入候选，只上传过预览的对局交给 cleanupEmptyGames 处理。
  */
-export function archiveColdGames(archiveDir: string, maxBytes: number): ArchiveResult {
+export async function archiveColdGames(archiveDir: string, maxBytes: number): Promise<ArchiveResult> {
   const usedBytes = getArchiveUsage()
   if (maxBytes <= 0 || usedBytes <= maxBytes) {
     return { games: 0, bytes: 0 }
@@ -1355,10 +1370,11 @@ export function archiveColdGames(archiveDir: string, maxBytes: number): ArchiveR
   const candidates = conn
     .query(`
       select f.game_id as game_id,
-             coalesce((select sum(length(c.data)) from files_content c where c.game_id = f.game_id), 0) +
-             coalesce((select sum(length(p.data)) from files_preview p where p.game_id = f.game_id), 0) as bytes
+             coalesce((select sum(length(cast(c.data as blob))) from files_content c where c.game_id = f.game_id), 0) +
+             coalesce((select sum(length(cast(p.data as blob))) from files_preview p where p.game_id = f.game_id), 0) as bytes
       from files f
       where f.whitelist = 0
+        and exists (select 1 from files_content c where c.game_id = f.game_id)
       order by f.updated_at asc, f.created_at asc
     `)
     .all() as { game_id: string; bytes: number }[]
@@ -1377,36 +1393,43 @@ export function archiveColdGames(archiveDir: string, maxBytes: number): ArchiveR
     return { games: 0, bytes: 0 }
   }
 
-  fs.mkdirSync(archiveDir, { recursive: true })
-  const file = path.join(archiveDir, archiveFileName())
+  await fs.promises.mkdir(archiveDir, { recursive: true })
+  const file = path.join(archiveDir, pickArchiveFileName(archiveDir))
   const tempFile = `${file}.tmp`
   let bytes = 0
+  // 只有写进归档文件的对局才删库，否则墓碑会指向不含该对局的文件
+  const written: string[] = []
 
-  const handle = fs.openSync(tempFile, 'w')
+  const handle = await fs.promises.open(tempFile, 'w')
   try {
     for (const gameId of selected) {
       const archived = buildArchivedGame(gameId)
       if (archived == null) continue
       const line = `${JSON.stringify(archived)}\n`
-      fs.writeSync(handle, line)
+      await handle.write(line)
       bytes += new TextEncoder().encode(line).length
+      written.push(gameId)
     }
-    fs.fsyncSync(handle)
+    await handle.sync()
   } catch (error) {
-    fs.closeSync(handle)
-    fs.rmSync(tempFile, { force: true })
+    try {
+      await handle.close()
+    } catch {
+      // 关闭失败也要继续删临时文件，并向上抛出原始错误
+    }
+    await fs.promises.rm(tempFile, { force: true })
     throw error
   }
-  fs.closeSync(handle)
+  await handle.close()
 
-  if (bytes === 0) {
-    // 没有可归档的存档内容时不留空文件
-    fs.rmSync(tempFile, { force: true })
-  } else {
-    fs.renameSync(tempFile, file)
+  if (written.length === 0) {
+    await fs.promises.rm(tempFile, { force: true })
+    console.info('存档总量超过阈值，但选中的对局没有可归档的存档内容', { usedBytes, maxBytes })
+    return { games: 0, bytes: 0 }
   }
+  await fs.promises.rename(tempFile, file)
 
-  const archiveFile = bytes === 0 ? '' : path.basename(file)
+  const archiveFile = path.basename(file)
   const archivedAt = Date.now()
   const remove = statement('delete from files where game_id = ?')
   const remember = statement(`
@@ -1417,14 +1440,15 @@ export function archiveColdGames(archiveDir: string, maxBytes: number): ArchiveR
                                        restore_requested_at = null,
                                        requested_by         = ''
   `)
-  conn.transaction(() => {
-    for (const gameId of selected) {
+  const removeArchive = conn.transaction(() => {
+    for (const gameId of written) {
       remove.run(gameId)
       remember.run(gameId, archiveFile, archivedAt)
     }
-  })()
+  })
+  removeArchive.immediate()
 
-  return { games: selected.length, bytes }
+  return { games: written.length, bytes }
 }
 
 /** 冷归档墓碑：对局被归档后留下的记录，用于区分「不存在」与「已冷归档」并登记恢复请求 */
@@ -1491,6 +1515,15 @@ export function clearArchivedGame(gameId: string): number {
   return statement('delete from archived_games where game_id = ?').run(gameId).changes
 }
 
+/** 创建者不在 players 表时置空，否则外键会让整笔恢复失败 */
+function resolveContentPlayer(playerId: string): string | null {
+  if (playerId === '') {
+    return null
+  }
+  const row = statement('select 1 from players where player_id = ?').get(playerId) as Row | undefined
+  return row == null ? null : playerId
+}
+
 /**
  * 从归档文件恢复对局，保留原对局 ID、存档回合与时间戳；
  * gameId 为空时恢复文件里的全部对局，否则只恢复指定对局。
@@ -1518,8 +1551,21 @@ export function restoreArchivedGames(file: string, gameId?: string): ArchivedGam
   }
 
   const conn = getDB()
-  conn.transaction(() => {
+  // 存档创建者可能已不在 players 表，先统一解析，避免插入时触发外键
+  const contentPlayers = new Map<string, string | null>()
+  const missingCreators: string[] = []
+  for (const archived of archivedGames) {
+    const player = resolveContentPlayer(archived.contentPlayer)
+    contentPlayers.set(archived.gameId, player)
+    if (player == null) {
+      missingCreators.push(archived.gameId)
+    }
+  }
+
+  // immediate 事务：删旧存档再插新存档，与并发上传串行化
+  const restore = conn.transaction(() => {
     for (const archived of archivedGames) {
+      const contentPlayer = contentPlayers.get(archived.gameId) ?? null
       conn
         .query(`
           insert into files (game_id, players, created_at, updated_at, whitelist, remark)
@@ -1541,7 +1587,7 @@ export function restoreArchivedGames(file: string, gameId?: string): ArchivedGam
       statement('delete from files_content where game_id = ?').run(archived.gameId)
       conn
         .query('insert into files_content (game_id, turns, created_player, created_at, data) values (?, ?, ?, ?, ?)')
-        .run(archived.gameId, archived.turns, archived.contentPlayer, archived.contentCreatedAt, archived.data)
+        .run(archived.gameId, archived.turns, contentPlayer, archived.contentCreatedAt, archived.data)
 
       statement('delete from files_preview where game_id = ?').run(archived.gameId)
       if (archived.previewData != null) {
@@ -1550,14 +1596,21 @@ export function restoreArchivedGames(file: string, gameId?: string): ArchivedGam
           .run(
             archived.gameId,
             archived.previewTurns ?? archived.turns,
-            archived.contentPlayer,
+            contentPlayer,
             archived.contentCreatedAt,
             archived.previewData,
           )
       }
       statement('delete from archived_games where game_id = ?').run(archived.gameId)
     }
-  })()
+  })
+  restore.immediate()
+
+  if (missingCreators.length > 0) {
+    console.warn('归档里的存档创建者不在 players 表，已按未知创建者恢复', {
+      games: missingCreators,
+    })
+  }
 
   return archivedGames
 }
@@ -1604,17 +1657,17 @@ export function cleanupOldContents(): number {
  * 4. 清理超过保留期的 IP 记录。
  * archiveEnabled 为 false 时跳过容量归档（数据库可能持续增长，不建议关闭）。
  */
-export function runCleanup(
+export async function runCleanup(
   archiveEnabled: boolean,
   archiveDir: string,
   maxBytes: number,
-): void {
+): Promise<void> {
   const emptyGames = cleanupEmptyGames()
   const previews = cleanupOldPreviews()
   const contents = cleanupOldContents()
   let archived: ArchiveResult = { games: 0, bytes: 0 }
   if (archiveEnabled) {
-    archived = archiveColdGames(resolveRepoPath(archiveDir), maxBytes)
+    archived = await archiveColdGames(resolveRepoPath(archiveDir), maxBytes)
   } else {
     console.warn('冷存档归档已关闭，本次不做容量归档')
   }

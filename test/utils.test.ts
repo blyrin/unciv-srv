@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'bun:test'
 import {
-  createArchive, decodeFile, decodeHeaderValue, encodeFile, errorResponse, fileResponse, generateRandomStr, getBaseGameID,
-  getClientIP, getPlayerIDsFromGameData, HttpError, isPreviewID, jsonResponse, parseBasicAuthCredentials, parseGameData,
-  readLimitedText, successResponse, textResponse, validateGameID, validatePlayerID,
+  createArchive, decodeFile, decodeHeaderValue, encodeFile, encodedFileResponse, errorResponse, fileResponse, generateRandomStr,
+  getBaseGameID, getClientIP, getPlayerIDsFromGameData, HttpError, isPreviewID, jsonResponse, parseBasicAuthCredentials,
+  parseGameData, readLimitedText, successResponse, textResponse, validateGameID, validatePlayerID,
 } from '../src/utils.js'
 import { basicAuth, testGameID1, testPassword, testPlayerID1 } from './helpers/server.js'
 
@@ -18,6 +18,22 @@ function requestWithHeaders(headers: HeadersInit): Request {
 test('存档编码可以往返解码', () => {
   const data = JSON.stringify({ gameId: testGameID1, turns: 3 })
   assert.equal(decodeFile(encodeFile(data)), data)
+})
+
+test('流式存档响应与一次性编码逐字节一致', async () => {
+  // 覆盖 Base64 分块边界：0、不足 3 字节、刚好 3 字节、跨多个 gzip 块
+  for (const size of [0, 1, 2, 3, 4, 1000, 200_000]) {
+    const data = 'z'.repeat(size)
+    const response = encodedFileResponse(data)
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('Content-Type'), 'text/plain; charset=utf-8')
+    assert.equal(await response.text(), encodeFile(data))
+  }
+})
+
+test('流式存档响应可以按存档格式解码', async () => {
+  const data = JSON.stringify({ gameId: testGameID1, turns: 3, padding: 'x'.repeat(200_000) })
+  assert.equal(decodeFile(await encodedFileResponse(data).text()), data)
 })
 
 test('ID 校验符合接口格式', () => {

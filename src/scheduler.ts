@@ -1,6 +1,5 @@
+import { cleanupFlag } from './config.js'
 import { cleanupExpiredSessions } from './session.js'
-import { runCleanup } from './database.js'
-import type { Config } from './types.js'
 
 export interface Scheduler {
   stop: () => void
@@ -28,19 +27,36 @@ function millisUntilNextFourAM(now = new Date()): number {
 }
 
 /**
+ * 在独立进程里执行一次数据清理。
+ */
+function runCleanupInSubprocess(): void {
+  const entry = process.argv[1]
+  if (!entry) {
+    console.error('无法确定入口脚本路径，跳过本次数据清理')
+    return
+  }
+  const child = Bun.spawn({
+    cmd: [process.execPath, entry, cleanupFlag],
+    stdout: 'inherit',
+    stderr: 'inherit',
+  })
+  void child.exited.then((code) => {
+    if (code !== 0) {
+      console.error('数据清理子进程失败', { code })
+    }
+  })
+}
+
+/**
  * 启动数据和会话清理任务。
  */
-export function startScheduler(config: Config): Scheduler {
+export function startScheduler(): Scheduler {
   let cleanupTimer: ReturnType<typeof setTimeout>
   let sessionTimer: ReturnType<typeof setTimeout>
 
   const scheduleCleanup = () => {
     cleanupTimer = setTimeout(() => {
-      try {
-        runCleanup(config.archiveEnabled, config.archiveDir, config.archiveMaxBytes)
-      } catch (error) {
-        console.error('数据清理任务失败', error)
-      }
+      runCleanupInSubprocess()
       scheduleCleanup()
     }, millisUntilNextFourAM())
     cleanupTimer.unref()

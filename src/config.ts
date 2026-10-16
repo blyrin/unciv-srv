@@ -3,6 +3,12 @@ import { projectRoot, resolveRepoPath } from './utils.js'
 import { defaultIPStorageMode } from './privacy.js'
 import type { Config } from './types.js'
 
+/** 归档恢复入口：bun dist/main.js --restore-archive <归档文件> [对局ID] */
+export const restoreFlag = '--restore-archive'
+
+/** 手动清理入口：bun dist/main.js --cleanup，执行一次数据清理 */
+export const cleanupFlag = '--cleanup'
+
 /**
  * 读取环境变量，未设置时返回默认值。
  */
