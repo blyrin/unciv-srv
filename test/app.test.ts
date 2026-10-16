@@ -9,17 +9,17 @@ import {
 
 let server: TestServer
 
-beforeEach(() => {
-  server = setupTestServer()
+beforeEach(async () => {
+  server = await setupTestServer()
 })
 
-afterEach(() => {
+afterEach(async () => {
   server.close()
 })
 
 test('同步回合玩家并发提交操作不会互相覆盖且接受省略的默认字段', async () => {
-  seedPlayer(testPlayerID1)
-  seedPlayer(testPlayerID2)
+  await seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID2)
   createGame(testGameID1, [testPlayerID1, testPlayerID2])
   const request = (playerId: string) => server.request(`/simultaneous-turn-operations/${testGameID1}`, {
     method: 'POST', headers: { Authorization: basicAuth(playerId), 'User-Agent': 'Unciv' },
@@ -42,7 +42,7 @@ test('同步回合玩家并发提交操作不会互相覆盖且接受省略的�
 })
 
 test('超大的同步回合操作提交返回 413', async () => {
-  seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
   const response = await server.request(`/simultaneous-turn-operations/${testGameID1}`, {
     method: 'POST', headers: { Authorization: basicAuth(testPlayerID1), 'User-Agent': 'Unciv' },
@@ -52,8 +52,8 @@ test('超大的同步回合操作提交返回 413', async () => {
 })
 
 test('结算锁续期路由只接受持有者本人', async () => {
-  seedPlayer(testPlayerID1)
-  seedPlayer(testPlayerID2)
+  await seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID2)
   createGame(testGameID1, [testPlayerID1, testPlayerID2])
   const headers = (playerId: string) => ({ Authorization: basicAuth(playerId), 'User-Agent': 'Unciv' })
   const acquire = await server.request(`/simultaneous-turn-lock/${testGameID1}`, {
@@ -83,7 +83,7 @@ test('结算锁续期路由只接受持有者本人', async () => {
 })
 
 test('同步回合操作超过单局上限返回 400 且不写入', async () => {
-  seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
   const headers = { Authorization: basicAuth(testPlayerID1), 'User-Agent': 'Unciv' }
   const operations = Array.from({ length: maxSimultaneousTurnOperations + 1 }, (_, sequence) => ({
@@ -126,7 +126,7 @@ test('HTTP 直连请求写入真实远端 IP', async () => {
 })
 
 test('/files 上传和下载正式存档', async () => {
-  seedPlayer()
+  await seedPlayer()
   const body = buildGameData(testGameID1, 4, [testPlayerID1])
   const uncivHeaders = { Authorization: basicAuth(), 'User-Agent': 'Unciv' }
   const put = await server.request(`/files/${testGameID1}`, {
@@ -144,7 +144,7 @@ test('/files 上传和下载正式存档', async () => {
 })
 
 test('/files 上传缺省回合数的初始存档', async () => {
-  seedPlayer()
+  await seedPlayer()
   const body = encodeFile(JSON.stringify({
     gameId: testGameID1,
     gameParameters: {
@@ -173,7 +173,7 @@ test('/files 拒绝非 Unciv 客户端', async () => {
 })
 
 test('/api/login 和 /api/session 保持 Cookie 会话行为', async () => {
-  seedPlayer()
+  await seedPlayer()
   const login = await server.request('/api/login', {
     method: 'POST',
     body: JSON.stringify({ username: testPlayerID1, password: testPassword }),
@@ -190,7 +190,7 @@ test('/api/login 和 /api/session 保持 Cookie 会话行为', async () => {
 })
 
 test('用户可以下载参与游戏的回合列表和 ZIP', async () => {
-  seedGameWithContent()
+  await seedGameWithContent()
   const cookie = await loginAsPlayer(server)
 
   const turns = await server.request(`/api/games/${testGameID1}/turns`, {

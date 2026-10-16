@@ -12,11 +12,11 @@ import {
 
 let server: TestServer
 
-beforeEach(() => {
-  server = setupTestServer()
+beforeEach(async () => {
+  server = await setupTestServer()
 })
 
-afterEach(() => {
+afterEach(async () => {
   server.close()
 })
 
@@ -48,7 +48,7 @@ test('/auth 覆盖认证错误和修改密码', async () => {
     body: 'newpass123',
   })
   assert.equal(changed.status, 204)
-  assert.equal(verifyPassword('newpass123', getPlayerByID(testPlayerID1)?.password ?? ''), true)
+  assert.equal(await verifyPassword('newpass123', getPlayerByID(testPlayerID1)?.password ?? ''), true)
 
   const wrongPassword = await server.request('/auth', {
     headers: { Authorization: basicAuth(testPlayerID1, testPassword) },
@@ -57,7 +57,7 @@ test('/auth 覆盖认证错误和修改密码', async () => {
 })
 
 test('/auth 在审核模式下等待管理员开通', async () => {
-  const gated = setupTestServer({ registerMode: 'approval' })
+  const gated = await setupTestServer({ registerMode: 'approval' })
   try {
     const playerId = '00000000-0000-0000-0000-00000000000a'
     const register = await gated.request('/auth', {
@@ -96,7 +96,7 @@ test('/auth 在审核模式下等待管理员开通', async () => {
 })
 
 test('/auth 在关闭注册后不创建新账号', async () => {
-  const gated = setupTestServer({ registerMode: 'closed' })
+  const gated = await setupTestServer({ registerMode: 'closed' })
   try {
     const playerId = '00000000-0000-0000-0000-00000000000b'
     const register = await gated.request('/auth', {
@@ -111,8 +111,8 @@ test('/auth 在关闭注册后不创建新账号', async () => {
 })
 
 test('/files 覆盖上传错误、既有游戏权限和预览存档', async () => {
-  seedPlayer(testPlayerID1)
-  seedPlayer(testPlayerID2)
+  await seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID2)
   const uncivHeaders = { Authorization: basicAuth(), 'User-Agent': 'Unciv' }
   const gameFile = `/files/${testGameID1}`
   const previewFile = `/files/${testGameID2}_Preview`
@@ -194,7 +194,7 @@ test('/files 覆盖上传错误、既有游戏权限和预览存档', async () =
 })
 
 test('/chat HTTP 探测区分有效和无效认证', async () => {
-  seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID1)
 
   const valid = await server.request('/chat', {
     headers: { Authorization: basicAuth() },
@@ -208,7 +208,7 @@ test('/chat HTTP 探测区分有效和无效认证', async () => {
 })
 
 test('Web 会话、管理统计和页面路由覆盖边界行为', async () => {
-  seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID1)
   const adminCookie = await loginAsAdmin(server)
 
   const adminSession = await server.request('/api/session', { headers: { Cookie: adminCookie } })
@@ -248,9 +248,9 @@ test('Web 会话、管理统计和页面路由覆盖边界行为', async () => {
 })
 
 test('游戏下载、回合下载和回档覆盖权限与错误分支', async () => {
-  seedPlayer(testPlayerID1)
-  seedPlayer(testPlayerID2)
-  seedPlayer(testPlayerID3)
+  await seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID2)
+  await seedPlayer(testPlayerID3)
   createGame(testGameID1, [testPlayerID1, testPlayerID2])
   saveFileContent(testGameID1, 1, testPlayerID1, '127.0.0.1', '{"turns":1}')
 

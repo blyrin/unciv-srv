@@ -16,12 +16,12 @@ import {
 let server: TestServer
 let archiveDir: string
 
-beforeEach(() => {
-  server = setupTestServer()
+beforeEach(async () => {
+  server = await setupTestServer()
   archiveDir = fs.mkdtempSync(path.join(os.tmpdir(), 'unciv-srv-archive-'))
 })
 
-afterEach(() => {
+afterEach(async () => {
   server.close()
   fs.rmSync(archiveDir, { recursive: true, force: true })
 })
@@ -40,8 +40,8 @@ function makeGame(gameId: string, size: number, updatedAtOffset: number): number
   return updatedAt
 }
 
-test('存档总量未超过阈值时不动任何对局', () => {
-  seedPlayer(testPlayerID1)
+test('存档总量未超过阈值时不动任何对局', async () => {
+  await seedPlayer(testPlayerID1)
   makeGame(testGameID1, 1000, 0)
 
   const result = archiveColdGames(archiveDir, 1024 * 1024)
@@ -51,8 +51,8 @@ test('存档总量未超过阈值时不动任何对局', () => {
   assert.ok(getArchiveUsage() >= 1000)
 })
 
-test('总量超过阈值时按最久未使用顺序归档，先写归档文件再删记录，并可从归档恢复', () => {
-  seedPlayer(testPlayerID1)
+test('总量超过阈值时按最久未使用顺序归档，先写归档文件再删记录，并可从归档恢复', async () => {
+  await seedPlayer(testPlayerID1)
   const oldTime = makeGame(testGameID1, 1000, -60_000)
   makeGame(testGameID2, 1000, 0)
 
@@ -91,8 +91,8 @@ test('总量超过阈值时按最久未使用顺序归档，先写归档文件�
   assert.deepEqual(getRestoreRequests(), [])
 })
 
-test('白名单对局不会被归档', () => {
-  seedPlayer(testPlayerID1)
+test('白名单对局不会被归档', async () => {
+  await seedPlayer(testPlayerID1)
   makeGame(testGameID1, 4000, -60_000)
   updateGameInfo(testGameID1, true, '长期保留')
 
@@ -103,8 +103,8 @@ test('白名单对局不会被归档', () => {
   assert.ok(getLatestFileContent(testGameID1) != null)
 })
 
-test('没有存档的空对局不写进归档文件，由空对局清理负责', () => {
-  seedPlayer(testPlayerID1)
+test('没有存档的空对局不写进归档文件，由空对局清理负责', async () => {
+  await seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
   const old = Date.now() - 2 * 24 * 60 * 60 * 1000
   getDB()
@@ -121,8 +121,8 @@ test('没有存档的空对局不写进归档文件，由空对局清理负责',
 })
 
 test('玩家打开已冷归档的对局时返回提示并登记恢复请求，预览请求不登记', async () => {
-  seedPlayer(testPlayerID1)
-  seedPlayer(testPlayerID2)
+  await seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID2)
   makeGame(testGameID1, 4000, -60_000)
   assert.equal(archiveColdGames(archiveDir, 1000).games, 1)
   assert.equal(getGameByID(testGameID1), null)
@@ -165,7 +165,7 @@ test('玩家打开已冷归档的对局时返回提示并登记恢复请求，�
   assert.equal(getArchivedGameRecord(testGameID1), null)
 })
 
-test('归档文件格式不受支持时报错', () => {
+test('归档文件格式不受支持时报错', async () => {
   const brokenJson = path.join(archiveDir, 'broken.jsonl')
   fs.writeFileSync(brokenJson, '这不是 JSON')
   assert.throws(() => restoreArchivedGames(brokenJson), /归档文件格式不受支持/)
@@ -175,15 +175,15 @@ test('归档文件格式不受支持时报错', () => {
   assert.throws(() => restoreArchivedGames(unsupportedVersion), /归档文件格式不受支持/)
 })
 
-test('归档文件里没有指定对局时报错', () => {
+test('归档文件里没有指定对局时报错', async () => {
   const file = path.join(archiveDir, 'one-game.jsonl')
   fs.writeFileSync(file, `${JSON.stringify({ version: 1, gameId: testGameID1, data: '{}' })}\n`)
 
   assert.throws(() => restoreArchivedGames(file, testGameID2), /没有对局/)
 })
 
-test('可以直接放弃一局冷存档（清掉墓碑）', () => {
-  seedPlayer(testPlayerID1)
+test('可以直接放弃一局冷存档（清掉墓碑）', async () => {
+  await seedPlayer(testPlayerID1)
   makeGame(testGameID1, 4000, -60_000)
   assert.equal(archiveColdGames(archiveDir, 1000).games, 1)
 

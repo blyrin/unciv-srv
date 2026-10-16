@@ -1,5 +1,5 @@
 import { CryptoHasher } from 'bun'
-import { scryptSync, timingSafeEqual } from 'node:crypto'
+import { scrypt, timingSafeEqual } from 'node:crypto'
 
 /** 哈希前缀，用来区分加密存储的密码与旧库中的明文密码 */
 const hashPrefix = 'scrypt$'
@@ -28,12 +28,30 @@ interface VerifyCacheEntry {
 
 const verifyCache = new Map<string, VerifyCacheEntry>()
 
+/** scrypt 走线程池，避免校验期间卡住事件循环。 */
+function scryptAsync(
+  password: string,
+  salt: Uint8Array,
+  keyLength: number,
+  options: { N: number; r: number; p: number; maxmem: number },
+): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    scrypt(password, salt, keyLength, options, (error, key) => {
+      if (error) {
+        reject(error)
+      } else {
+        resolve(key)
+      }
+    })
+  })
+}
+
 /**
  * 生成密码哈希，格式：scrypt$N$r$p$盐(Base64)$哈希(Base64)。
  */
-export function hashPassword(password: string): string {
+export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(saltLength))
-  const hash = scryptSync(password, salt, keyLength, { N, r: blockSize, p: parallelization, maxmem })
+  const hash = await scryptAsync(password, salt, keyLength, { N, r: blockSize, p: parallelization, maxmem })
   return `${hashPrefix}${N}$${blockSize}$${parallelization}$${salt.toBase64()}$${hash.toBase64()}`
 }
 
@@ -48,7 +66,7 @@ export function isHashedPassword(stored: string): boolean {
  * 校验密码。
  * 哈希形式用定时安全比较；旧库中的明文密码仍按明文比较，由启动迁移替换为哈希。
  */
-export function verifyPassword(password: string, stored: string): boolean {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   if (stored === '') {
     return false
   }
@@ -80,7 +98,7 @@ export function verifyPassword(password: string, stored: string): boolean {
     return false
   }
 
-  const actual = scryptSync(password, salt, expected.length, {
+  const actual = await scryptAsync(password, salt, expected.length, {
     N: storedN,
     r: storedR,
     p: storedP,
@@ -92,7 +110,7 @@ export function verifyPassword(password: string, stored: string): boolean {
 /**
  * 带缓存的密码校验：同一密码在缓存有效期内只做一次 scrypt。
  */
-export function verifyPasswordCached(playerId: string, password: string, stored: string): boolean {
+export async function verifyPasswordCached(playerId: string, password: string, stored: string): Promise<boolean> {
   const digest = new CryptoHasher('sha256').update(password).digest('base64')
   const key = `${playerId}:${digest}`
   const now = Date.now()
@@ -101,7 +119,7 @@ export function verifyPasswordCached(playerId: string, password: string, stored:
     return cached.ok
   }
 
-  const ok = verifyPassword(password, stored)
+  const ok = await verifyPassword(password, stored)
   if (verifyCache.size >= maxCacheSize) {
     // 容量控制从简：整体清空即可，缓存本身随时可重建
     verifyCache.clear()

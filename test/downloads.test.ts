@@ -22,11 +22,11 @@ const releaseInfo = {
 let server: TestServer
 const originalFetch = globalThis.fetch
 
-beforeEach(() => {
-  server = setupTestServer()
+beforeEach(async () => {
+  server = await setupTestServer()
 })
 
-afterEach(() => {
+afterEach(async () => {
   server.close()
   globalThis.fetch = originalFetch
   jest.useRealTimers()
@@ -51,7 +51,7 @@ test('直链：302 到镜像前缀的 GitHub 下载地址', async () => {
 })
 
 test('直链：未配置镜像前缀时直接跳 GitHub', async () => {
-  const plainServer = setupTestServer({ downloadGithubProxy: '' })
+  const plainServer = await setupTestServer({ downloadGithubProxy: '' })
   try {
     const response = await plainServer.request('/dl/4.21.10.7/linuxFilesForJar-4.21.10.7.zip')
     assert.equal(response.status, 302)

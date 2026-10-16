@@ -503,9 +503,9 @@ function handleMessage(peer: Peer, message: string | ArrayBuffer | Uint8Array): 
 /**
  * 解析 WebSocket Basic Auth。
  */
-export function parseWebSocketAuth(authorization: string | null | undefined): string {
+export async function parseWebSocketAuth(authorization: string | null | undefined): Promise<string> {
   const credentials = parseBasicAuthCredentials(authorization)
-  const result = authenticatePlayer(credentials.playerId, credentials.password)
+  const result = await authenticatePlayer(credentials.playerId, credentials.password)
   if (result.type === 'pending') {
     throw new HttpError(403, pendingApprovalMessage)
   }
@@ -521,7 +521,7 @@ export interface ChatWebSocket {
   /**
    * 尝试把 /chat 请求升级为 WebSocket：认证失败返回错误响应，成功升级返回 undefined。
    */
-  upgrade(request: Request, server: Server<PeerData>): Response | undefined
+  upgrade(request: Request, server: Server<PeerData>): Promise<Response | undefined>
 }
 
 /**
@@ -561,7 +561,7 @@ export function createChatWebSocket(config: Config): ChatWebSocket {
 
   return {
     handlers,
-    upgrade(request, server) {
+    async upgrade(request, server) {
       const url = new URL(request.url)
       const ip = getWebSocketClientIP(request, server.requestIP(request)?.address ?? '')
       const ua = decodeHeaderValue(request.headers.get('user-agent') ?? '')
@@ -577,7 +577,7 @@ export function createChatWebSocket(config: Config): ChatWebSocket {
 
       let playerId: string
       try {
-        playerId = parseWebSocketAuth(request.headers.get('authorization'))
+        playerId = await parseWebSocketAuth(request.headers.get('authorization'))
       } catch (error) {
         console.info('WebSocket 认证失败', {
           path: url.pathname,

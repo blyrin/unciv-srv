@@ -1,7 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
-import { $, Archive, file, gzipSync, gunzipSync, which, write } from 'bun'
+import { deflateSync, gzipSync, gunzipSync, hash } from 'bun'
 
 export const gameIdRegex = /^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}(_Preview)?$/
 export const playerIdRegex = /^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}$/
@@ -16,12 +14,10 @@ export const maxTextBodySize = 1024
 /** WebSocket 单帧上限，与上游 UncivServer.maxWebSocketFrameSizeBytes 保持一致。 */
 export const maxWebSocketFrameSize = 64 * 1024
 
-const randomCharset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-
 export class HttpError extends Error {
   constructor(
     public readonly status: number,
-    message: string,
+    message: string
   ) {
     super(message)
   }
@@ -48,7 +44,6 @@ export interface FileEntry {
   data: string
 }
 
-/** 压缩包：系统 zip 不可用时回退 Bun.Archive 的 tar.gz */
 export interface ArchiveFile {
   data: Uint8Array
   extension: string
@@ -59,12 +54,7 @@ export interface ArchiveFile {
  * 返回标准 JSON 响应。
  */
 export function jsonResponse(data: unknown, status = 200): Response {
-  return new Response(`${JSON.stringify(data)}\n`, {
-    status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-  })
+  return Response.json(data, { status })
 }
 
 /**
@@ -83,7 +73,7 @@ export function textResponse(text: string, status = 200): Response {
  * 返回统一错误响应。
  */
 export function errorResponse(status: number, message: string): Response {
-  return jsonResponse({ type: 'error', message }, status)
+  return Response.json({ type: 'error', message }, { status })
 }
 
 /**
@@ -117,8 +107,7 @@ export function normalizeClientIP(ip: string): string {
  * 恢复被按 Latin-1 暴露的 UTF-8 请求头文本。
  */
 export function decodeHeaderValue(value: string): string {
-  const bytes = Uint8Array.from(value, (char) => char.charCodeAt(0) & 0xff)
-  const decoded = new TextDecoder().decode(bytes)
+  const decoded = Buffer.from(value, 'latin1').toString('utf8')
   return decoded.includes('\uFFFD') ? value : decoded
 }
 
@@ -143,12 +132,7 @@ export function getClientIP(request: Request, remoteAddress = ''): string {
  * 生成指定长度的会话随机字符串。
  */
 export function generateRandomStr(length: number): string {
-  const random = crypto.getRandomValues(new Uint8Array(length))
-  let result = ''
-  for (let index = 0; index < length; index += 1) {
-    result += randomCharset[random[index] % randomCharset.length]
-  }
-  return result
+  return crypto.randomUUID().replace(/-/g, '').slice(0, length)
 }
 
 /**
@@ -185,10 +169,19 @@ export function parseBasicAuthCredentials(header: string | null | undefined): Ba
   return { playerId, password }
 }
 
-/**
- * 读取请求体并限制最大字节数。
- */
+/** 读取请求体并限制最大字节数：有 Content-Length 时先按声明值拒绝超限请求，否则流式累加。 */
 export async function readLimitedText(request: Request, maxBytes = maxBodySize): Promise<string> {
+  const declaredLength = Number.parseInt(request.headers.get('content-length') ?? '', 10)
+  if (Number.isFinite(declaredLength)) {
+    if (declaredLength > maxBytes) {
+      throw new HttpError(413, '请求体过大')
+    }
+    if (declaredLength > 0) {
+      return await request.text()
+    }
+    return ''
+  }
+
   if (!request.body) {
     return ''
   }
@@ -301,71 +294,136 @@ export function getBaseGameID(gameId: string): string {
   return gameId.endsWith('_Preview') ? gameId.slice(0, -'_Preview'.length) : gameId
 }
 
-/**
- * 用系统 zip 打包，目录内只允许出现本次生成的存档文件。
- */
-async function zipWithSystemZip(dir: string, zipPath: string, names: string[]): Promise<boolean> {
-  if (!which('zip')) {
-    return false
-  }
-  try {
-    const result = await $`zip -q ${zipPath} ${names}`.cwd(dir).quiet().nothrow()
-    return result.exitCode === 0
-  } catch {
-    return false
+/** ZIP 三种记录头的签名 */
+const zipSignatures = { local: 0x04034b50, central: 0x02014b50, end: 0x06054b50 }
+/** 通用标志位：文件名按 UTF-8 编码 */
+const zipUtf8Flag = 0x0800
+/** 压缩方法：0 存储、8 deflate */
+const zipMethod = { store: 0, deflate: 8 }
+/** 所需版本：2.0（支持 deflate） */
+const zipVersion = 20
+/** DOS 日期下限 1980-01-01，留空会被部分解压工具判为无效日期 */
+const zipDosDate = 0x0021
+/** 本地文件头 / 中央目录 / 中央目录结尾的固定长度 */
+const zipHeaderSize = { local: 30, central: 46, end: 22 }
+
+const zip16Limit = 0xffff
+const zip32Limit = 0xffffffff
+
+interface ZipEntry {
+  name: Uint8Array
+  payload: Uint8Array
+  rawSize: number
+  crc: number
+  method: number
+  offset: number
+}
+
+/** ZIP 字段上限校验：超限时快速失败，不生成损坏的归档 */
+function assertZipLimit(value: number, limit: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value > limit) {
+    throw new Error(`ZIP ${field}超出格式上限`)
   }
 }
 
 /**
- * 用 PowerShell 的 Compress-Archive 打包（Windows 默认可用）。
+ * 用 Bun 原生 deflate 与 crc32 生成标准 ZIP32。
  */
-async function zipWithPowerShell(dir: string, zipPath: string, names: string[]): Promise<boolean> {
-  if (!which('powershell')) {
-    return false
+function createZip(entries: FileEntry[]): Uint8Array {
+  assertZipLimit(entries.length, zip16Limit, '文件数量')
+
+  const encoder = new TextEncoder()
+  const prepared: ZipEntry[] = []
+  let localSize = 0
+  let centralSize = 0
+
+  for (const entry of entries) {
+    const name = encoder.encode(entry.name)
+    const raw = encoder.encode(entry.data)
+    assertZipLimit(name.length, zip16Limit, '文件名长度')
+    assertZipLimit(raw.length, zip32Limit, '文件大小')
+
+    const deflated = raw.length === 0 ? raw : deflateSync(raw, { level: 6 })
+    const useDeflate = deflated.length < raw.length
+    const payload = useDeflate ? deflated : raw
+    assertZipLimit(payload.length, zip32Limit, '压缩后大小')
+
+    prepared.push({
+      name,
+      payload,
+      rawSize: raw.length,
+      crc: Bun.hash.crc32(raw) >>> 0,
+      method: useDeflate ? zipMethod.deflate : zipMethod.store,
+      offset: localSize,
+    })
+    localSize += zipHeaderSize.local + name.length + payload.length
+    centralSize += zipHeaderSize.central + name.length
   }
-  try {
-    const paths = names.map((name) => path.join(dir, name))
-    const result = await $`powershell -NoProfile -Command Compress-Archive -Path ${paths} -DestinationPath ${zipPath}`
-      .quiet()
-      .nothrow()
-    return result.exitCode === 0 && (await file(zipPath).exists())
-  } catch {
-    return false
+
+  assertZipLimit(localSize, zip32Limit, '文件区大小')
+  assertZipLimit(centralSize, zip32Limit, '中央目录大小')
+  const totalSize = localSize + centralSize + zipHeaderSize.end
+  assertZipLimit(totalSize, zip32Limit, '归档大小')
+
+  // 只分配一次，按偏移直接写入，省去中间数组与合并复制
+  const zip = new Uint8Array(totalSize)
+  const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength)
+  let position = 0
+
+  for (const file of prepared) {
+    view.setUint32(position, zipSignatures.local, true)
+    view.setUint16(position + 4, zipVersion, true)
+    view.setUint16(position + 6, zipUtf8Flag, true)
+    view.setUint16(position + 8, file.method, true)
+    view.setUint16(position + 10, 0, true)
+    view.setUint16(position + 12, zipDosDate, true)
+    view.setUint32(position + 14, file.crc, true)
+    view.setUint32(position + 18, file.payload.length, true)
+    view.setUint32(position + 22, file.rawSize, true)
+    view.setUint16(position + 26, file.name.length, true)
+    zip.set(file.name, position + zipHeaderSize.local)
+    position += zipHeaderSize.local + file.name.length
+    zip.set(file.payload, position)
+    position += file.payload.length
   }
+
+  const centralOffset = position
+  for (const file of prepared) {
+    view.setUint32(position, zipSignatures.central, true)
+    view.setUint16(position + 4, zipVersion, true)
+    view.setUint16(position + 6, zipVersion, true)
+    view.setUint16(position + 8, zipUtf8Flag, true)
+    view.setUint16(position + 10, file.method, true)
+    view.setUint16(position + 12, 0, true)
+    view.setUint16(position + 14, zipDosDate, true)
+    view.setUint32(position + 16, file.crc, true)
+    view.setUint32(position + 20, file.payload.length, true)
+    view.setUint32(position + 24, file.rawSize, true)
+    view.setUint16(position + 28, file.name.length, true)
+    view.setUint32(position + 42, file.offset, true)
+    zip.set(file.name, position + zipHeaderSize.central)
+    position += zipHeaderSize.central + file.name.length
+  }
+
+  view.setUint32(position, zipSignatures.end, true)
+  view.setUint16(position + 8, entries.length, true)
+  view.setUint16(position + 10, entries.length, true)
+  view.setUint32(position + 12, position - centralOffset, true)
+  view.setUint32(position + 16, centralOffset, true)
+
+  return zip
 }
 
-/**
- * 用 Bun.Archive 生成 tar.gz，系统 zip 不可用时的回退方案。
- */
-export function createTarGz(entries: FileEntry[]): Promise<ArchiveFile> {
-  const archive = new Archive(Object.fromEntries(entries.map((entry) => [entry.name, entry.data])), {
-    compress: 'gzip',
-  })
-  return archive.bytes().then((data) => ({ data, extension: 'tar.gz', contentType: 'application/gzip' }))
+/** 创建历史存档压缩包：进程内直接生成 .zip。 */
+export function createArchive(entries: FileEntry[]): ArchiveFile {
+  return { data: createZip(entries), extension: 'zip', contentType: 'application/zip' }
 }
 
-/**
- * 创建历史存档压缩包：优先调用系统 zip / PowerShell Compress-Archive 生成 .zip，
- * 两者都不可用时回退 Bun.Archive 生成 .tar.gz。
- */
-export async function createArchive(entries: FileEntry[]): Promise<ArchiveFile> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'unciv-srv-zip-'))
-  const names = entries.map((entry) => entry.name)
-  try {
-    for (const entry of entries) {
-      await write(path.join(dir, entry.name), entry.data)
-    }
-    const zipPath = `${dir}.zip`
-    const zipped = process.platform === 'win32'
-      ? await zipWithPowerShell(dir, zipPath, names)
-      : await zipWithSystemZip(dir, zipPath, names)
-    if (zipped) {
-      return { data: await file(zipPath).bytes(), extension: 'zip', contentType: 'application/zip' }
-    }
-  } finally {
-    await rm(dir, { recursive: true, force: true })
-    await rm(`${dir}.zip`, { force: true })
-  }
+export const projectRoot = path.resolve(import.meta.dir, '..')
 
-  return createTarGz(entries)
+/**
+ * 将相对路径固定到仓库根目录。
+ */
+export function resolveRepoPath(value: string): string {
+  return path.isAbsolute(value) ? value : path.resolve(projectRoot, value)
 }

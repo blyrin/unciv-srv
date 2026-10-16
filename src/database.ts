@@ -1,10 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { Database } from 'bun:sqlite'
+import type { Statement } from 'bun:sqlite'
 import type {
   Config, FileData, Game, GameWithTurns, PageResult, Player, PlayerListEntry, RollbackResult, Stats, TurnMetadata,
 } from './types.js'
-import { projectRoot, resolveRepoPath } from './paths.js'
+import { projectRoot, resolveRepoPath } from './utils.js'
 import { hashPassword, isHashedPassword } from './password.js'
 import { getIPRetentionDays, ipForStorage, setIPRetentionDays, setIPStorageMode } from './privacy.js'
 
@@ -33,10 +34,28 @@ export function getDB(): Database {
   return db
 }
 
+/** 按连接缓存预编译语句，避免每次查询都重新编译 SQL。 */
+const statementCache = new WeakMap<Database, Map<string, Statement>>()
+
+function statement(sql: string): Statement {
+  const conn = getDB()
+  let cached = statementCache.get(conn)
+  if (cached == null) {
+    cached = new Map()
+    statementCache.set(conn, cached)
+  }
+  let stmt = cached.get(sql)
+  if (stmt == null) {
+    stmt = conn.query(sql)
+    cached.set(sql, stmt)
+  }
+  return stmt
+}
+
 /**
  * 初始化 SQLite 连接和迁移。
  */
-export function initDatabase(config: Config): void {
+export async function initDatabase(config: Config): Promise<void> {
   const dir = path.dirname(config.dbPath)
   if (dir !== '' && dir !== '.') {
     fs.mkdirSync(dir, { recursive: true })
@@ -62,7 +81,7 @@ export function initDatabase(config: Config): void {
 
   setIPStorageMode(config.ipStorage)
   setIPRetentionDays(config.ipRetentionDays)
-  const migrated = migratePlayerPasswords()
+  const migrated = await migratePlayerPasswords()
   if (migrated > 0) {
     console.info(`已把 ${migrated} 个账号的明文密码升级为哈希存储`)
   }
@@ -193,7 +212,7 @@ export function rollbackLastMigration(): MigrationRollbackResult | null {
  */
 export function isDatabaseHealthy(): boolean {
   try {
-    getDB().query('select 1').get()
+    statement('select 1').get()
     return true
   } catch {
     return false
@@ -319,8 +338,7 @@ function rowToFileData(row: Row): FileData {
  * 根据 ID 获取玩家。
  */
 export function getPlayerByID(playerId: string): Player | null {
-  const row = getDB()
-    .query(`
+  const row = statement(`
       select player_id,
              password,
              created_at,
@@ -342,38 +360,38 @@ export function getPlayerByID(playerId: string): Player | null {
  * 创建新玩家，密码以哈希形式入库。
  * approved 默认 true，用于管理员/脚本预建的账号；玩家自助注册由中间件按注册模式显式传参。
  */
-export function createPlayer(playerId: string, password: string, ip: string, approved = true): void {
+export async function createPlayer(playerId: string, password: string, ip: string, approved = true): Promise<void> {
   const now = Date.now()
   const storageIp = ipForStorage(ip)
-  getDB()
-    .query(`
+  // 先算哈希再取语句：await 会让出事件循环，期间测试可能关闭旧连接
+  const hashed = await hashPassword(password)
+  statement(`
       insert into players (player_id, password, created_at, updated_at, whitelist, approved, remark, create_ip, update_ip)
       values (?, ?, ?, ?, 0, ?, '', ?, ?)
     `)
-    .run(playerId, hashPassword(password), now, now, approved ? 1 : 0, storageIp, storageIp)
+    .run(playerId, hashed, now, now, approved ? 1 : 0, storageIp, storageIp)
 }
 
 /**
  * 更新玩家密码（哈希存储）。
  */
-export function updatePlayerPassword(playerId: string, password: string, ip: string): void {
-  getDB()
-    .query(`
+export async function updatePlayerPassword(playerId: string, password: string, ip: string): Promise<void> {
+  const hashed = await hashPassword(password)
+  statement(`
       update players
       set password   = ?,
           updated_at = ?,
           update_ip  = ?
       where player_id = ?
     `)
-    .run(hashPassword(password), Date.now(), ipForStorage(ip), playerId)
+    .run(hashed, Date.now(), ipForStorage(ip), playerId)
 }
 
 /**
  * 更新玩家最后活跃时间和 IP。
  */
 export function updatePlayerLastActive(playerId: string, ip: string): void {
-  getDB()
-    .query(`
+  statement(`
       update players
       set updated_at = ?,
           update_ip  = ?
@@ -386,8 +404,7 @@ export function updatePlayerLastActive(playerId: string, ip: string): void {
  * 更新玩家审核状态。
  */
 export function setPlayerApproved(playerId: string, approved: boolean): void {
-  getDB()
-    .query(`
+  statement(`
       update players
       set approved   = ?,
           updated_at = ?
@@ -403,8 +420,7 @@ export function batchUpdatePlayersApproval(playerIds: string[], approved: boolea
   if (!playerIds.length) {
     return
   }
-  getDB()
-    .query(`update players
+  statement(`update players
               set approved   = ?,
                   updated_at = ?
               where player_id in (${buildInClause(playerIds)})`)
@@ -414,23 +430,32 @@ export function batchUpdatePlayersApproval(playerIds: string[], approved: boolea
 /**
  * 把旧库中的明文密码原地替换为哈希，返回迁移数量。
  */
-export function migratePlayerPasswords(): number {
+export async function migratePlayerPasswords(): Promise<number> {
   const conn = getDB()
-  const rows = conn.query('select player_id, password from players').all() as Row[]
-  const update = conn.query('update players set password = ? where player_id = ?')
-  let migrated = 0
-  const migrate = conn.transaction(() => {
-    for (const row of rows) {
-      const stored = valueText(row.password)
-      if (stored === '' || isHashedPassword(stored)) {
-        continue
-      }
-      update.run(hashPassword(stored), valueText(row.player_id))
-      migrated += 1
+  const rows = statement('select player_id, password from players').all() as Row[]
+  const pending: Array<{ playerId: string; plain: string }> = []
+  for (const row of rows) {
+    const stored = valueText(row.password)
+    if (stored !== '' && !isHashedPassword(stored)) {
+      pending.push({ playerId: valueText(row.player_id), plain: stored })
     }
-  })
-  migrate()
-  return migrated
+  }
+  if (pending.length === 0) {
+    return 0
+  }
+
+  const update = statement('update players set password = ? where player_id = ?')
+  // 事务回调是同步的，哈希在进入事务前算完
+  const hashed = new Map<string, string>()
+  for (const item of pending) {
+    hashed.set(item.playerId, await hashPassword(item.plain))
+  }
+  conn.transaction(() => {
+    for (const item of pending) {
+      update.run(hashed.get(item.playerId), item.playerId)
+    }
+  })()
+  return pending.length
 }
 
 /**
@@ -442,17 +467,17 @@ export function clearExpiredIPs(retentionDays = getIPRetentionDays()): { players
   }
   const conn = getDB()
   const cutoff = Date.now() - retentionDays * dayMs
-  const players = conn.query(`
+  const players = statement(`
     update players
     set create_ip = case when created_at < ? then null else create_ip end,
         update_ip = case when updated_at < ? then null else update_ip end
     where (create_ip is not null and created_at < ?)
        or (update_ip is not null and updated_at < ?)
   `).run(cutoff, cutoff, cutoff, cutoff).changes
-  const content = conn.query(`
+  const content = statement(`
     update files_content set created_ip = null where created_ip is not null and created_at < ?
   `).run(cutoff).changes
-  const preview = conn.query(`
+  const preview = statement(`
     update files_preview set created_ip = null where created_ip is not null and created_at < ?
   `).run(cutoff).changes
   return { players, files: content + preview }
@@ -508,11 +533,10 @@ export function getPlayersPage(options: GetPlayersPageOptions): PageResult<Playe
   }
   const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : ''
 
-  const totalRow = conn.query(`select count(*) as total
+  const totalRow = statement(`select count(*) as total
                                  from players${where}`).get(...args) as Row
   const offset = (options.page - 1) * options.pageSize
-  const rows = conn
-    .query(`
+  const rows = statement(`
       select player_id,
              password,
              created_at,
@@ -541,8 +565,7 @@ export function getPlayersPage(options: GetPlayersPageOptions): PageResult<Playe
  * 更新玩家白名单和备注。
  */
 export function updatePlayerInfo(playerId: string, whitelist: boolean, remark: string): void {
-  getDB()
-    .query(`
+  statement(`
       update players
       set whitelist  = ?,
           remark     = ?,
@@ -556,7 +579,7 @@ export function updatePlayerInfo(playerId: string, whitelist: boolean, remark: s
  * 获取玩家密码。
  */
 export function getPlayerPassword(playerId: string): string {
-  const row = getDB().query('select password from players where player_id = ?').get(playerId) as Row | undefined
+  const row = statement('select password from players where player_id = ?').get(playerId) as Row | undefined
   return valueText(row?.password)
 }
 
@@ -567,8 +590,7 @@ export function batchUpdatePlayersWhitelist(playerIds: string[], whitelist: bool
   if (!playerIds.length) {
     return
   }
-  getDB()
-    .query(`update players
+  statement(`update players
               set whitelist  = ?,
                   updated_at = ?
               where player_id in (${buildInClause(playerIds)})`)
@@ -579,8 +601,7 @@ export function batchUpdatePlayersWhitelist(playerIds: string[], whitelist: bool
  * 根据 ID 获取游戏。
  */
 export function getGameByID(gameId: string): Game | null {
-  const row = getDB()
-    .query(`
+  const row = statement(`
       select game_id, players, created_at, updated_at, whitelist, remark
       from files
       where game_id = ?
@@ -595,8 +616,7 @@ export function getGameByID(gameId: string): Game | null {
  */
 export function createGame(gameId: string, players: string[]): void {
   const now = Date.now()
-  getDB()
-    .query(`
+  statement(`
       insert into files (game_id, players, created_at, updated_at)
       values (?, ?, ?, ?)
     `)
@@ -607,8 +627,7 @@ export function createGame(gameId: string, players: string[]): void {
  * 更新游戏玩家列表。
  */
 export function updateGamePlayers(gameId: string, players: string[]): void {
-  getDB()
-    .query(`
+  statement(`
       update files
       set players    = ?,
           updated_at = ?
@@ -646,11 +665,10 @@ export function getGamesPage(keyword: string, page: number, pageSize: number): P
     args.push(like, like, like)
   }
 
-  const totalRow = conn.query(`select count(*) as total
+  const totalRow = statement(`select count(*) as total
                                  from files f${where}`).get(...args) as Row
   const offset = (page - 1) * pageSize
-  const rows = conn
-    .query(`
+  const rows = statement(`
       ${gamesWithTurnsSelect}
       ${where}
       ORDER BY f.updated_at DESC
@@ -665,8 +683,7 @@ export function getGamesPage(keyword: string, page: number, pageSize: number): P
  * 获取玩家参与的游戏。
  */
 export function getGamesByPlayer(playerId: string): GameWithTurns[] {
-  const rows = getDB()
-    .query(`
+  const rows = statement(`
       ${gamesWithTurnsSelect}
       WHERE EXISTS (SELECT 1 FROM json_each(f.players) WHERE json_each.value = ?)
       ORDER BY f.updated_at DESC
@@ -680,8 +697,7 @@ export function getGamesByPlayer(playerId: string): GameWithTurns[] {
  * 统计玩家参与的游戏数量。
  */
 export function countGamesByPlayer(playerId: string): number {
-  const row = getDB()
-    .query(`
+  const row = statement(`
       select count(*) as count
       from files f
       where exists (select 1 from json_each(f.players) where json_each.value = ?)
@@ -695,15 +711,14 @@ export function countGamesByPlayer(playerId: string): number {
  * 删除游戏。
  */
 export function deleteGame(gameId: string): void {
-  getDB().query('delete from files where game_id = ?').run(gameId)
+  statement('delete from files where game_id = ?').run(gameId)
 }
 
 /**
  * 更新游戏白名单和备注。
  */
 export function updateGameInfo(gameId: string, whitelist: boolean, remark: string): void {
-  getDB()
-    .query(`
+  statement(`
       update files
       set whitelist  = ?,
           remark     = ?,
@@ -717,8 +732,7 @@ export function updateGameInfo(gameId: string, whitelist: boolean, remark: strin
  * 判断玩家是否为游戏创建者。
  */
 export function isGameCreator(playerId: string, gameId: string): boolean {
-  const row = getDB()
-    .query(`
+  const row = statement(`
       select created_player
       from files_content
       where game_id = ?
@@ -733,8 +747,7 @@ export function isGameCreator(playerId: string, gameId: string): boolean {
  * 统计玩家创建的游戏数量。
  */
 export function getGamesCreatedByPlayer(playerId: string): number {
-  const row = getDB()
-    .query(`
+  const row = statement(`
       select count(*) as count
       from files_content fc
       where fc.created_player = ?
@@ -753,8 +766,7 @@ export function batchUpdateGamesWhitelist(gameIds: string[], whitelist: boolean)
   if (!gameIds.length) {
     return
   }
-  getDB()
-    .query(`
+  statement(`
       update files
       set whitelist  = ?,
           updated_at = ?
@@ -769,7 +781,7 @@ export function batchDeleteGames(gameIds: string[]): void {
   if (!gameIds.length) {
     return
   }
-  getDB().query(`
+  statement(`
     delete
     from files
     where game_id in (${buildInClause(gameIds)})`)
@@ -780,8 +792,7 @@ export function batchDeleteGames(gameIds: string[]): void {
  * 获取指定表的最新存档。
  */
 function getLatestFileData(table: FileTable, gameId: string): FileData | null {
-  const row = getDB()
-    .query(`
+  const row = statement(`
       select id, game_id, turns, created_player, created_ip, created_at, data
       from ${table}
       where game_id = ?
@@ -796,8 +807,7 @@ function getLatestFileData(table: FileTable, gameId: string): FileData | null {
  * 保存存档到指定表。
  */
 function saveFileData(table: FileTable, gameId: string, turns: number, playerId: string, ip: string, data: string): void {
-  getDB()
-    .query(`
+  statement(`
       insert into ${table} (game_id, turns, created_player, created_ip, created_at, data)
       values (?, ?, ?, ?, ?, ?)
     `)
@@ -852,8 +862,8 @@ export function acquireSimultaneousTurnLock(gameId: string, turn: number, owner:
   if (!Number.isInteger(turn) || turn < 0 || turn > maxSimultaneousTurn) {
     return false
   }
-  const db = getDB()
-  const result = db.query(`
+  const conn = getDB()
+  const result = statement(`
     insert into simultaneous_turn_locks (game_id, turn, owner, acquired_at)
     values (?, ?, ?, ?)
     on conflict(game_id) do update set turn = excluded.turn, owner = excluded.owner, acquired_at = excluded.acquired_at
@@ -863,13 +873,13 @@ export function acquireSimultaneousTurnLock(gameId: string, turn: number, owner:
   `).run(gameId, turn, owner, now, now - 120_000)
   if (result.changes > 0) {
     // 取锁是"该回合正在结算"的权威信号：比它早超过保留窗口的回合必然已经结算，可以安全清理。
-    pruneSimultaneousTurnOperations(db, gameId, turn - simultaneousTurnOperationsRetention)
+    pruneSimultaneousTurnOperations(conn, gameId, turn - simultaneousTurnOperationsRetention)
   }
   return result.changes > 0
 }
 
 export function releaseSimultaneousTurnLock(gameId: string, turn: number, owner: string): void {
-  getDB().query(`
+  statement(`
     delete from simultaneous_turn_locks where game_id = ? and turn = ? and owner = ?
   `).run(gameId, turn, owner)
 }
@@ -883,7 +893,7 @@ export function renewSimultaneousTurnLock(gameId: string, turn: number, owner: s
   if (!Number.isInteger(turn) || turn < 0 || turn > maxSimultaneousTurn) {
     return false
   }
-  const result = getDB().query(`
+  const result = statement(`
     update simultaneous_turn_locks set acquired_at = ?
     where game_id = ? and turn = ? and owner = ?
   `).run(now, gameId, turn, owner)
@@ -926,7 +936,7 @@ function pruneSimultaneousTurnOperations(
 ): void {
   // immediate 事务：与 append 的读-改-写串行化，避免并发提交的操作被裁剪写回时覆盖丢失。
   db.transaction(() => {
-  const row = db.query('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
+  const row = statement('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
   if (!row) {
     return
   }
@@ -935,11 +945,11 @@ function pruneSimultaneousTurnOperations(
     parsed = JSON.parse(valueText(row.data))
   } catch {
     // 数据损坏时直接丢弃，避免永久阻塞后续写入
-    db.query('delete from simultaneous_turn_operations where game_id = ?').run(gameId)
+    statement('delete from simultaneous_turn_operations where game_id = ?').run(gameId)
     return
   }
   if (!Array.isArray(parsed)) {
-    db.query('delete from simultaneous_turn_operations where game_id = ?').run(gameId)
+    statement('delete from simultaneous_turn_operations where game_id = ?').run(gameId)
     return
   }
   const kept: unknown[] = []
@@ -955,7 +965,7 @@ function pruneSimultaneousTurnOperations(
   if (dropped.length === 0) {
     return
   }
-  db.query(`
+  statement(`
     insert into simultaneous_turn_operations (game_id, data, updated_at)
     values (?, ?, ?)
     on conflict(game_id) do update set data = excluded.data, updated_at = excluded.updated_at
@@ -966,10 +976,10 @@ function pruneSimultaneousTurnOperations(
 export function appendSimultaneousTurnOperations(
   gameId: string, playerId: string, incoming: unknown[],
 ): void {
-  const db = getDB()
+  const conn = getDB()
   // immediate 事务：读-改-写必须整体串行化，否则多个连接/进程并发提交时会互相覆盖（丢操作）。
-  const transaction = db.transaction(() => {
-    const row = db.query('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
+  const transaction = conn.transaction(() => {
+    const row = statement('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
     let existing: unknown[] = []
     if (row) {
       const parsed = JSON.parse(valueText(row.data)) as unknown
@@ -1019,7 +1029,7 @@ export function appendSimultaneousTurnOperations(
       }
       retained = retained.filter((operation) => operation.turn > oldestTurn)
     }
-    db.query(`
+    statement(`
       insert into simultaneous_turn_operations (game_id, data, updated_at)
       values (?, ?, ?)
       on conflict(game_id) do update set data = excluded.data, updated_at = excluded.updated_at
@@ -1029,7 +1039,7 @@ export function appendSimultaneousTurnOperations(
 }
 
 export function getSimultaneousTurnOperations(gameId: string): string | null {
-  const row = getDB().query('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
+  const row = statement('select data from simultaneous_turn_operations where game_id = ?').get(gameId) as Row | undefined
   return row ? valueText(row.data) : null
 }
 
@@ -1048,8 +1058,7 @@ export function saveFilePreview(gameId: string, turns: number, playerId: string,
  * 获取游戏全部正式存档。
  */
 export function getAllTurnsForGame(gameId: string): FileData[] {
-  const rows = getDB()
-    .query(`
+  const rows = statement(`
       select id, game_id, turns, created_player, created_ip, created_at, data
       from files_content
       where game_id = ?
@@ -1064,8 +1073,7 @@ export function getAllTurnsForGame(gameId: string): FileData[] {
  * 获取游戏回合元数据。
  */
 export function getTurnsMetadata(gameId: string): TurnMetadata[] {
-  const rows = getDB()
-    .query(`
+  const rows = statement(`
       select id, turns, created_player, created_ip, created_at
       from files_content
       where game_id = ?
@@ -1086,8 +1094,7 @@ export function getTurnsMetadata(gameId: string): TurnMetadata[] {
  * 根据自增 ID 获取正式存档。
  */
 export function getTurnByID(turnId: number): FileData | null {
-  const row = getDB()
-    .query(`
+  const row = statement(`
       select id, game_id, turns, created_player, created_ip, created_at, data
       from files_content
       where id = ?
@@ -1101,8 +1108,7 @@ export function getTurnByID(turnId: number): FileData | null {
  * 删除目标存档之后的记录。
  */
 function deleteRowsAfterTarget(table: FileTable, gameId: string, targetId: number): number {
-  const result = getDB()
-    .query(`
+  const result = statement(`
       with target as ( select turns, created_at, id from ${table} where id = ? )
       delete
       from ${table}
@@ -1155,7 +1161,7 @@ export function rollbackGameToTurn(gameId: string, turnId: number): RollbackResu
 
     const deletedTurns = deleteRowsAfterTarget('files_content', gameId, Number(target.id))
     const deletedPreviews = deleteRowsAfterTarget('files_preview', gameId, Number(previewRow.id))
-    conn.query('update files set updated_at = ? where game_id = ?').run(Date.now(), gameId)
+    statement('update files set updated_at = ? where game_id = ?').run(Date.now(), gameId)
 
     return {
       deletedTurns,
@@ -1175,8 +1181,7 @@ export function getAllStats(): Stats {
   const todayStart = utcStartOfTodayMs(now)
   const sevenDaysAgo = now - 7 * dayMs
   const thirtyDaysAgo = now - 30 * dayMs
-  const row = getDB()
-    .query(`
+  const row = statement(`
       with player_stats as ( select count(*)                                                                 as player_count,
                                     coalesce(sum(case when whitelist = 1 then 1 else 0 end), 0)              as whitelist_player_count,
                                     coalesce(sum(case when approved = 0 then 1 else 0 end), 0)               as pending_player_count,
@@ -1252,8 +1257,7 @@ export function getAllStats(): Stats {
  */
 export function cleanupEmptyGames(): number {
   const now = Date.now()
-  const result = getDB()
-    .query(`
+  const result = statement(`
       delete
       from files
       where not exists (select 1 from files_content c where c.game_id = files.game_id)
@@ -1267,8 +1271,7 @@ export function cleanupEmptyGames(): number {
  * 当前存档数据总量（正式存档与预览的正文字节数之和），归档阈值以它为准。
  */
 export function getArchiveUsage(): number {
-  const row = getDB()
-    .query(`
+  const row = statement(`
       select (select coalesce(sum(length(data)), 0) from files_content) +
              (select coalesce(sum(length(data)), 0) from files_preview) as total_bytes
     `)
@@ -1405,8 +1408,8 @@ export function archiveColdGames(archiveDir: string, maxBytes: number): ArchiveR
 
   const archiveFile = bytes === 0 ? '' : path.basename(file)
   const archivedAt = Date.now()
-  const remove = conn.query('delete from files where game_id = ?')
-  const remember = conn.query(`
+  const remove = statement('delete from files where game_id = ?')
+  const remember = statement(`
     insert into archived_games (game_id, archive_file, archived_at, restore_requested_at, requested_by)
     values (?, ?, ?, null, '')
     on conflict(game_id) do update set archive_file         = excluded.archive_file,
@@ -1448,8 +1451,7 @@ function rowToArchivedGameRecord(row: Row): ArchivedGameRecord {
 
 /** 查询某个对局是否已被冷归档 */
 export function getArchivedGameRecord(gameId: string): ArchivedGameRecord | null {
-  const row = getDB()
-    .query(`
+  const row = statement(`
       select game_id, archive_file, archived_at, restore_requested_at, requested_by
       from archived_games
       where game_id = ?
@@ -1463,8 +1465,7 @@ export function getArchivedGameRecord(gameId: string): ArchivedGameRecord | null
  * 保留最早的请求时间（管理员能看到玩家等了多久），请求者记为最近一次访问的玩家。
  */
 export function requestArchivedGameRestore(gameId: string, playerId: string): void {
-  getDB()
-    .query(`
+  statement(`
       update archived_games
       set restore_requested_at = coalesce(restore_requested_at, ?),
           requested_by         = ?
@@ -1475,8 +1476,7 @@ export function requestArchivedGameRestore(gameId: string, playerId: string): vo
 
 /** 管理员：待恢复的冷存档列表（按请求时间从早到晚） */
 export function getRestoreRequests(): ArchivedGameRecord[] {
-  const rows = getDB()
-    .query(`
+  const rows = statement(`
       select game_id, archive_file, archived_at, restore_requested_at, requested_by
       from archived_games
       where restore_requested_at is not null
@@ -1488,7 +1488,7 @@ export function getRestoreRequests(): ArchivedGameRecord[] {
 
 /** 管理员：放弃恢复某局冷存档（删除墓碑，之后玩家再访问会被当作普通的不存在对局） */
 export function clearArchivedGame(gameId: string): number {
-  return getDB().query('delete from archived_games where game_id = ?').run(gameId).changes
+  return statement('delete from archived_games where game_id = ?').run(gameId).changes
 }
 
 /**
@@ -1538,12 +1538,12 @@ export function restoreArchivedGames(file: string, gameId?: string): ArchivedGam
           archived.remark,
         )
 
-      conn.query('delete from files_content where game_id = ?').run(archived.gameId)
+      statement('delete from files_content where game_id = ?').run(archived.gameId)
       conn
         .query('insert into files_content (game_id, turns, created_player, created_at, data) values (?, ?, ?, ?, ?)')
         .run(archived.gameId, archived.turns, archived.contentPlayer, archived.contentCreatedAt, archived.data)
 
-      conn.query('delete from files_preview where game_id = ?').run(archived.gameId)
+      statement('delete from files_preview where game_id = ?').run(archived.gameId)
       if (archived.previewData != null) {
         conn
           .query('insert into files_preview (game_id, turns, created_player, created_at, data) values (?, ?, ?, ?, ?)')
@@ -1555,7 +1555,7 @@ export function restoreArchivedGames(file: string, gameId?: string): ArchivedGam
             archived.previewData,
           )
       }
-      conn.query('delete from archived_games where game_id = ?').run(archived.gameId)
+      statement('delete from archived_games where game_id = ?').run(archived.gameId)
     }
   })()
 
@@ -1566,8 +1566,7 @@ export function restoreArchivedGames(file: string, gameId?: string): ArchivedGam
  * 清理旧存档记录，只保留每个游戏最新一条。
  */
 function cleanupOldFileRecords(table: FileTable): number {
-  const result = getDB()
-    .query(
+  const result = statement(
       `
         delete
         from ${table}

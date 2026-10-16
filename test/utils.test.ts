@@ -1,8 +1,7 @@
-import { Archive } from 'bun'
 import assert from 'node:assert/strict'
 import { test } from 'bun:test'
 import {
-  createArchive, createTarGz, decodeFile, decodeHeaderValue, encodeFile, errorResponse, fileResponse, generateRandomStr, getBaseGameID,
+  createArchive, decodeFile, decodeHeaderValue, encodeFile, errorResponse, fileResponse, generateRandomStr, getBaseGameID,
   getClientIP, getPlayerIDsFromGameData, HttpError, isPreviewID, jsonResponse, parseBasicAuthCredentials, parseGameData,
   readLimitedText, successResponse, textResponse, validateGameID, validatePlayerID,
 } from '../src/utils.js'
@@ -43,8 +42,8 @@ test('Basic Auth 解析玩家凭证', () => {
 test('响应工具返回约定状态码和响应头', async () => {
   const json = jsonResponse({ ok: true }, 201)
   assert.equal(json.status, 201)
-  assert.equal(json.headers.get('Content-Type'), 'application/json; charset=utf-8')
-  assert.equal(await json.text(), '{"ok":true}\n')
+  assert.equal(json.headers.get('Content-Type'), 'application/json;charset=utf-8')
+  assert.equal(await json.text(), '{"ok":true}')
 
   const text = textResponse('ok')
   assert.equal(text.headers.get('Content-Type'), 'text/plain; charset=utf-8')
@@ -104,29 +103,23 @@ test('玩家列表只提取人类玩家', () => {
   assert.deepEqual(getPlayerIDsFromGameData(JSON.stringify({ gameId: testGameID1, turns: 1 })), [])
 })
 
-test('随机字符串和历史存档压缩包可用', async () => {
+test('随机字符串和历史存档压缩包可用', () => {
   const random = generateRandomStr(20)
   assert.equal(random.length, 20)
-  assert.match(random, /^[A-Za-z0-9]+$/)
+  assert.match(random, /^[0-9a-f]+$/)
 
   const entries = [
     { name: 'a.json', data: '{"a":1}' },
     { name: 'b.json', data: '{"b":2}' },
   ]
 
-  // 回退方案：Bun.Archive 的 tar.gz 可按条目名与内容还原
-  const tarGz = await createTarGz(entries)
-  assert.equal(tarGz.extension, 'tar.gz')
-  assert.equal(tarGz.contentType, 'application/gzip')
-  const files = await new Archive(tarGz.data).files('**/*')
-  assert.deepEqual([...files.keys()], ['a.json', 'b.json'])
-  assert.equal(await files.get('a.json')!.text(), '{"a":1}')
-  assert.equal(await files.get('b.json')!.text(), '{"b":2}')
-
-  // 系统 zip 可用时输出 .zip，否则回退 .tar.gz，两者都应是可下载的非空压缩包
-  const archive = await createArchive(entries)
+  // 进程内生成的标准 zip：校验本地文件头签名与结束记录签名
+  const archive = createArchive(entries)
+  assert.equal(archive.extension, 'zip')
+  assert.equal(archive.contentType, 'application/zip')
   assert.ok(archive.data.length > 0)
-  assert.match(archive.contentType, /^(application\/zip|application\/gzip)$/)
+  assert.deepEqual(archive.data.slice(0, 4), new Uint8Array([0x50, 0x4b, 0x03, 0x04]))
+  assert.deepEqual(archive.data.slice(-22, -18), new Uint8Array([0x50, 0x4b, 0x05, 0x06]))
 })
 
 test('Basic Auth 错误格式返回约定消息', () => {

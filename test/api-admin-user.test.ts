@@ -9,11 +9,11 @@ import {
 
 let server: TestServer
 
-beforeEach(() => {
-  server = setupTestServer()
+beforeEach(async () => {
+  server = await setupTestServer()
 })
 
-afterEach(() => {
+afterEach(async () => {
   server.close()
 })
 
@@ -22,8 +22,8 @@ async function requestStatus(path: string, init?: RequestInit): Promise<number> 
 }
 
 test('管理员玩家接口覆盖列表、备注、密码和批量白名单', async () => {
-  seedPlayer(testPlayerID1)
-  seedPlayer(testPlayerID2)
+  await seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID2)
   const cookie = await loginAsAdmin(server)
 
   const list = await server.request('/api/players?page=0&pageSize=300', { headers: { Cookie: cookie } })
@@ -53,7 +53,7 @@ test('管理员玩家接口覆盖列表、备注、密码和批量白名单', as
     body: JSON.stringify({ password: 'newpass123' }),
   })
   assert.equal(updatePassword.status, 204)
-  assert.equal(verifyPassword('newpass123', getPlayerByID(testPlayerID1)?.password ?? ''), true)
+  assert.equal(await verifyPassword('newpass123', getPlayerByID(testPlayerID1)?.password ?? ''), true)
 
   const batch = await server.request('/api/players/batch', {
     method: 'PATCH',
@@ -65,8 +65,8 @@ test('管理员玩家接口覆盖列表、备注、密码和批量白名单', as
 })
 
 test('管理员可以关闭和开启玩家审核状态', async () => {
-  seedPlayer(testPlayerID1)
-  seedPlayer(testPlayerID2)
+  await seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID2)
   const cookie = await loginAsAdmin(server)
 
   const disable = await server.request(`/api/players/${testPlayerID1}`, {
@@ -98,8 +98,8 @@ test('管理员可以关闭和开启玩家审核状态', async () => {
 })
 
 test('管理员玩家列表支持状态、白名单与排序筛选', async () => {
-  seedPlayer(testPlayerID1)
-  createPlayer(testPlayerID2, testPassword, '127.0.0.1', false)
+  await seedPlayer(testPlayerID1)
+  await createPlayer(testPlayerID2, testPassword, '127.0.0.1', false)
   const cookie = await loginAsAdmin(server)
   const headers = { Cookie: cookie }
 
@@ -119,7 +119,7 @@ test('管理员玩家列表支持状态、白名单与排序筛选', async () =>
 })
 
 test('管理员玩家接口返回预期错误状态', async () => {
-  seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID1)
   const cookie = await loginAsAdmin(server)
 
   const headers = { Cookie: cookie }
@@ -142,7 +142,7 @@ test('管理员玩家接口返回预期错误状态', async () => {
 })
 
 test('管理员游戏接口覆盖列表、更新、批量和删除', async () => {
-  seedGameWithContent()
+  await seedGameWithContent()
   const cookie = await loginAsAdmin(server)
 
   const list = await server.request('/api/games?page=0&pageSize=200', { headers: { Cookie: cookie } })
@@ -178,7 +178,7 @@ test('管理员游戏接口覆盖列表、更新、批量和删除', async () =>
 })
 
 test('用户接口覆盖游戏、统计和修改密码', async () => {
-  seedGameWithContent()
+  await seedGameWithContent()
   const cookie = await loginAsPlayer(server)
 
   const games = await server.request('/api/users/games', { headers: { Cookie: cookie } })
@@ -201,12 +201,12 @@ test('用户接口覆盖游戏、统计和修改密码', async () => {
     body: JSON.stringify({ oldPassword: testPassword, newPassword: 'newpass123' }),
   })
   assert.equal(changed.status, 204)
-  assert.equal(verifyPassword('newpass123', getPlayerByID(testPlayerID1)?.password ?? ''), true)
+  assert.equal(await verifyPassword('newpass123', getPlayerByID(testPlayerID1)?.password ?? ''), true)
 })
 
 test('游戏权限接口覆盖创建者、非创建者、下载和回档错误', async () => {
-  seedPlayer(testPlayerID1)
-  seedPlayer(testPlayerID2)
+  await seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID2)
   createGame(testGameID1, [testPlayerID1, testPlayerID2])
   saveFileContent(testGameID1, 1, testPlayerID1, '127.0.0.1', '{"turns":1}')
   saveFilePreview(testGameID1, 1, testPlayerID1, '127.0.0.1', '{"turns":1}')
@@ -243,7 +243,7 @@ test('游戏权限接口覆盖创建者、非创建者、下载和回档错误',
 })
 
 test('登录、Session 和管理员权限错误符合接口约定', async () => {
-  seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID1)
   const badJson = await server.request('/api/login', { method: 'POST', body: '{' })
   assert.equal(badJson.status, 400)
 

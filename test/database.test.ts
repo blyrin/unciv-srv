@@ -14,16 +14,16 @@ import {
 
 let server: TestServer
 
-beforeEach(() => {
-  server = setupTestServer()
+beforeEach(async () => {
+  server = await setupTestServer()
 })
 
-afterEach(() => {
+afterEach(async () => {
   server.close()
 })
 
-test('同步回合结算锁对同一游戏回合提供互斥且支持幂等重试', () => {
-  seedPlayer()
+test('同步回合结算锁对同一游戏回合提供互斥且支持幂等重试', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
 
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 3, testPlayerID1), true)
@@ -31,8 +31,8 @@ test('同步回合结算锁对同一游戏回合提供互斥且支持幂等重�
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 3, 'other-player'), false)
 })
 
-test('上一回合遗留的结算锁不会永久阻塞后续回合', () => {
-  seedPlayer()
+test('上一回合遗留的结算锁不会永久阻塞后续回合', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
   const now = Date.now()
 
@@ -43,8 +43,8 @@ test('上一回合遗留的结算锁不会永久阻塞后续回合', () => {
   // 同一回合内仍然互斥
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 4, 'other-player', now), false)
 })
-test('锁释放只允许持有者本人，释放后其他玩家可以接管', () => {
-  seedPlayer()
+test('锁释放只允许持有者本人，释放后其他玩家可以接管', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
 
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 5, testPlayerID1), true)
@@ -58,8 +58,8 @@ test('锁释放只允许持有者本人，释放后其他玩家可以接管', ()
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 5, testPlayerID2), true)
 })
 
-test('已结算回合的操作按回合窗口裁剪，不会无限堆积', () => {
-  seedPlayer()
+test('已结算回合的操作按回合窗口裁剪，不会无限堆积', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
   const append = (turn: number, sequence = 0) => appendSimultaneousTurnOperations(
     testGameID1, testPlayerID1, [{ turn, sequence, type: 'move', playerId: testPlayerID1 }],
@@ -85,8 +85,8 @@ test('已结算回合的操作按回合窗口裁剪，不会无限堆积', () =>
   }
 })
 
-test('同一玩家重复提交同一操作是幂等的', () => {
-  seedPlayer()
+test('同一玩家重复提交同一操作是幂等的', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
   const marker = { turn: 4, sequence: 1, type: 'done', playerId: testPlayerID1 }
   const read = () => JSON.parse(getSimultaneousTurnOperations(testGameID1) ?? '[]') as Array<{
@@ -103,16 +103,16 @@ test('同一玩家重复提交同一操作是幂等的', () => {
   assert.equal(read().length, 1)
 })
 
-test('结算锁拒绝超出上限的回合号', () => {
-  seedPlayer()
+test('结算锁拒绝超出上限的回合号', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
 
   assert.equal(acquireSimultaneousTurnLock(testGameID1, maxSimultaneousTurn + 1, testPlayerID1), false)
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 5, testPlayerID1), true)
 })
 
-test('结算锁只能由持有者续期，续期后过期时间被延长', () => {
-  seedPlayer()
+test('结算锁只能由持有者续期，续期后过期时间被延长', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
   const now = Date.now()
 
@@ -129,8 +129,8 @@ test('结算锁只能由持有者续期，续期后过期时间被延长', () =>
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 7, testPlayerID2, now + 180_001), true)
 })
 
-test('续期失败时锁已过期，其他玩家仍可接管', () => {
-  seedPlayer()
+test('续期失败时锁已过期，其他玩家仍可接管', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
   const now = Date.now()
 
@@ -142,8 +142,8 @@ test('续期失败时锁已过期，其他玩家仍可接管', () => {
   assert.equal(acquireSimultaneousTurnLock(testGameID1, 8, testPlayerID1, now + 121_000), false)
 })
 
-test('单局操作总量达到上限后拒绝追加，且不影响已有数据', () => {
-  seedPlayer()
+test('单局操作总量达到上限后拒绝追加，且不影响已有数据', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
   const makeOperations = (from: number, count: number) => Array.from({ length: count }, (_, index) => ({
     turn: 0, sequence: from + index, type: 'move', playerId: testPlayerID1,
@@ -164,8 +164,8 @@ test('单局操作总量达到上限后拒绝追加，且不影响已有数据',
   assert.equal(read().length, maxSimultaneousTurnOperations)
 })
 
-test('单局操作总量超限时优先丢弃最旧回合，而不是拒绝提交', () => {
-  seedPlayer()
+test('单局操作总量超限时优先丢弃最旧回合，而不是拒绝提交', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
   const makeOperations = (turn: number, from: number, count: number) => Array.from({ length: count }, (_, index) => ({
     turn, sequence: from + index, type: 'move', playerId: testPlayerID1,
@@ -184,11 +184,11 @@ test('单局操作总量超限时优先丢弃最旧回合，而不是拒绝提�
   assert.equal(retained.every((operation) => operation.turn === 10), true)
 })
 
-test('玩家和分页查询保持 JSON 字段形状', () => {
-  seedPlayer()
+test('玩家和分页查询保持 JSON 字段形状', async () => {
+  await seedPlayer()
   const player = getPlayerByID(testPlayerID1)
   assert.equal(isHashedPassword(player?.password ?? ''), true)
-  assert.equal(verifyPassword(testPassword, player?.password ?? ''), true)
+  assert.equal(await verifyPassword(testPassword, player?.password ?? ''), true)
   assert.equal(player?.whitelist, false)
   assert.equal(player?.approved, true)
 
@@ -197,10 +197,10 @@ test('玩家和分页查询保持 JSON 字段形状', () => {
   assert.equal(page.items[0]?.playerId, testPlayerID1)
 })
 
-test('玩家列表支持按审核状态、白名单、关键词与排序筛选', () => {
-  seedPlayer(testPlayerID1)
-  createPlayer(testPlayerID2, testPassword, '127.0.0.1', false)
-  seedPlayer(testPlayerID3)
+test('玩家列表支持按审核状态、白名单、关键词与排序筛选', async () => {
+  await seedPlayer(testPlayerID1)
+  await createPlayer(testPlayerID2, testPassword, '127.0.0.1', false)
+  await seedPlayer(testPlayerID3)
   updatePlayerInfo(testPlayerID3, true, '白名单玩家')
   createGame(testGameID1, [testPlayerID1])
   // 手动拉开注册时间，保证排序断言稳定
@@ -234,8 +234,8 @@ test('玩家列表支持按审核状态、白名单、关键词与排序筛选',
   assert.deepEqual(asc.items.map((item) => item.gameCount), [1, 0, 0])
 })
 
-test('游戏和最新存档查询使用项目表结构', () => {
-  seedPlayer()
+test('游戏和最新存档查询使用项目表结构', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
   saveFileContent(testGameID1, 2, testPlayerID1, '127.0.0.1', '{"turns":2}')
 
@@ -245,8 +245,8 @@ test('游戏和最新存档查询使用项目表结构', () => {
   assert.equal(getLatestFileContent(testGameID1)?.data, '{"turns":2}')
 })
 
-test('统计和回档返回接口字段', () => {
-  seedPlayer()
+test('统计和回档返回接口字段', async () => {
+  await seedPlayer()
   createGame(testGameID1, [testPlayerID1])
   saveFileContent(testGameID1, 1, testPlayerID1, '127.0.0.1', '{"turns":1}')
   saveFilePreview(testGameID1, 1, testPlayerID1, '127.0.0.1', '{"turns":1}')

@@ -18,7 +18,7 @@ const oneHourMs = 60 * 60 * 1000
 const oneDayMs = 24 * oneHourMs
 const testConfig = { archiveEnabled: true, archiveDir: '/tmp/unciv-srv-archive-test' } as Config
 
-afterEach(() => {
+afterEach(async () => {
   runCleanupSpy.mockClear()
   cleanupExpiredSessionsSpy.mockClear()
 })

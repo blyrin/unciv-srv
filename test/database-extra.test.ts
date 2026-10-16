@@ -14,17 +14,17 @@ import {
 
 let server: TestServer
 
-beforeEach(() => {
-  server = setupTestServer()
+beforeEach(async () => {
+  server = await setupTestServer()
 })
 
-afterEach(() => {
+afterEach(async () => {
   server.close()
 })
 
-test('玩家数据库操作覆盖重复、更新、搜索和批量', () => {
-  seedPlayer(testPlayerID1)
-  assert.throws(() => createPlayer(testPlayerID1, testPassword, '127.0.0.1'))
+test('玩家数据库操作覆盖重复、更新、搜索和批量', async () => {
+  await seedPlayer(testPlayerID1)
+  await assert.rejects(() => createPlayer(testPlayerID1, testPassword, '127.0.0.1'))
   const timeTypes = getDB().query(`
     select typeof(created_at) as created_type,
            typeof(updated_at) as updated_type
@@ -34,9 +34,9 @@ test('玩家数据库操作覆盖重复、更新、搜索和批量', () => {
   assert.equal(timeTypes.created_type, 'integer')
   assert.equal(timeTypes.updated_type, 'integer')
 
-  updatePlayerPassword(testPlayerID1, 'newpass123', '10.0.0.1')
-  assert.equal(verifyPassword('newpass123', getPlayerPassword(testPlayerID1)), true)
-  assert.equal(verifyPassword('newpass124', getPlayerPassword(testPlayerID1)), false)
+  await updatePlayerPassword(testPlayerID1, 'newpass123', '10.0.0.1')
+  assert.equal(await verifyPassword('newpass123', getPlayerPassword(testPlayerID1)), true)
+  assert.equal(await verifyPassword('newpass124', getPlayerPassword(testPlayerID1)), false)
   updatePlayerInfo(testPlayerID1, true, 'keyword-remark')
   updatePlayerLastActive(testPlayerID1, '10.0.0.2')
   const player = getPlayerByID(testPlayerID1)
@@ -46,15 +46,15 @@ test('玩家数据库操作覆盖重复、更新、搜索和批量', () => {
   assert.equal(player?.remark, 'keyword-remark')
   assert.equal(player?.updateIp, '10.0.0.2')
 
-  seedPlayer(testPlayerID2)
+  await seedPlayer(testPlayerID2)
   batchUpdatePlayersWhitelist([testPlayerID1, testPlayerID2], false)
   assert.equal(getPlayerByID(testPlayerID1)?.whitelist, false)
   assert.equal(getPlayerByID(testPlayerID2)?.whitelist, false)
 })
 
-test('游戏数据库操作覆盖参与者、创建者、分页和级联删除', () => {
-  seedPlayer(testPlayerID1)
-  seedPlayer(testPlayerID2)
+test('游戏数据库操作覆盖参与者、创建者、分页和级联删除', async () => {
+  await seedPlayer(testPlayerID1)
+  await seedPlayer(testPlayerID2)
   createGame(testGameID1, [testPlayerID1])
   updateGamePlayers(testGameID1, [testPlayerID1, testPlayerID2])
   updateGameInfo(testGameID1, true, 'game-keyword')
@@ -72,8 +72,8 @@ test('游戏数据库操作覆盖参与者、创建者、分页和级联删除',
   assert.equal(getLatestFileContent(testGameID1), null)
 })
 
-test('文件数据库操作覆盖最新记录、元数据、单回合和预览', () => {
-  seedPlayer(testPlayerID1)
+test('文件数据库操作覆盖最新记录、元数据、单回合和预览', async () => {
+  await seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
   saveFileContent(testGameID1, 1, testPlayerID1, '127.0.0.1', '{"turns":1}')
   saveFileContent(testGameID1, 3, testPlayerID1, '127.0.0.1', '{"turns":3}')
@@ -87,8 +87,8 @@ test('文件数据库操作覆盖最新记录、元数据、单回合和预览',
   assert.equal(getTurnByID(turns[0]!.id)?.turns, 1)
 })
 
-test('回档目标不存在或缺少预览时返回约定结果', () => {
-  seedPlayer(testPlayerID1)
+test('回档目标不存在或缺少预览时返回约定结果', async () => {
+  await seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
   saveFileContent(testGameID1, 1, testPlayerID1, '127.0.0.1', '{"turns":1}')
   const turnId = getTurnsMetadata(testGameID1)[0]!.id
@@ -97,8 +97,8 @@ test('回档目标不存在或缺少预览时返回约定结果', () => {
   assert.throws(() => rollbackGameToTurn(testGameID1, turnId), /未找到对应预览记录/)
 })
 
-test('回档使用最早匹配预览，同时间记录按 ID 判断', () => {
-  seedPlayer(testPlayerID1)
+test('回档使用最早匹配预览，同时间记录按 ID 判断', async () => {
+  await seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
   const conn = getDB()
   const earlyTime = Date.UTC(2026, 0, 1)
@@ -131,8 +131,8 @@ test('回档使用最早匹配预览，同时间记录按 ID 判断', () => {
   assert.deepEqual(result, { deletedTurns: 2, deletedPreviews: 2, currentTurns: 1 })
 })
 
-test('清理任务删除空对局并只保留最新存档和预览', () => {
-  seedPlayer(testPlayerID1)
+test('清理任务删除空对局并只保留最新存档和预览', async () => {
+  await seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
   const conn = getDB()
   const expiredTime = Date.now() - 121 * 24 * 60 * 60 * 1000
@@ -164,8 +164,8 @@ test('清理任务删除空对局并只保留最新存档和预览', () => {
   assert.equal(getAllTurnsForGame(testGameID1).length, 1)
 })
 
-test('过期 IP 按保留天数清理', () => {
-  seedPlayer(testPlayerID1)
+test('过期 IP 按保留天数清理', async () => {
+  await seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
   saveFileContent(testGameID1, 1, testPlayerID1, '10.0.0.1', '{"turns":1}')
   updatePlayerLastActive(testPlayerID1, '10.0.0.1')
@@ -187,10 +187,10 @@ test('过期 IP 按保留天数清理', () => {
   assert.deepEqual(clearExpiredIPs(0), { players: 0, files: 0 })
 })
 
-test('匿名化策略只把网段写入数据库', () => {
-  const masked = setupTestServer({ ipStorage: 'anonymized' })
+test('匿名化策略只把网段写入数据库', async () => {
+  const masked = await setupTestServer({ ipStorage: 'anonymized' })
   try {
-    seedPlayer(testPlayerID1)
+    await seedPlayer(testPlayerID1)
     updatePlayerLastActive(testPlayerID1, '1.2.3.4')
     assert.equal(getPlayerByID(testPlayerID1)?.createIp, '127.0.0.0')
     assert.equal(getPlayerByID(testPlayerID1)?.updateIp, '1.2.3.0')
@@ -199,14 +199,14 @@ test('匿名化策略只把网段写入数据库', () => {
   }
 })
 
-test('批量删除空列表保持空操作', () => {
+test('批量删除空列表保持空操作', async () => {
   batchDeleteGames([])
   batchUpdateGamesWhitelist([], true)
   batchUpdatePlayersWhitelist([], true)
   assert.equal(getGameByID(testGameID1), null)
 })
 
-test('缺失审核字段的历史账号一律按未审核处理', () => {
+test('缺失审核字段的历史账号一律按未审核处理', async () => {
   const conn = getDB()
   // 迁移 000004 以 0 回填历史数据，缺列写入也必须落到未审核
   const column = conn.query("select dflt_value from pragma_table_info('players') where name = 'approved'").get() as {
@@ -215,7 +215,7 @@ test('缺失审核字段的历史账号一律按未审核处理', () => {
   assert.equal(column?.dflt_value, '0')
 
   conn.query('insert into players (player_id, password, created_at, updated_at) values (?, ?, ?, ?)')
-    .run(testPlayerID2, hashPassword(testPassword), Date.now(), Date.now())
+    .run(testPlayerID2, await hashPassword(testPassword), Date.now(), Date.now())
   assert.equal(getPlayerByID(testPlayerID2)?.approved, false)
   assert.equal(getPlayerByID(testPlayerID2)?.whitelist, false)
 })

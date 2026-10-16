@@ -15,7 +15,7 @@ const cleanupFlag = '--cleanup'
  * 归档恢复入口：bun dist/main.js --restore-archive <归档文件> [对局ID]。
  * 命中时恢复归档并返回 true，不启动服务器。
  */
-function restoreArchiveFromCommandLine(): boolean {
+async function restoreArchiveFromCommandLine(): Promise<boolean> {
   const index = argv.indexOf(restoreFlag)
   if (index < 0) {
     return false
@@ -30,7 +30,7 @@ function restoreArchiveFromCommandLine(): boolean {
 
   loadEnvFile()
   const config = loadConfig()
-  initDatabase(config)
+  await initDatabase(config)
   const archived = restoreArchivedGames(file, gameId)
   console.info('归档恢复完成', {
     games: archived.length,
@@ -43,14 +43,14 @@ function restoreArchiveFromCommandLine(): boolean {
 /**
  * 手动清理入口：bun dist/main.js --cleanup，等价于定时任务那次数据清理。
  */
-function runCleanupFromCommandLine(): boolean {
+async function runCleanupFromCommandLine(): Promise<boolean> {
   if (!argv.includes(cleanupFlag)) {
     return false
   }
 
   loadEnvFile()
   const config = loadConfig()
-  initDatabase(config)
+  await initDatabase(config)
   runCleanup(config.archiveEnabled, config.archiveDir, config.archiveMaxBytes)
   closeDatabase()
   return true
@@ -59,8 +59,8 @@ function runCleanupFromCommandLine(): boolean {
 /**
  * 启动 HTTP、WebSocket、数据库和定时任务。
  */
-function main(): void {
-  if (restoreArchiveFromCommandLine() || runCleanupFromCommandLine()) {
+async function main(): Promise<void> {
+  if ((await restoreArchiveFromCommandLine()) || (await runCleanupFromCommandLine())) {
     return
   }
 
@@ -69,7 +69,7 @@ function main(): void {
   console.info('Unciv Srv - https://github.com/blyrin/unciv-srv')
 
   console.info('连接数据库...')
-  initDatabase(config)
+  await initDatabase(config)
 
   const limiter = new RateLimiter(config.maxAttempts, config.lockTime)
   const scheduler = startScheduler(config)
@@ -100,4 +100,4 @@ function main(): void {
   process.on('SIGTERM', shutdown)
 }
 
-main()
+await main()

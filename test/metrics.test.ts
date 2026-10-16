@@ -7,12 +7,12 @@ import { setupTestServer, type TestServer } from './helpers/server.js'
 
 let server: TestServer
 
-beforeEach(() => {
+beforeEach(async () => {
   resetMetrics()
-  server = setupTestServer()
+  server = await setupTestServer()
 })
 
-afterEach(() => {
+afterEach(async () => {
   server.close()
 })
 

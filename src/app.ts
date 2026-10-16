@@ -15,11 +15,10 @@ import {
   clearSessionCookieHeader, createSession, deleteSession, getSession, parseCookie, sessionCookieHeader,
   sessionCookieName,
 } from './session.js'
-import { projectRoot } from './paths.js'
 import {
   createArchive, decodeGameFile, encodeFile, errorResponse, fileResponse, getBaseGameID, getClientIP,
   getPlayerIDsFromParsedGameData, HttpError, jsonResponse, maxJsonBodySize, maxTextBodySize, maxTurnOperationsSize,
-  parseBasicAuthCredentials, readLimitedText, successResponse, textResponse,
+  parseBasicAuthCredentials, projectRoot, readLimitedText, successResponse, textResponse,
 } from './utils.js'
 import {
   batchDeleteGames, batchUpdateGamesWhitelist, batchUpdatePlayersApproval, batchUpdatePlayersWhitelist,
@@ -34,6 +33,9 @@ import type { ChatWebSocket, PeerData } from './chat.js'
 import { createDownloadsRoutes } from './downloads.js'
 
 const healthCheckResponse = '{"authVersion":1,"chatVersion":1}'
+
+/** 管理后台是单页应用，启动时读一次即可，避免每个请求都同步读盘 */
+const indexPageHtml = fs.readFileSync(path.join(projectRoot, 'public/index.html'), 'utf8')
 
 /**
  * 解析分页查询参数。
@@ -113,8 +115,7 @@ function checkGameCreatorAccess(ctx: RequestContext, gameId: string, forbiddenMe
  * 返回 Web 管理页面。
  */
 function indexPageResponse(): Response {
-  const html = fs.readFileSync(path.join(projectRoot, 'public/index.html'), 'utf8')
-  return new Response(html, {
+  return new Response(indexPageHtml, {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
@@ -133,10 +134,10 @@ function isChatUpgrade(request: Request): boolean {
 /**
  * /chat 的 HTTP 探测：客户端先用普通请求验证凭证，通过后才升级 WebSocket。
  */
-function chatProbeResponse(request: Request): Response {
+async function chatProbeResponse(request: Request): Promise<Response> {
   try {
     const credentials = parseBasicAuthCredentials(request.headers.get('Authorization'))
-    const result = authenticatePlayer(credentials.playerId, credentials.password)
+    const result = await authenticatePlayer(credentials.playerId, credentials.password)
     if (result.type === 'ok') {
       return new Response('Bad Request\n', { status: 400 })
     }
@@ -190,7 +191,7 @@ export function createApp(config: Config, limiter: RateLimiter, chat?: ChatWebSo
         if (newPassword.length < 6) {
           return errorResponse(400, '密码至少6位')
         }
-        updatePlayerPassword(playerId, newPassword, getClientIP(ctx.req, ctx.remoteAddress))
+        await updatePlayerPassword(playerId, newPassword, getClientIP(ctx.req, ctx.remoteAddress))
         return successResponse()
       }),
     },
@@ -354,7 +355,7 @@ export function createApp(config: Config, limiter: RateLimiter, chat?: ChatWebSo
 
         let playerAuth: PlayerAuthResult = { type: 'invalid' }
         try {
-          playerAuth = authenticatePlayer(username, password)
+          playerAuth = await authenticatePlayer(username, password)
         } catch {
           // 用户名不是合法的玩家ID格式时按认证失败处理
         }
@@ -484,7 +485,7 @@ export function createApp(config: Config, limiter: RateLimiter, chat?: ChatWebSo
         if (!req.password || req.password.length < 6) {
           return errorResponse(400, '密码至少6位')
         }
-        updatePlayerPassword(playerId, req.password, getClientIP(ctx.req, ctx.remoteAddress))
+        await updatePlayerPassword(playerId, req.password, getClientIP(ctx.req, ctx.remoteAddress))
         return successResponse()
       }),
     },
@@ -587,10 +588,10 @@ export function createApp(config: Config, limiter: RateLimiter, chat?: ChatWebSo
           return errorResponse(400, '新密码至少6位')
         }
         const stored = getPlayerPassword(userId)
-        if (stored === '' || !verifyPasswordCached(userId, req.oldPassword ?? '', stored)) {
+        if (stored === '' || !(await verifyPasswordCached(userId, req.oldPassword ?? '', stored))) {
           return errorResponse(400, '旧密码错误')
         }
-        updatePlayerPassword(userId, req.newPassword, getClientIP(ctx.req, ctx.remoteAddress))
+        await updatePlayerPassword(userId, req.newPassword, getClientIP(ctx.req, ctx.remoteAddress))
         return successResponse()
       }),
     },
@@ -610,7 +611,7 @@ export function createApp(config: Config, limiter: RateLimiter, chat?: ChatWebSo
         if (!contents.length) {
           return errorResponse(404, '没有存档数据')
         }
-        const archive = await createArchive(
+        const archive = createArchive(
           contents.map((content) => ({
             name: `turn_${content.turns}_${content.createdAt}.json`,
             data: content.data,
@@ -688,7 +689,7 @@ export function createApp(config: Config, limiter: RateLimiter, chat?: ChatWebSo
     routes,
     fetch: async (request, server) => {
       if (chat && isChatUpgrade(request)) {
-        return chat.upgrade(request, server)
+        return await chat.upgrade(request, server)
       }
       recordHttpRequest()
       if (new URL(request.url).pathname === '/chat') {

@@ -6,12 +6,12 @@ import {
 } from '../src/privacy.js'
 
 // Bun 的测试共享同一进程内的模块状态，先复位再断言默认值
-beforeEach(() => {
+beforeEach(async () => {
   setIPStorageMode(defaultIPStorageMode)
   setIPRetentionDays(defaultIPRetentionDays)
 })
 
-afterEach(() => {
+afterEach(async () => {
   setIPStorageMode(defaultIPStorageMode)
   setIPRetentionDays(defaultIPRetentionDays)
 })

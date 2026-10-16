@@ -1,5 +1,5 @@
 # ---------- 构建阶段：类型检查并打包 ----------
-FROM oven/bun:1.4 AS build
+FROM oven/bun:1.4-slim AS build
 
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -11,17 +11,16 @@ COPY test ./test
 RUN bun run typecheck && bun run build
 
 # ---------- 运行阶段：只保留构建产物与运行所需文件 ----------
-FROM oven/bun:1.4 AS runtime
+FROM oven/bun:1.4-slim AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=11451 \
     DB_PATH=/data/unciv-srv.db
 
-# zip 用于管理后台打包历史存档下载
 # curl 用于健康检查
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends zip curl && \
+    apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
 
 # 以非 root 用户运行

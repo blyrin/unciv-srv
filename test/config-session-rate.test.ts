@@ -16,7 +16,7 @@ const configEnvKeys = [
 ] as const
 const oneMinuteMs = 60 * 1000
 
-afterEach(() => {
+afterEach(async () => {
   process.env = { ...savedEnv }
   resetSessions()
 })

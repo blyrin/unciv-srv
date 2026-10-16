@@ -174,13 +174,13 @@ export type PlayerAuthResult =
 /**
  * 验证已存在玩家的凭证，并检查账号是否通过审核。
  */
-export function authenticatePlayer(playerId: string, password: string): PlayerAuthResult {
+export async function authenticatePlayer(playerId: string, password: string): Promise<PlayerAuthResult> {
   if (!validatePlayerID(playerId)) {
     throw new Error('无效的玩家ID格式')
   }
   const player = getPlayerByID(playerId)
   const stored = player?.password
-  if (player == null || stored == null || !verifyPasswordCached(playerId, password, stored)) {
+  if (player == null || stored == null || !(await verifyPasswordCached(playerId, password, stored))) {
     return { type: 'invalid' }
   }
   if (!player.approved) {
@@ -212,12 +212,12 @@ function basicAuth(registerMode: RegisterMode | null): Middleware {
         return errorResponse(401, '玩家不存在，本服务器不开放自助注册')
       }
       const approved = registerMode !== 'approval'
-      createPlayer(credentials.playerId, credentials.password, ip, approved)
+      await createPlayer(credentials.playerId, credentials.password, ip, approved)
       if (!approved) {
         return errorResponse(403, pendingApprovalMessage)
       }
     } else {
-      const result = authenticatePlayer(credentials.playerId, credentials.password)
+      const result = await authenticatePlayer(credentials.playerId, credentials.password)
       if (result.type === 'invalid') {
         return errorResponse(401, '密码错误')
       }

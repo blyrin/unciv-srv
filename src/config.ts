@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import { projectRoot, resolveRepoPath } from './paths.js'
+import { projectRoot, resolveRepoPath } from './utils.js'
 import { defaultIPStorageMode } from './privacy.js'
 import type { Config } from './types.js'
 

@@ -33,7 +33,7 @@ export interface TestServer {
   close: () => void
 }
 
-export function setupTestServer(overrides: Partial<Config> = {}): TestServer {
+export async function setupTestServer(overrides: Partial<Config> = {}): Promise<TestServer> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unciv-srv-test-'))
   const config: Config = {
     port: '0',
@@ -56,7 +56,7 @@ export function setupTestServer(overrides: Partial<Config> = {}): TestServer {
 
   resetSessions()
   resetChatState()
-  initDatabase(config)
+  await initDatabase(config)
   const limiter = new RateLimiter(config.maxAttempts, config.lockTime)
   const chat = createChatWebSocket(config)
   const app = createApp(config, limiter, chat)
@@ -103,12 +103,12 @@ export function buildGameData(gameId: string, turns: number, playerIds: string[]
   return gzipSync(new TextEncoder().encode(data)).toBase64()
 }
 
-export function seedPlayer(playerId = testPlayerID1, password = testPassword): void {
-  createPlayer(playerId, password, '127.0.0.1')
+export async function seedPlayer(playerId = testPlayerID1, password = testPassword): Promise<void> {
+  await createPlayer(playerId, password, '127.0.0.1')
 }
 
-export function seedGameWithContent(): void {
-  seedPlayer(testPlayerID1)
+export async function seedGameWithContent(): Promise<void> {
+  await seedPlayer(testPlayerID1)
   createGame(testGameID1, [testPlayerID1])
   const data = JSON.stringify({ gameId: testGameID1, turns: 1 })
   saveFileContent(testGameID1, 1, testPlayerID1, '127.0.0.1', data)
